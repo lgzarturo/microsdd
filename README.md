@@ -2,9 +2,28 @@
 
 > **Propósito:** código mínimo, correcto, verificable y trazable. Claude Code orquesta nativamente. No hay SDK, servidor, base de datos ni dependencia de Python aparte de la biblioteca estándar.
 
-## 1. Instalación en un repositorio de prueba
+## 1. Requisitos mínimos
 
-Copia **el contenido** de esta carpeta a la raíz de un repositorio Git existente (no copies una carpeta `microsdd-opus55/` dentro del proyecto). Revisa conflictos con `.claude/settings.json`, `CLAUDE.md` y otras reglas. Se recomienda un repositorio de prueba o una rama nueva con working tree limpio. Requiere Claude Code compatible con `agent` predeterminado, frontmatter `effort` y `PreToolUse` (ver docs oficiales), Python 3.10+ disponible como `python3` y Git. En Windows, si Python está instalado solo como `py -3`, adapta comandos y hook de settings.
+| Requisito | Versión | Para qué |
+|---|---|---|
+| **Python 3** (obligatorio) | 3.10+ disponible como `python3` | Ejecuta `.microharness/sdd.py`, que valida y da seguimiento a la máquina de estados (`pendiente` → `proceso` → `terminado`), las aprobaciones, huellas SHA-256 y la puerta de pruebas; también ejecuta el hook `.claude/hooks/pretool.py` que limita herramientas por agente. |
+| Git | cualquiera reciente | `check` usa el diff para validar el alcance y la huella de revisión. |
+| Claude Code | compatible con `agent` predeterminado, frontmatter `effort` y `PreToolUse` | Orquesta los agentes (ver docs oficiales). |
+
+**Sin Python 3 el arnés no puede controlar el flujo:** no hay validación de transiciones de estado, ni registro de aprobaciones, ni puerta de pruebas, ni bloqueo previo de herramientas; las reglas en Markdown quedan como simples instrucciones. Solo se usa la biblioteca estándar, no hay que instalar paquetes.
+
+Comprobación rápida:
+
+```bash
+python3 --version                      # debe mostrar 3.10 o superior
+python3 .microharness/sdd.py --help    # debe listar los comandos del arnés
+```
+
+En Windows, si Python está instalado solo como `py -3`, crea el alias `python3` o adapta los comandos y el hook de `.claude/settings.json`.
+
+## 2. Instalación en un repositorio de prueba
+
+Copia **el contenido** de esta carpeta a la raíz de un repositorio Git existente (no copies una carpeta `microsdd-opus55/` dentro del proyecto). Revisa conflictos con `.claude/settings.json`, `CLAUDE.md` y otras reglas. Se recomienda un repositorio de prueba o una rama nueva con working tree limpio. Verifica antes los [requisitos mínimos](#1-requisitos-mínimos); Python 3 es indispensable.
 
 ```bash
 python3 .microharness/sdd.py init
@@ -16,7 +35,7 @@ claude --agent lider --model claude-opus-5-5 --effort medium
 
 > No es un paquete listo para publicar ni un sistema de agentes remoto. No se ha ejecutado Claude Code en este entorno; las comprobaciones realizadas son las pruebas locales del script.
 
-## 2. Archivos y responsabilidades
+## 3. Archivos y responsabilidades
 
 ```text
 CLAUDE.md                    # Entrada corta al contexto común
@@ -46,7 +65,7 @@ tests/test_sdd.py            # Pruebas unitarias del controlador
 
 Los cuatro documentos generales nacen con **pendientes explícitos**, no con datos inventados. El líder los completa al inspeccionar el proyecto y solo los actualiza ante nuevos hechos. La memoria JSON registra aprobaciones declaradas, sellos de tests y revisiones; las especificaciones son contratos separados y versionados. No se usa memoria privada del subagente (`memory:`).
 
-## 3. Flujo y máquina de estados
+## 4. Flujo y máquina de estados
 
 ```text
 Programador -> LÍDER -> AUTOR -> spec/...
@@ -73,7 +92,7 @@ Programador -> LÍDER -> AUTOR -> spec/...
 
 **Importante:** ejecutar `approve` registra una *declaración* de aprobación. El script no autentica al usuario ni puede demostrar que la aprobación fue emitida por un humano. En esta versión la aprobación válida sigue siendo la respuesta expresa del programador. El líder no debe inventarla. Para políticas de seguridad fuertes se necesita control externo de identidad, reglas Git y CI.
 
-## 4. Ciclo operativo por tarea
+## 5. Ciclo operativo por tarea
 
 Comandos ilustrativos; ejecutarlos desde la raíz del repositorio. Sustituye el slug y ajusta specs:
 
@@ -120,7 +139,7 @@ python3 .microharness/sdd.py review corregir-sesion RECHAZADO \
 
 El implementador trabaja de nuevo desde el motivo concreto del revisor. Si cambia `requerimientos.md`, `diseño.md`, `tareas.md` o metadata de `spec.json` ya aprobada, el fingerprint invalida la aprobación anterior. Si cambia código después del dictamen `APROBADO`, la huella del diff también exige nueva revisión antes del cierre. Para reaprobar, el humano revisa nuevamente y se ejecuta `approve ... spec`. No deben usarse cambios silenciosos del contrato.
 
-## 5. `spec.json`: contrato mínimo
+## 6. `spec.json`: contrato mínimo
 
 El comando `new` genera un ejemplo completo y editable con estos campos relevantes:
 
@@ -168,7 +187,7 @@ El comando `new` genera un ejemplo completo y editable con estos campos relevant
 - **Mutation testing:** activar en un módulo de lógica crítica y con herramienta disponible, nunca como requisito indiscriminado. Revisar mutantes supervivientes relevantes y equivalentes; no convertir la cifra de mutation score en objetivo absoluto. `check --run` ejecuta también `mutation.command` si `enabled=true`.
 - **SHA-256:** `seal` guarda hash por archivo en memoria. `check` detecta cambios. Protege principalmente de deriva accidental de pruebas de aceptación. No aporta inmutabilidad real frente a quien pueda modificar tests, memoria y Git. Para reforzarlo: guardar hash y test en commit previo, CI con verificación, revisión/branch protection.
 
-## 6. Qué se obliga y qué NO
+## 7. Qué se obliga y qué NO
 
 | Control | Capa | Alcance real |
 |---|---|---|
@@ -184,13 +203,13 @@ El comando `new` genera un ejemplo completo y editable con estos campos relevant
 
 El hook necesita confianza del workspace y Python 3 para estar activo. Si no se ejecuta, permanecen los controles de revisión y checker pero se pierde el bloqueo previo a herramientas. No usar `bypassPermissions` para simular una seguridad inexistente.
 
-## 7. Evaluación del MVP
+## 8. Evaluación del MVP
 
 Prueba primero con 3 tareas reales de distinto perfil: **corrección localizada**, **funcionalidad de una sola regla**, y **refactor pequeño sin cambio de comportamiento**. Registra por tarea: cambios de líneas, archivos afectados, porcentaje de AC cumplidos, defectos encontrados por revisor y humano, ciclos de rechazo, tiempo/costo y eventual regresión. Compara con las mismas tareas realizadas con Claude Code sin arnés. El arnés se justifica solo si mejora calidad y control con sobrecarga aceptable.
 
 No agregues más agentes, estado ni pasos hasta observar fallas repetibles.
 
-## 8. Fuentes
+## 9. Fuentes
 
 - Guía proporcionada `prompting-opus-5-5-2026-10-11.md` (prompting, esfuerzo, progreso, guardas, exploración).
 - https://platform.claude.com/docs/es/build-with-claude/prompt-engineering/prompting-claude-opus-5-5
