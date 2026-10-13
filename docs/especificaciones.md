@@ -32,3 +32,4 @@ Cada tarea va en `spec/<slug>/` con exactamente cuatro documentos: `requerimient
 | `check-min-pruebas` | terminado | `check --run` exige al menos `testing.min_tests` pruebas detectadas por comando (unittest, pytest, bun, Maven, Go); tareas cerradas exentas. |
 | `lista-blanca-runners` | terminado | `testing.commands`/`mutation.command` solo con runners conocidos (ampliable con `project.allowed_test_commands`); tareas cerradas exentas. |
 | `modelo-configurable` | terminado | Modelo y esfuerzo por defecto en `.microharness/config.json` (opcional); `check` compara `spec.model` con él salvo en tareas cerradas; protocolo de mini-eval en `assets/eval-esfuerzo.md` (no ejecutado). |
+| `renombrar-docs` | terminado | Los documentos de convenciones e índice de especificaciones pasan a `docs/convenciones.md` y `docs/especificaciones.md`; `init`, `limpiar_arnes` e instalador aceptan los nombres antiguos y avisan cómo migrar sin mover archivos. |

@@ -18,7 +18,9 @@ from pathlib import Path, PurePosixPath
 
 ROOT = Path(__file__).resolve().parent.parent
 MEMORY = ROOT / '.microharness' / 'memory.json'
-DOCS = ('AGENT.md', 'arquitectura.md', 'convensiones.md', 'specificaciones.md')
+DOCS = ('AGENT.md', 'arquitectura.md', 'convenciones.md', 'especificaciones.md')
+# Nombres antiguos (compatibilidad): init avisa y no duplica ni mueve archivos del usuario.
+LEGACY_DOCS = {'convenciones.md': 'convensiones.md', 'especificaciones.md': 'specificaciones.md'}
 TASK_FILES = ('spec.json', 'requerimientos.md', 'plan.md', 'tareas.md')
 STATES = ('pendiente', 'proceso', 'terminado')
 SLUG_RE = re.compile(r'^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$')
@@ -168,7 +170,15 @@ def ensure_init() -> None:
     (ROOT / 'spec').mkdir(exist_ok=True)
     for doc in DOCS:
         p = ROOT / 'docs' / doc
-        if not p.exists():
+        old = LEGACY_DOCS.get(doc)
+        if old and (ROOT / 'docs' / old).exists():
+            if p.exists():
+                print(f'AVISO: existen docs/{old} y docs/{doc}; fusiona el contenido en docs/{doc} '
+                      f'y elimina docs/{old}')
+            else:
+                print(f'AVISO: docs/{old} usa el nombre antiguo; no se crea docs/{doc}. '
+                      f'Migra con: git mv docs/{old} docs/{doc}')
+        elif not p.exists():
             p.write_text(f'# {doc.removesuffix(".md")}\n\nPendiente de inspección.\n', encoding='utf-8')
     if not MEMORY.exists():
         dump(MEMORY, {'schema_version': 1, 'project': {'observations': [], 'decisions': []}, 'tasks': {}})

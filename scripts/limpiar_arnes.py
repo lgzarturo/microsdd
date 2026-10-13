@@ -21,7 +21,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-DOCS = ('AGENT.md', 'arquitectura.md', 'convensiones.md', 'specificaciones.md')
+DOCS = ('AGENT.md', 'arquitectura.md', 'convenciones.md', 'especificaciones.md')
+LEGACY_DOCS = ('convensiones.md', 'specificaciones.md')  # nombres antiguos aceptados al archivar
 VERSION_RE = re.compile(r'(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?')
 GIT_ENV = {k: v for k, v in os.environ.items() if k not in ('GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE')}
 
@@ -93,7 +94,7 @@ def validate(root: Path, version: str) -> list[tuple[Path, Path]]:
     if links:
         raise Abort('Enlace simbólico en las rutas a archivar: ' + ', '.join(str(p) for p in links))
     doc_entries = sorted(docs.iterdir()) if docs.is_dir() else []
-    unknown = [p.name for p in doc_entries if p.name not in DOCS]
+    unknown = [p.name for p in doc_entries if p.name not in DOCS + LEGACY_DOCS]
     if unknown:
         raise Abort('docs/ contiene entradas desconocidas: ' + ', '.join(unknown))
     links = [p for p in doc_entries if p.is_symlink()]

@@ -1478,5 +1478,77 @@ class MemoryAtomicLockTests(unittest.TestCase):
         self.assertEqual(code, expected, err)
 
 
+class InitDocsTests(unittest.TestCase):
+    NEW = ['AGENT.md', 'arquitectura.md', 'convenciones.md', 'especificaciones.md']
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.old_root, self.old_memory = sdd.ROOT, sdd.MEMORY
+        self.addCleanup(self.restore)
+        sdd.ROOT = Path(temporary.name)
+        sdd.MEMORY = sdd.ROOT / '.microharness' / 'memory.json'
+        self.docs = sdd.ROOT / 'docs'
+
+    def restore(self):
+        sdd.ROOT, sdd.MEMORY = self.old_root, self.old_memory
+
+    def init(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            sdd.ensure_init()
+        return out.getvalue()
+
+    def snapshot(self):
+        return {p.name: p.read_bytes() for p in self.docs.iterdir()}
+
+    def warnings(self, out):
+        return [line for line in out.splitlines() if line.startswith('AVISO:')]
+
+    def test_empty_creates_new_names(self):
+        # AC-01 y AC-04.
+        out = self.init()
+        self.assertEqual(sorted(self.snapshot()), self.NEW)
+        self.assertEqual(self.warnings(out), [])
+        before = self.snapshot()
+        self.init()
+        self.assertEqual(self.snapshot(), before)
+
+    def test_legacy_names_warn_without_creating(self):
+        # AC-02 y AC-04.
+        self.docs.mkdir()
+        (self.docs / 'convensiones.md').write_bytes(b'propio\r\nconv\n')
+        (self.docs / 'specificaciones.md').write_bytes(b'\xc3\xadndice propio\n')
+        legacy = self.snapshot()
+        out = self.init()
+        after = self.snapshot()
+        self.assertEqual(sorted(after), ['AGENT.md', 'arquitectura.md', 'convensiones.md', 'specificaciones.md'])
+        self.assertEqual({k: after[k] for k in legacy}, legacy)
+        warnings = self.warnings(out)
+        self.assertEqual(len(warnings), 2)
+        self.assertIn('git mv docs/convensiones.md docs/convenciones.md', warnings[0])
+        self.assertIn('git mv docs/specificaciones.md docs/especificaciones.md', warnings[1])
+        self.init()
+        self.assertEqual(self.snapshot(), after)
+        with mock.patch.object(sys, 'argv', ['sdd.py', 'init']), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(sdd.main(), 0)
+        self.assertEqual(self.snapshot(), after)
+
+    def test_legacy_and_new_warn_without_changes(self):
+        # AC-03.
+        self.docs.mkdir()
+        (self.docs / 'convensiones.md').write_bytes(b'antiguo\n')
+        (self.docs / 'convenciones.md').write_bytes(b'nuevo\n')
+        before = self.snapshot()
+        out = self.init()
+        after = self.snapshot()
+        self.assertEqual({k: after[k] for k in before}, before)
+        self.assertNotIn('specificaciones.md', after)
+        warnings = self.warnings(out)
+        self.assertEqual(len(warnings), 1)
+        self.assertIn('docs/convensiones.md', warnings[0])
+        self.assertIn('docs/convenciones.md', warnings[0])
+
+
 if __name__ == '__main__':
     unittest.main()

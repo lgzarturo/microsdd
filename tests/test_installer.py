@@ -93,12 +93,25 @@ class InstallerTests(unittest.TestCase):
         self.assertIn(b'<!-- microsdd:end -->', claude)
         self.assertIn(b'@CLAUDE.microsdd.md', claude)
         docs = sorted(p.name for p in (self.repo / 'docs').iterdir())
-        self.assertEqual(docs, ['AGENT.md', 'arquitectura.md', 'convensiones.md', 'specificaciones.md'])
+        self.assertEqual(docs, ['AGENT.md', 'arquitectura.md', 'convenciones.md', 'especificaciones.md'])
         self.assertTrue((self.repo / 'spec').is_dir())
         self.assertTrue((self.repo / '.microharness' / 'memory.json').is_file())
         self.assertIn('git add ', output)
+        self.assertIn('docs/convenciones.md docs/especificaciones.md', output)
         self.assertNotIn('git add .\n', output)
         self.assertIn('CLAUDE.microsdd.md', output)
+
+    # AC-07 de renombrar-docs
+    def test_legacy_doc_name_is_kept_and_warned(self):
+        (self.repo / 'docs').mkdir()
+        (self.repo / 'docs' / 'convensiones.md').write_bytes(b'# propio\n')
+        code, output = self.run_install(self.repo)
+        self.assertEqual(code, 0, output)
+        self.assertFalse((self.repo / 'docs' / 'convenciones.md').exists())
+        self.assertEqual((self.repo / 'docs' / 'convensiones.md').read_bytes(), b'# propio\n')
+        warning = [line for line in output.splitlines()
+                   if line.startswith('AVISO:') and 'git mv docs/convensiones.md docs/convenciones.md' in line]
+        self.assertEqual(len(warning), 1, output)
 
     # AC-02
     def test_second_run_is_idempotent(self):

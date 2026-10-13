@@ -1472,6 +1472,53 @@
           "by": "Programador"
         }
       ]
+    },
+    "renombrar-docs": {
+      "approvals": {
+        "spec": {
+          "by": "Programador",
+          "evidence": "Autorización global del programador 2026-10-13 (incluye explícitamente renombrar archivos); D1-D5 según recomendación del autor; D4: edición de CLAUDE.md por Bash cubierta por la misma autorización",
+          "at": "2026-10-13T07:37:16+00:00",
+          "fingerprint": "30777564ee538bdbe2601c9f384fac94b10decf90b5c3f31cdf5018c88712aef"
+        },
+        "close": {
+          "by": "Programador",
+          "evidence": "Autorización global del programador en sesión 2026-10-13 para cerrar y commitear las tareas de la serie sin aprobación por paso",
+          "at": "2026-10-13T07:43:31+00:00"
+        }
+      },
+      "sealed_tests": {},
+      "review": "APROBADO",
+      "review_fingerprint": "f9482b7272fd01b51125c31f56ed73969f3e46585e835ad4be7a58d22ed1b026",
+      "iterations": 2,
+      "events": [
+        {
+          "at": "2026-10-13T07:33:24+00:00",
+          "event": "creada"
+        },
+        {
+          "at": "2026-10-13T07:37:16+00:00",
+          "event": "aprobación_spec",
+          "by": "Programador"
+        },
+        {
+          "at": "2026-10-13T07:42:30+00:00",
+          "event": "revisión",
+          "verdict": "RECHAZADO",
+          "evidence": "Revisor 2026-10-13: docs/especificaciones.md:35 (fila del índice añadida por el líder en T11) contiene los nombres antiguos y viola AC-10/REQ-09; resto de AC cumplidos."
+        },
+        {
+          "at": "2026-10-13T07:43:23+00:00",
+          "event": "revisión",
+          "verdict": "APROBADO",
+          "evidence": "Revisor independiente, iteración 2, 2026-10-13: AC-01..AC-11 cumplidos; corregida la fila del índice que violaba AC-10. git grep -nw de AC-10 (líder): solo excepciones de REQ-09. check --run: Ran 153 tests OK (skipped=2)."
+        },
+        {
+          "at": "2026-10-13T07:43:31+00:00",
+          "event": "aprobación_close",
+          "by": "Programador"
+        }
+      ]
     }
   }
 }

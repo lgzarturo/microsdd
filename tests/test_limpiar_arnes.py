@@ -17,7 +17,8 @@ spec = importlib.util.spec_from_file_location('limpiar_arnes', SCRIPT)
 limpiar = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(limpiar)
 
-DOCS = ('AGENT.md', 'arquitectura.md', 'convensiones.md', 'specificaciones.md')
+DOCS = ('AGENT.md', 'arquitectura.md', 'convenciones.md', 'especificaciones.md')
+LEGACY_TREE = ('AGENT.md', 'arquitectura.md', 'convensiones.md', 'specificaciones.md')
 GIT_ENV = {k: v for k, v in os.environ.items() if k not in ('GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE')}
 MEMORY = {'schema_version': 1, 'project': {'observations': ['dato ficticio'], 'decisions': []},
           'tasks': {'tarea-uno': {'notes': 'uno'}, 'tarea-dos': {'notes': 'dos'}}}
@@ -54,14 +55,15 @@ class LimpiarArnesTests(unittest.TestCase):
         self.base = Path(temporary.name).resolve()
         self.root = self.base / 'repo'
 
-    def make_repo(self, tasks=None, extra=None, gitignore=None, memory=MEMORY, sdd_text=None, git_init=True):
+    def make_repo(self, tasks=None, extra=None, gitignore=None, memory=MEMORY, sdd_text=None, git_init=True,
+                  docs=DOCS):
         # Repositorio temporal con commit inicial; nunca el repositorio real.
         tasks = {'tarea-uno': task('terminado'), 'tarea-dos': task('terminado')} if tasks is None else tasks
         files = {'.microharness/sdd.py': SDD.read_bytes() if sdd_text is None else sdd_text,
                  'spec/.gitkeep': '', 'src/app.py': 'x = 1\n'}
         if memory is not None:
             files['.microharness/memory.json'] = memory if isinstance(memory, str) else json.dumps(memory, indent=2)
-        for doc in DOCS:
+        for doc in docs:
             files[f'docs/{doc}'] = f'# {doc}\n\nContenido propio del desarrollo del arnés.\n'
         for slug, content in tasks.items():
             for name, text in content.items():
@@ -146,6 +148,17 @@ class LimpiarArnesTests(unittest.TestCase):
             self.assertEqual((self.root / name).read_bytes(), content, name)
         self.assertEqual(sorted(p.name for p in (self.root / 'docs').iterdir()), sorted(DOCS))
         self.assertEqual([p.name for p in (self.root / 'spec').iterdir()], ['.gitkeep'])
+
+    # AC-05 de renombrar-docs: nombres antiguos se archivan y quedan los nuevos de sdd.py init.
+    def test_archives_legacy_doc_names(self):
+        self.make_repo(docs=LEGACY_TREE)
+        code, out, err = self.run_tool(['1.2.0'])
+        self.assertEqual(code, 0, out + err)
+        hist = self.root / 'historial' / '1.2.0' / 'docs'
+        self.assertEqual(sorted(p.name for p in hist.iterdir()), sorted(LEGACY_TREE))
+        self.assertEqual(sorted(p.name for p in (self.root / 'docs').iterdir()), sorted(DOCS))
+        for name, content in self.init_reference().items():
+            self.assertEqual((self.root / name).read_bytes(), content, name)
 
     # AC-03
     def test_keeps_other_files_head_index_and_prints_next_steps(self):

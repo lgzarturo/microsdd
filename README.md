@@ -110,11 +110,13 @@ Al terminar, el instalador ejecuta `.microharness/sdd.py init` con el mismo Pyth
 git add CLAUDE.md CLAUDE.microsdd.md .claude/agents/lider.md .claude/agents/autor.md \
   .claude/agents/implementador.md .claude/agents/revisor.md .claude/hooks/pretool.py \
   .claude/skills/sdd/SKILL.md .claude/settings.json .microharness/sdd.py .microharness/python.sh .microharness/memory.json \
-  docs/AGENT.md docs/arquitectura.md docs/convensiones.md docs/specificaciones.md
+  docs/AGENT.md docs/arquitectura.md docs/convenciones.md docs/especificaciones.md
 claude --agent lider --model claude-opus-5-5 --effort medium
 ```
 
 **Migración de `diseño.md` a `plan.md`** (repositorios ya instalados): el documento de diseño de cada tarea se llama ahora `plan.md` y su nombre forma parte de la huella de aprobación. Actualiza el arnés con `--force`, renombra cada `spec/<slug>/diseño.md` a `spec/<slug>/plan.md` (`git mv`) y ejecuta `python <copia de MicroSDD>/scripts/migrar_plan_md.py <raíz>`: recalcula solo las huellas que coinciden con el esquema antiguo, registra un evento `migración_plan_md` por tarea y aborta sin escribir si alguna especificación fue alterada. Como alternativa, reaprueba con `approve <slug> spec` las tareas no terminadas (las terminadas no admiten reaprobación).
+
+**Migración de nombres de `docs/`** (repositorios ya instalados): `docs/convensiones.md` y `docs/specificaciones.md` se llaman ahora `docs/convenciones.md` y `docs/especificaciones.md`. Actualiza el arnés con `--force` y renombra ambos documentos: `git mv docs/convensiones.md docs/convenciones.md` y `git mv docs/specificaciones.md docs/especificaciones.md`. Hasta entonces, `sdd.py init` (y el instalador) imprime un `AVISO:` y no crea el nombre nuevo, para no duplicar documentos; nunca mueve ni borra archivos.
 
 **Eliminación manual** (no hay desinstalador): borra los archivos propios de la tabla, `.microharness/`, `CLAUDE.microsdd.md` y, si aplica, `.claude/settings.microsdd.json`; quita de `CLAUDE.md` el bloque entre `<!-- microsdd:begin -->` y `<!-- microsdd:end -->`; revisa `.claude/settings.json` si fusionaste `agent: lider` y el hook; conserva o elimina `docs/` y `spec/` según te sirvan.
 
@@ -142,8 +144,8 @@ CLAUDE.md                    # Entrada corta al contexto común (en el destino: 
 docs/
   AGENT.md                   # Qué aplicación es; estado observado
   arquitectura.md            # Módulos e invariantes comprobados
-  convensiones.md            # Estilo, herramientas y reglas de ingeniería
-  specificaciones.md         # Índice y contrato del flujo
+  convenciones.md            # Estilo, herramientas y reglas de ingeniería
+  especificaciones.md        # Índice y contrato del flujo
 spec/<slug>/                 # Exactamente cuatro archivos por tarea
   requerimientos.md          # QUÉ: EARS, AC y precondiciones
   plan.md                    # CÓMO: decisión técnica mínima

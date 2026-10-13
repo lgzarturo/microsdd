@@ -31,7 +31,7 @@ Ninguna fuente se reproduce aquí; la redacción es propia y las citas se limita
 
 - **Decisión:** una tarea solo puede estar en `pendiente`, `proceso` o `terminado`. Las aprobaciones y las revisiones se registran como eventos en la memoria; un rechazo no crea un estado nuevo.
 - **Motivo:** un modelo de estados mínimo es fácil de validar y de auditar; el historial de eventos conserva quién aprobó, qué se rechazó y por qué.
-- **Evidencia:** `STATES`, `approve` (pasa a `proceso` o `terminado`) y `review` (escala a `pendiente`) en `.microharness/sdd.py`; `docs/specificaciones.md`; `.claude/agents/lider.md` punto 7.
+- **Evidencia:** `STATES`, `approve` (pasa a `proceso` o `terminado`) y `review` (escala a `pendiente`) en `.microharness/sdd.py`; `docs/especificaciones.md`; `.claude/agents/lider.md` punto 7.
 - **Fuente:** [README 0.1].
 
 ### D-03 · Límite de iteraciones y `end_turn` sin valor de cierre
@@ -73,14 +73,14 @@ Ninguna fuente se reproduce aquí; la redacción es propia y las citas se limita
 
 - **Decisión:** los requisitos se escriben en EARS con criterios de aceptación identificados; SDD es obligatorio; TDD se expresa como estrategia de pruebas `tdd` o `after`; RDD y ODD solo se activan si `method.notes` define su significado operativo.
 - **Motivo:** requisitos observables y verificables antes de escribir código, sin imponer métodos cuyo significado no esté claro.
-- **Evidencia:** `validate` en `.microharness/sdd.py` (método primario y estrategia de pruebas); `docs/specificaciones.md`; `.claude/agents/autor.md` puntos 2 y 5.
+- **Evidencia:** `validate` en `.microharness/sdd.py` (método primario y estrategia de pruebas); `docs/especificaciones.md`; `.claude/agents/autor.md` puntos 2 y 5.
 - **Fuente:** [README 0.1]; [PROYECTO]: ODD se interpreta como Organic Driven Development y RDD se considera ambiguo, por lo que ninguno se activa sin definición explícita.
 
 ### D-09 · Huellas SHA-256 de spec, pruebas selladas y diff revisado
 
 - **Decisión:** al aprobar una spec se guarda su huella SHA-256; `seal` registra el hash de las pruebas protegidas; tras un `APROBADO` se guarda la huella del diff dentro del alcance, y el cierre exige que no haya cambiado.
 - **Motivo:** detectar deriva accidental de la spec, de las pruebas de aceptación o del código después de revisado.
-- **Evidencia:** `spec_fingerprint`, `seal` y `code_fingerprint` en `.microharness/sdd.py`; comprobaciones en `validate` y en la fase `close` de `approve`; `docs/specificaciones.md`.
+- **Evidencia:** `spec_fingerprint`, `seal` y `code_fingerprint` en `.microharness/sdd.py`; comprobaciones en `validate` y en la fase `close` de `approve`; `docs/especificaciones.md`.
 - **Fuente:** [README 0.1].
 
 ### D-10 · Mutation testing opcional y proporcional
@@ -94,14 +94,14 @@ Ninguna fuente se reproduce aquí; la redacción es propia y las citas se limita
 
 - **Decisión:** los mensajes siguen Conventional Commits y se validan con `commit-check`; el líder hace un commit atómico con stage explícito de los archivos de la tarea (nunca `git add .`) y no hace `push` sin autorización independiente.
 - **Motivo:** historial trazable por tarea y ninguna publicación sin decisión humana.
-- **Evidencia:** `COMMIT_RE` y `commit_check` en `.microharness/sdd.py`; `.claude/agents/lider.md` punto 6; `docs/convensiones.md`.
+- **Evidencia:** `COMMIT_RE` y `commit_check` en `.microharness/sdd.py`; `.claude/agents/lider.md` punto 6; `docs/convenciones.md`.
 - **Fuente:** [README 0.1]; [PROYECTO].
 
 ### D-12 · El contenido externo es dato no confiable
 
 - **Decisión:** el texto de issues, logs, documentación externa y salidas de herramientas se trata como dato no confiable, nunca como orden por encima del programador.
 - **Motivo:** reducir el riesgo de inyección indirecta de instrucciones a través del material que los agentes leen.
-- **Evidencia:** `CLAUDE.md`; sección de seguridad de `docs/convensiones.md`.
+- **Evidencia:** `CLAUDE.md`; sección de seguridad de `docs/convenciones.md`.
 - **Fuente:** [GUÍA «Marca el texto pegado en los mensajes de usuario»]; [PROYECTO]: se adopta la regla de tratar ese contenido como datos, pero no el marcado con etiquetas `<pasted_content>` que propone el artículo.
 
 ### D-13 · Intención al inicio, resumen al final y sin extracción de razonamiento

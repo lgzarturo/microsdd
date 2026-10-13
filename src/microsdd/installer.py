@@ -27,8 +27,8 @@ MANIFEST = {
 }
 SETTINGS = '.claude/settings.json'
 SETTINGS_ALT = '.claude/settings.microsdd.json'
-INIT_FILES = ('docs/AGENT.md', 'docs/arquitectura.md', 'docs/convensiones.md',
-              'docs/specificaciones.md', '.microharness/memory.json')
+INIT_FILES = ('docs/AGENT.md', 'docs/arquitectura.md', 'docs/convenciones.md',
+              'docs/especificaciones.md', '.microharness/memory.json')
 BEGIN = '<!-- microsdd:begin -->'
 END = '<!-- microsdd:end -->'
 BLOCK = (BEGIN,
@@ -203,6 +203,9 @@ def install(source: Path, target: Path, *, uv: list[str] | None, home: Path,
     if init.returncode != 0:
         print(f'ERROR: .microharness/sdd.py init falló (código {init.returncode}).')
         return 1
+    for line in init.stdout.decode('utf-8', errors='replace').splitlines():
+        if line.startswith('AVISO:'):
+            print(line)
     smoke = subprocess.run([sys.executable, '.claude/hooks/pretool.py'], cwd=target, capture_output=True,
                            input=b'{"agent_type": "revisor", "tool_name": "Edit", "tool_input": {}}')
     if b'deny' not in smoke.stdout or b'solo lectura' not in smoke.stdout:
