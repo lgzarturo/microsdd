@@ -10,9 +10,9 @@ Se basa en Semantic Versioning 2.0.0 (https://semver.org/lang/es/) y en Conventi
 
 ## Estado actual
 
-- El repositorio no tiene ningún tag (`git tag` no devuelve resultados) hasta que se cree `v1.0.0`, tras ejecutar `scripts/limpiar_arnes.py 1.0.0`.
-- Existe `CHANGELOG.md`, con la sección `[1.0.0]`; no existe `VERSION`. `.microharness/sdd.py` define la constante `__version__` (`1.0.0`), expuesta con `--version` y replicada en `version` de `pyproject.toml`.
-- No hubo release 0.y.z: el programador fijó la versión 1.0.0 (2026-10-13).
+- Tag `v1.0.0` y release GitHub «MicroSDD 1.0.0» publicados (2026-10-13).
+- El árbol de trabajo prepara `1.1.0`: `CHANGELOG.md` incluye `[1.1.0]`; `.microharness/sdd.py` define `__version__ = '1.1.0'`, replicada en `pyproject.toml`.
+- No hay workflows de GitHub Actions para la suite de pruebas (solo Dependabot Dependency Graph). La puerta de calidad es `python -m unittest discover -s tests` en local (y `sdd.py check --run` en el flujo de tarea).
 
 ## API pública
 
