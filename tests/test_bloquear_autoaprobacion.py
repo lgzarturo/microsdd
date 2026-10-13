@@ -133,6 +133,7 @@ class ShellPolicyTests(unittest.TestCase):
             'git status',
             'python -m unittest discover -s tests -v',
             "git commit -m 'fix(hook)!: impide que los agentes aprueben, sellen o editen la memoria'",
+            "git commit -m 'fix(hook): menciona sdd.py'",
         ])
 
     def test_ac04_unittest_exception_rejects_protected_arguments(self):

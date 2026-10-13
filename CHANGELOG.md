@@ -2,6 +2,17 @@
 
 Formato y reglas: `assets/proceso-versionado.md` (R-04). Entradas derivadas de los asuntos de commit; se omiten los commits de merge, que no aportan cambios propios (su contenido figura en los commits integrados).
 
+## [1.1.1] - 2026-10-13
+
+### Corregido
+- `hook`: parte Bash/PowerShell por `&&`/`||`/`;` y valida cada segmento (cierra bypass `check && approve`)
+- `hook`: detecta `approve`/`seal` con cualquier lanzador o ruta; mensajes accionables
+- `hook`: permite `cat`/`jq` de settings(.local).json; Write de `~/.claude/plans/*.md`; `git commit -m` aunque el mensaje mencione sdd.py
+
+### Añadido
+- `instalador`: crea o fusiona `.claude/settings.local.json` (`claudeMdExcludes`, `plansDirectory`) sin pisar claves existentes
+- `ci`: workflow GitHub Actions `tests.yml` con unittest en Python 3.12
+- `tests`: regresión de bypass en `tests/test_hook_bypass_111.py`
 ## [1.1.0] - 2026-10-13
 
 ### Incompatible

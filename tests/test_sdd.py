@@ -878,9 +878,9 @@ class VersionTests(unittest.TestCase):
         # AC-01: solo lectura del script real.
         result = subprocess.run([sys.executable, str(SCRIPT), '--version'], capture_output=True, text=True,
                                 encoding='utf-8', check=False)
-        self.assertEqual((result.returncode, result.stdout.strip()), (0, 'MicroSDD 1.1.0'))
+        self.assertEqual((result.returncode, result.stdout.strip()), (0, 'MicroSDD 1.1.1'))
         source = SCRIPT.read_text(encoding='utf-8')
-        self.assertEqual(len(re.findall(r"^__version__ = '1\.1\.0'\r?$", source, flags=re.M)), 1)
+        self.assertEqual(len(re.findall(r"^__version__ = '1\.1\.1'\r?$", source, flags=re.M)), 1)
         # AC-03: pyproject.toml replica __version__ (regex: tomllib no existe en 3.10).
         pyproject = (SCRIPT.parents[1] / 'pyproject.toml').read_text(encoding='utf-8')
         declared = re.search(r'^version = "([^"]+)"\r?$', pyproject, flags=re.M)

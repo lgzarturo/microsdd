@@ -430,3 +430,41 @@ class InstallerTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class SettingsLocalTests(InstallerTests):
+    def test_clean_install_creates_settings_local(self):
+        code, output = self.run_install(self.repo)
+        self.assertEqual(code, 0, output)
+        path = self.repo / '.claude' / 'settings.local.json'
+        self.assertTrue(path.is_file())
+        data = json.loads(path.read_text(encoding='utf-8'))
+        self.assertEqual(data['claudeMdExcludes'], ['~/.claude/CLAUDE.md'])
+        self.assertEqual(data['plansDirectory'], 'docs/plans')
+        record = json.loads((self.repo / '.microharness' / 'install.json').read_text(encoding='utf-8'))
+        self.assertTrue(record['settings_local']['created'])
+        self.assertIn('claudeMdExcludes', record['settings_local']['keys_added'])
+
+    def test_existing_settings_local_merges_missing_keys_only(self):
+        local = self.repo / '.claude' / 'settings.local.json'
+        local.parent.mkdir(parents=True)
+        local.write_text(json.dumps({
+            'plansDirectory': 'mis-planes',
+            'otra': 1,
+        }, indent=2) + '\n', encoding='utf-8')
+        code, output = self.run_install(self.repo)
+        self.assertEqual(code, 0, output)
+        data = json.loads(local.read_text(encoding='utf-8'))
+        self.assertEqual(data['plansDirectory'], 'mis-planes')
+        self.assertEqual(data['otra'], 1)
+        self.assertEqual(data['claudeMdExcludes'], ['~/.claude/CLAUDE.md'])
+        record = json.loads((self.repo / '.microharness' / 'install.json').read_text(encoding='utf-8'))
+        self.assertIn('claudeMdExcludes', record['settings_local']['keys_added'])
+        self.assertNotIn('plansDirectory', record['settings_local']['keys_added'])
+
+    def test_settings_local_second_install_idempotent(self):
+        self.assertEqual(self.run_install(self.repo)[0], 0)
+        before = (self.repo / '.claude' / 'settings.local.json').read_bytes()
+        code, output = self.run_install(self.repo)
+        self.assertEqual(code, 0, output)
+        self.assertEqual((self.repo / '.claude' / 'settings.local.json').read_bytes(), before)

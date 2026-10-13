@@ -30,6 +30,11 @@ MANIFEST = {
     '.claude/settings.json': '.claude/settings.json',
 }
 SETTINGS = '.claude/settings.json'
+SETTINGS_LOCAL = '.claude/settings.local.json'
+SETTINGS_LOCAL_DEFAULTS = {
+    'claudeMdExcludes': ['~/.claude/CLAUDE.md'],
+    'plansDirectory': 'docs/plans',
+}
 LEGACY_SETTINGS = '.claude/settings.microsdd.json'
 INSTALL_RECORD = '.microharness/install.json'
 MERGE_KEYS = ('agent', 'model', 'effortLevel')
@@ -156,6 +161,30 @@ def dump_json(data: dict) -> bytes:
     return (json.dumps(data, indent=2, ensure_ascii=False) + '\n').encode('utf-8')
 
 
+
+def load_settings_local(path: Path) -> dict | None:
+    """JSON de settings.local.json; None si no existe. ValueError si invalido."""
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_bytes().decode("utf-8"))
+    except ValueError as err:
+        raise ValueError(f"{SETTINGS_LOCAL} no es JSON válido ({err})") from err
+    if not isinstance(data, dict):
+        raise ValueError(f"la raíz de {SETTINGS_LOCAL} no es un objeto")
+    return data
+
+
+def merge_settings_local(current: dict | None) -> tuple[dict, list[str]]:
+    """Fusiona solo claves faltantes de SETTINGS_LOCAL_DEFAULTS. Devuelve (nuevo, claves_añadidas)."""
+    new = {} if current is None else copy.deepcopy(current)
+    added = []
+    for key, value in SETTINGS_LOCAL_DEFAULTS.items():
+        if key not in new:
+            new[key] = copy.deepcopy(value)
+            added.append(key)
+    return new, added
+
 def fingerprint(entry) -> str:
     return hashlib.sha256(json.dumps(entry, sort_keys=True).encode('utf-8')).hexdigest()
 
@@ -229,24 +258,37 @@ def write_record(target: Path, record: dict) -> None:
         path.write_bytes(data)
 
 
-def install_record(actions, previous: dict | None, applied: dict, claude_before: bytes) -> dict:
+def install_record(actions, previous: dict | None, applied: dict, claude_before: bytes,
+                    settings_local_added: list[str] | None = None) -> dict:
     labels = {dst: (label, content) for label, dst, _, content in actions}
-    old = (previous or {}).get('settings', {})
-    label, content = labels['CLAUDE.md']
-    if label == 'crear':
-        claude_md = {'mode': 'created', 'text': content.decode('utf-8')}
-    elif label == 'anexar registro':
-        claude_md = {'mode': 'appended', 'text': content[len(claude_before):].decode('utf-8')}
+    old = (previous or {}).get("settings", {})
+    label, content = labels["CLAUDE.md"]
+    if label == "crear":
+        claude_md = {"mode": "created", "text": content.decode("utf-8")}
+    elif label == "anexar registro":
+        claude_md = {"mode": "appended", "text": content[len(claude_before):].decode("utf-8")}
     else:
-        claude_md = (previous or {}).get('claude_md')
-    # Las claves ya registradas conservan su valor previo original en reinstalaciones.
-    return {'schema_version': 1,
-            'settings': {'created': labels[SETTINGS][0] == 'crear' or bool(old.get('created')),
-                         'enabled': True,
-                         'keys': {**applied['keys'], **old.get('keys', {})},
-                         'hook': applied['hook']},
-            'claude_md': claude_md}
-
+        claude_md = (previous or {}).get("claude_md")
+    prev_local = (previous or {}).get("settings_local") or {}
+    local_label, local_content = labels.get(SETTINGS_LOCAL, ("sin cambios", None))
+    keys_added = list(prev_local.get("keys_added") or [])
+    if local_label == "crear":
+        keys_added = list(SETTINGS_LOCAL_DEFAULTS.keys())
+    elif local_label == "fusionar":
+        for key in (settings_local_added or []):
+            if key not in keys_added:
+                keys_added.append(key)
+    settings_local = {
+        "created": bool(prev_local.get("created")) or local_label == "crear",
+        "keys_added": keys_added,
+    }
+    return {"schema_version": 1,
+            "settings": {"created": labels[SETTINGS][0] == "crear" or bool(old.get("created")),
+                         "enabled": True,
+                         "keys": {**applied["keys"], **old.get("keys", {})},
+                         "hook": applied["hook"]},
+            "settings_local": settings_local,
+            "claude_md": claude_md}
 
 def plan(source: Path, target: Path, force: bool) -> list[tuple[str, str, Path | None, bytes | None]]:
     """Clasifica cada entrada sin escribir. ValueError si .claude/settings.json no se puede fusionar."""
@@ -272,6 +314,15 @@ def plan(source: Path, target: Path, force: bool) -> list[tuple[str, str, Path |
         actions.append(('sin cambios', 'CLAUDE.md', None, None))
     else:
         actions.append(('anexar registro', 'CLAUDE.md', None, registry_block(claude.read_bytes(), False)))
+    local = target / SETTINGS_LOCAL
+    current_local = load_settings_local(local)
+    merged_local, added_local = merge_settings_local(current_local)
+    if current_local is None:
+        actions.append(("crear", SETTINGS_LOCAL, None, dump_json(merged_local)))
+    elif added_local:
+        actions.append(("fusionar", SETTINGS_LOCAL, None, dump_json(merged_local)))
+    else:
+        actions.append(("sin cambios", SETTINGS_LOCAL, None, None))
     return actions
 
 
@@ -314,6 +365,8 @@ def install(source: Path, target: Path, *, uv: list[str] | None, home: Path,
         print('Simulación (--dry-run): no se escribió nada.')
         return 0
     _, applied = merge(load_settings(target / SETTINGS) or {}, json.loads((source / SETTINGS).read_bytes()))
+    _local_data = load_settings_local(target / SETTINGS_LOCAL)
+    _, local_added = merge_settings_local(_local_data)
     claude = target / 'CLAUDE.md'
     claude_before = claude.read_bytes() if claude.is_file() else b''
     for label, dst, src, content in actions:
@@ -329,7 +382,8 @@ def install(source: Path, target: Path, *, uv: list[str] | None, home: Path,
             shutil.copyfile(src, path)
         if dst == '.microharness/sdd.py' and os.name != 'nt':
             path.chmod(path.stat().st_mode | 0o111)
-    write_record(target, install_record(actions, previous, applied, claude_before))
+    write_record(target, install_record(actions, previous, applied, claude_before,
+                                       settings_local_added=local_added))
     init = subprocess.run([sys.executable, '.microharness/sdd.py', 'init'], cwd=target, capture_output=True)
     if init.returncode != 0:
         print(f'ERROR: .microharness/sdd.py init falló (código {init.returncode}).')
@@ -347,8 +401,12 @@ def install(source: Path, target: Path, *, uv: list[str] | None, home: Path,
     if (target / LEGACY_SETTINGS).is_file():
         print(f'AVISO: {LEGACY_SETTINGS} es obsoleto (Claude Code no lo lee) y {SETTINGS} ya se fusionó; '
               'bórralo o quítalo con microsdd uninstall.')
-    files = ([dst for _, dst, _, _ in actions] + [f for f in INIT_FILES if (target / f).is_file()]
+    written_local = any(label != 'sin cambios' and dst == SETTINGS_LOCAL for label, dst, _, _ in actions)
+    files = ([dst for label, dst, _, _ in actions if not (dst == SETTINGS_LOCAL and label == 'sin cambios')]
+             + [f for f in INIT_FILES if (target / f).is_file()]
              + [INSTALL_RECORD])
+    if written_local:
+        print(f'AVISO: {SETTINGS_LOCAL} es local (suele ignorarse en git); se incluyó en git add si se escribió.')
     print('Próximos pasos:')
     print('  git add ' + ' '.join(files))
     print('  claude')
@@ -471,6 +529,23 @@ def uninstall(source: Path, target: Path, force: bool = False) -> int:
     if legacy.is_file():
         legacy.unlink()
         print(f'  [eliminar] {LEGACY_SETTINGS}')
+    local_info = record.get('settings_local') or {}
+    local_path = target / SETTINGS_LOCAL
+    if local_path.is_file() and local_info:
+        try:
+            before = load_settings_local(local_path) or {}
+        except ValueError:
+            before = None
+        if before is not None:
+            after = dict(before)
+            for key in local_info.get('keys_added', []):
+                after.pop(key, None)
+            if not after and local_info.get('created'):
+                local_path.unlink()
+                print(f'  [eliminar] {SETTINGS_LOCAL}')
+            elif after != before:
+                local_path.write_bytes(dump_json(after))
+                print(f'  [restaurar] {SETTINGS_LOCAL}')
     restore_claude_md(target, record.get('claude_md'))
     (target / INSTALL_RECORD).unlink()
     print(f'  [eliminar] {INSTALL_RECORD}')
