@@ -11,6 +11,7 @@ Cada tarea va en `spec/<slug>/` con exactamente cuatro documentos: `requerimient
 
 | Tarea | Estado | Resumen |
 |---|---|---|
+| `sellos-solo-en-proceso` | terminado | `validate` compara `sealed_tests` solo mientras la tarea no esté `terminado`; tras el cierre el sello es histórico. |
 | `eol-hashes-estables` | terminado | `hash_file` y `spec_fingerprint` normalizan CRLF→LF; `.gitattributes` fija `*.sh text eol=lf`. |
 | `deteccion-python-multiplataforma` | terminado | Hook en forma exec con uv y `onFailure: block`; lanzador `.microharness/python.sh` con detección de Python ≥3.10; `check --run` usa `sys.executable`. |
 | `fix-quotepath-diff` | terminado | `diff_files()` devuelve rutas no ASCII literales (`core.quotePath=false` + UTF-8); `check` deja de fallar en falso por `diseño.md`. |

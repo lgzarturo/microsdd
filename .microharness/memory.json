@@ -256,6 +256,47 @@
           "by": "Programador"
         }
       ]
+    },
+    "sellos-solo-en-proceso": {
+      "approvals": {
+        "spec": {
+          "by": "Programador",
+          "evidence": "Confirmación explícita en sesión: 'apruebo la spec' (incluye PRE-01: editar .microharness/sdd.py, solo bloque sealed_tests de validate, y la frase de README sección 6)",
+          "at": "2026-10-13T03:57:13+00:00",
+          "fingerprint": "88fde30cc22dcdd8fa2b1bd5e2cddb56fdc11d306e9728d5ac76ec5639732923"
+        },
+        "close": {
+          "by": "Programador",
+          "evidence": "Confirmación explícita en sesión: 'si' (aprobación de cierre y commit)",
+          "at": "2026-10-13T04:01:52+00:00"
+        }
+      },
+      "sealed_tests": {},
+      "review": "APROBADO",
+      "review_fingerprint": "02b29fbfb42136cce36eb8c096556f8a78dfe5848953ee61aa1fa3b9c270c0ef",
+      "iterations": 1,
+      "events": [
+        {
+          "at": "2026-10-13T03:54:06+00:00",
+          "event": "creada"
+        },
+        {
+          "at": "2026-10-13T03:57:13+00:00",
+          "event": "aprobación_spec",
+          "by": "Programador"
+        },
+        {
+          "at": "2026-10-13T04:00:31+00:00",
+          "event": "revisión",
+          "verdict": "APROBADO",
+          "evidence": "Revisor independiente: check --run exit 0 (25 OK); checks --no-scope de las 3 tareas cerradas exit 0; mutantes en scratchpad: HEAD falla AC-01, '== proceso' falla AC-03, condición negada falla las 3; diff -w = 1 línea en sdd.py:216 + frase README:215; memory.json sin líneas eliminadas."
+        },
+        {
+          "at": "2026-10-13T04:01:52+00:00",
+          "event": "aprobación_close",
+          "by": "Programador"
+        }
+      ]
     }
   }
 }

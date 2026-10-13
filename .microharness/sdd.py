@@ -213,13 +213,14 @@ def validate(slug: str, run: bool = False, scope: bool = True) -> list[str]:
         errors.append('No existe memoria para la tarea')
     else:
         task_memory = memory['tasks'][slug]
-        for file, expected in task_memory.get('sealed_tests', {}).items():
-            try:
-                target = ROOT / normalized_rel(file)
-                if not target.is_file() or hash_file(target) != expected:
-                    errors.append(f'Test sellado modificado: {file}; requiere autorización y nuevo sello')
-            except ValueError as e:
-                errors.append(str(e))
+        if s.get('state') != 'terminado':
+            for file, expected in task_memory.get('sealed_tests', {}).items():
+                try:
+                    target = ROOT / normalized_rel(file)
+                    if not target.is_file() or hash_file(target) != expected:
+                        errors.append(f'Test sellado modificado: {file}; requiere autorización y nuevo sello')
+                except ValueError as e:
+                    errors.append(str(e))
         if s.get('state') in ('proceso', 'terminado'):
             prior = task_memory.get('approvals', {}).get('spec')
             if not prior:

@@ -102,6 +102,38 @@ class MicroSDDTests(unittest.TestCase):
         path.write_bytes(b'import os\r\nassert 2 == 2\r\n')
         self.assertTrue(any('sellado' in x for x in sdd.validate('fix-sesiones')))
 
+    def _seal_auth_test(self):
+        sdd.approve('fix-sesiones', 'spec', 'Humano', 'Sí')
+        path = sdd.ROOT / 'tests' / 'test_auth.py'
+        path.parent.mkdir(parents=True)
+        path.write_text('assert 1 == 1\n', encoding='utf-8')
+        data = sdd.load(self.folder / 'spec.json')
+        data['testing']['protected_tests'] = ['tests/test_auth.py']
+        sdd.dump(self.folder / 'spec.json', data)
+        sdd.approve('fix-sesiones', 'spec', 'Humano', 'Aprobé la nueva spec')
+        sdd.seal('fix-sesiones', 'Humano')
+        return path
+
+    def test_sealed_tests_ignored_after_close(self):
+        # AC-01, AC-04: tras el cierre el sello no se compara y queda intacto en memoria.
+        path = self._seal_auth_test()
+        sealed = dict(sdd.load(sdd.MEMORY)['tasks']['fix-sesiones']['sealed_tests'])
+        self.assertIn('tests/test_auth.py', sealed)
+        sdd.review('fix-sesiones', 'APROBADO', 'Comparados diff y pruebas')
+        sdd.approve('fix-sesiones', 'close', 'Humano', 'Sí, cerrar tarea')
+        path.write_text('assert 2 == 2\n', encoding='utf-8')
+        self.assertFalse([x for x in sdd.validate('fix-sesiones') if 'sellado' in x])
+        self.assertEqual(sdd.load(sdd.MEMORY)['tasks']['fix-sesiones']['sealed_tests'], sealed)
+
+    def test_sealed_tests_checked_when_escalated_pending(self):
+        # AC-03: una tarea escalada a pendiente conserva la comparación del sello.
+        path = self._seal_auth_test()
+        for _ in range(3):
+            sdd.review('fix-sesiones', 'RECHAZADO', 'Falló requisito AC-01')
+        self.assertEqual(sdd.load(self.folder / 'spec.json')['state'], 'pendiente')
+        path.write_text('assert 2 == 2\n', encoding='utf-8')
+        self.assertTrue(any('sellado' in x for x in sdd.validate('fix-sesiones')))
+
     def test_spec_fingerprint_ignores_crlf_conversion(self):
         # AC-03: la huella aprobada sobrevive a LF->CRLF; un cambio real en diseño.md no.
         names = ('requerimientos.md', 'diseño.md', 'tareas.md')
