@@ -11,6 +11,7 @@ Cada tarea va en `spec/<slug>/` con exactamente cuatro documentos: `requerimient
 
 | Tarea | Estado | Resumen |
 |---|---|---|
+| `regex-revisor-ascii` | terminado | Allowlist del revisor: versión con `[0-9]`; `git diff/status` solo con tokens seguros, sin `--output` ni `--ext-diff`. |
 | `hook-powershell` | terminado | Matcher del hook incluye `PowerShell`; la allowlist del revisor se aplica a `Bash` y `PowerShell`. |
 | `sellos-solo-en-proceso` | terminado | `validate` compara `sealed_tests` solo mientras la tarea no esté `terminado`; tras el cierre el sello es histórico. |
 | `eol-hashes-estables` | terminado | `hash_file` y `spec_fingerprint` normalizan CRLF→LF; `.gitattributes` fija `*.sh text eol=lf`. |

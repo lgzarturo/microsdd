@@ -249,6 +249,54 @@ class HookTests(unittest.TestCase):
                 self.assertIsNone(hook.run({'agent_type': 'revisor', 'tool_name': 'PowerShell',
                                             'tool_input': {'command': command}}))
 
+    def test_reviewer_git_allowlist(self):
+        # AC-01, AC-02: tokens seguros de git diff/status permitidos; expansión, redirección y escritura denegadas.
+        hook_path = SCRIPT.parents[1] / '.claude' / 'hooks' / 'pretool.py'
+        spec = importlib.util.spec_from_file_location('micro_hook', hook_path)
+        hook = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(hook)
+        allowed = [
+            'git diff',
+            'git status',
+            'git status --short',
+            'git diff --stat',
+            'git diff -w -- .microharness/sdd.py',
+            'git diff -U0 -- README.md',
+            'git diff HEAD~1 -- .claude/hooks/pretool.py',
+            'git diff -- spec/x/diseño.md',
+        ]
+        denied = [
+            'git diff $(rm -rf src)',
+            'git diff `rm -rf src`',
+            'git diff > README.md',
+            'git status < x',
+            'git diff --output=README.md',
+            'git diff --output README.md',
+            'git diff --ext-diff',
+        ]
+        for tool in ('Bash', 'PowerShell'):
+            for command in allowed:
+                with self.subTest(herramienta=tool, comando=command):
+                    self.assertIsNone(hook.run({'agent_type': 'revisor', 'tool_name': tool,
+                                                'tool_input': {'command': command}}))
+            for command in denied:
+                with self.subTest(herramienta=tool, comando=command):
+                    self.assertIsNotNone(hook.run({'agent_type': 'revisor', 'tool_name': tool,
+                                                   'tool_input': {'command': command}}))
+
+    def test_reviewer_checker_ascii_digits(self):
+        # AC-03: la versión de Python del checker solo admite dígitos ASCII.
+        hook_path = SCRIPT.parents[1] / '.claude' / 'hooks' / 'pretool.py'
+        spec = importlib.util.spec_from_file_location('micro_hook', hook_path)
+        hook = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(hook)
+        check = '.microharness/sdd.py check fix-a --run'
+        for command in (f'uv run --no-project --python 3.١٠ {check}',
+                        f"uv run --no-project --python '>=3.١٠' {check}"):
+            with self.subTest(denegado=command):
+                self.assertIsNotNone(hook.run({'agent_type': 'revisor', 'tool_name': 'Bash',
+                                               'tool_input': {'command': command}}))
+
 
 @unittest.skipUnless(shutil.which('git'), 'git no disponible')
 class GitAttributesTests(unittest.TestCase):

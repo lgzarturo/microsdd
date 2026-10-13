@@ -350,6 +350,47 @@
           "by": "Programador"
         }
       ]
+    },
+    "regex-revisor-ascii": {
+      "approvals": {
+        "spec": {
+          "by": "Programador",
+          "evidence": "Confirmación explícita en sesión: 'aprobado' (incluye exclusión de @; abreviaturas --outp/--out verificadas como rechazadas por git 2.55, rc 129)",
+          "at": "2026-10-13T04:14:59+00:00",
+          "fingerprint": "45035f31722559f319fc0784fdcfb9cafab9f3da89c8999503b15b92a40557db"
+        },
+        "close": {
+          "by": "Programador",
+          "evidence": "Confirmación explícita en sesión: 'aprobado' (cierre y commit)",
+          "at": "2026-10-13T04:20:26+00:00"
+        }
+      },
+      "sealed_tests": {},
+      "review": "APROBADO",
+      "review_fingerprint": "3eaa223f0779a05885221dac16ad1138c5e679ea77eb9d871fad64184a05b395",
+      "iterations": 1,
+      "events": [
+        {
+          "at": "2026-10-13T04:11:22+00:00",
+          "event": "creada"
+        },
+        {
+          "at": "2026-10-13T04:14:59+00:00",
+          "event": "aprobación_spec",
+          "by": "Programador"
+        },
+        {
+          "at": "2026-10-13T04:18:56+00:00",
+          "event": "revisión",
+          "verdict": "APROBADO",
+          "evidence": "Revisor independiente: check --run exit 0 (28 OK); contra HEAD fallan 16 subTests (AC-02 x2 herramientas, AC-03); diff = pretool.py:68-69; revisión adversarial con pretool.run: denegados $x, ${x}, @x, %x%, guiones/espacios Unicode, -- --output=x; lo que pasa no ejecuta ni escribe. Sugerencias no bloqueantes S1 (caso positivo --output-indicator-new) y S2 (nota PowerShell 5.1 y --)."
+        },
+        {
+          "at": "2026-10-13T04:20:26+00:00",
+          "event": "aprobación_close",
+          "by": "Programador"
+        }
+      ]
     }
   }
 }
