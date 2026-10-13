@@ -1,6 +1,7 @@
 import contextlib
 import importlib.util
 import io
+import json
 import os
 import shutil
 import subprocess
@@ -20,6 +21,10 @@ spec.loader.exec_module(installer)
 
 BEGIN = b'<!-- microsdd:begin -->'
 FAKE_UV = [sys.executable, '-c', 'print("uv 0.0.0")']
+PAYLOAD_ENTRY = json.loads((SOURCE / '.claude' / 'settings.json').read_text(encoding='utf-8'))['hooks']['PreToolUse'][0]
+GRAPHIFY = {'permissions': {'allow': ['Bash(graphify:*)']},
+            'hooks': {'PreToolUse': [{'matcher': 'Bash', 'hooks': [{'type': 'command', 'command': 'graphify-guard'}]}],
+                      'PostToolUse': [{'matcher': 'Write', 'hooks': [{'type': 'command', 'command': 'graphify-index'}]}]}}
 
 MIT_LICENSE = '''MIT License
 
@@ -100,6 +105,12 @@ class InstallerTests(unittest.TestCase):
         self.assertIn('docs/convenciones.md docs/especificaciones.md', output)
         self.assertNotIn('git add .\n', output)
         self.assertIn('CLAUDE.microsdd.md', output)
+        record = json.loads((self.repo / '.microharness' / 'install.json').read_text(encoding='utf-8'))
+        self.assertIs(record['settings']['created'], True)
+        self.assertFalse((self.repo / '.claude' / 'settings.microsdd.json').exists())
+        add = next(line for line in output.splitlines() if line.strip().startswith('git add '))
+        self.assertIn('.microharness/install.json', add.split())
+        self.assertNotIn('.bak', add)
 
     # AC-07 de renombrar-docs
     def test_legacy_doc_name_is_kept_and_warned(self):
@@ -150,18 +161,81 @@ class InstallerTests(unittest.TestCase):
         self.assertIn(b'@AGENTS.md', (self.repo / 'CLAUDE.md').read_bytes())
         self.assertEqual((self.repo / 'AGENTS.md').read_bytes(), agents)
 
-    # AC-04
-    def test_different_settings_is_kept_and_alternate_written(self):
+    def write_graphify(self, repo: Path) -> bytes:
+        settings = repo / '.claude' / 'settings.json'
+        settings.parent.mkdir(parents=True, exist_ok=True)
+        original = json.dumps(GRAPHIFY).encode('utf-8')
+        settings.write_bytes(original)
+        return original
+
+    # AC-02 (fusion-settings-toggle)
+    def test_existing_settings_are_merged_with_backup(self):
+        original = self.write_graphify(self.repo)
         settings = self.repo / '.claude' / 'settings.json'
-        settings.parent.mkdir()
-        settings.write_bytes(b'{"agent": "otro"}\n')
         code, output = self.run_install(self.repo)
         self.assertEqual(code, 0, output)
-        self.assertEqual(settings.read_bytes(), b'{"agent": "otro"}\n')
-        self.assertEqual((self.repo / '.claude' / 'settings.microsdd.json').read_bytes(),
-                         (SOURCE / '.claude' / 'settings.json').read_bytes())
-        self.assertIn('agent: lider', output)
-        self.assertIn('fusionar manualmente', output)
+        check = subprocess.run([sys.executable, '-m', 'json.tool', str(settings)], capture_output=True)
+        self.assertEqual(check.returncode, 0, check.stderr)
+        data = json.loads(settings.read_text(encoding='utf-8'))
+        self.assertEqual(data['agent'], 'lider')
+        self.assertEqual(data['model'], 'claude-opus-5-5')
+        self.assertEqual(data['effortLevel'], 'medium')
+        self.assertEqual(data['permissions'], GRAPHIFY['permissions'])
+        self.assertEqual(data['hooks']['PostToolUse'], GRAPHIFY['hooks']['PostToolUse'])
+        self.assertEqual(data['hooks']['PreToolUse'], [GRAPHIFY['hooks']['PreToolUse'][0], PAYLOAD_ENTRY])
+        backups = list(settings.parent.glob('settings.json.bak.*'))
+        self.assertEqual(len(backups), 1, backups)
+        self.assertEqual(backups[0].read_bytes(), original)
+        self.assertFalse((self.repo / '.claude' / 'settings.microsdd.json').exists())
+        self.assertNotIn('fusionar manualmente', output)
+
+    # AC-03 (fusion-settings-toggle)
+    def test_distinct_values_are_replaced_and_recorded(self):
+        settings = self.repo / '.claude' / 'settings.json'
+        settings.parent.mkdir()
+        settings.write_text(json.dumps({'agent': 'otro', 'model': 'x'}), encoding='utf-8')
+        code, output = self.run_install(self.repo)
+        self.assertEqual(code, 0, output)
+        data = json.loads(settings.read_text(encoding='utf-8'))
+        self.assertEqual((data['agent'], data['model']), ('lider', 'claude-opus-5-5'))
+        keys = json.loads((self.repo / '.microharness' / 'install.json').read_text(encoding='utf-8'))['settings']['keys']
+        self.assertEqual(keys['agent'], {'previous': 'otro'})
+        self.assertEqual(keys['model'], {'previous': 'x'})
+        self.assertEqual(keys['effortLevel'], {'previous_absent': True})
+
+    # AC-04 (fusion-settings-toggle)
+    def test_second_run_with_existing_settings_is_idempotent(self):
+        self.write_graphify(self.repo)
+        self.assertEqual(self.run_install(self.repo)[0], 0)
+        before = snapshot(self.repo)
+        code, output = self.run_install(self.repo)
+        self.assertEqual(code, 0, output)
+        self.assertEqual(snapshot(self.repo), before)
+        settings = self.repo / '.claude' / 'settings.json'
+        data = json.loads(settings.read_text(encoding='utf-8'))
+        self.assertEqual(data['hooks']['PreToolUse'].count(PAYLOAD_ENTRY), 1)
+        self.assertEqual(len(list(settings.parent.glob('settings.json.bak.*'))), 1)
+
+    # AC-05 (fusion-settings-toggle)
+    def test_invalid_settings_fail_without_writing(self):
+        for i, raw in enumerate((b'{no json', b'[]', b'{"hooks": []}', b'{"hooks": {"PreToolUse": {}}}')):
+            with self.subTest(raw=raw):
+                repo = self.git_repo(self.base / f'json-{i}')
+                (repo / '.claude').mkdir()
+                (repo / '.claude' / 'settings.json').write_bytes(raw)
+                before = snapshot(repo)
+                code, output = self.run_install(repo)
+                self.assertEqual(code, 1, output)
+                self.assertIn('.claude/settings.json', output)
+                self.assertEqual(snapshot(repo), before)
+
+    def test_dry_run_shows_merge_without_writing(self):
+        self.write_graphify(self.repo)
+        before = snapshot(self.repo)
+        code, output = self.run_install(self.repo, dry_run=True)
+        self.assertEqual(code, 0, output)
+        self.assertIn('[fusionar] .claude/settings.json', output)
+        self.assertEqual(snapshot(self.repo), before)
 
     # AC-05
     def test_modified_own_file_conflicts_without_force_and_updates_with_force(self):
@@ -171,6 +245,8 @@ class InstallerTests(unittest.TestCase):
         settings.write_bytes(b'{}\n')
         self.assertEqual(self.run_install(self.repo)[0], 0)
         claude_after_first = (self.repo / 'CLAUDE.md').read_bytes()
+        settings_after_first = settings.read_bytes()
+        self.assertNotEqual(settings_after_first, b'{}\n')
         lider = self.repo / '.claude' / 'agents' / 'lider.md'
         lider.write_bytes(b'modificado\n')
         before = snapshot(self.repo)
@@ -182,7 +258,7 @@ class InstallerTests(unittest.TestCase):
         self.assertEqual(code, 0, output)
         self.assertEqual(lider.read_bytes(), (SOURCE / '.claude' / 'agents' / 'lider.md').read_bytes())
         self.assertEqual((self.repo / 'CLAUDE.md').read_bytes(), claude_after_first)
-        self.assertEqual(settings.read_bytes(), b'{}\n')
+        self.assertEqual(settings.read_bytes(), settings_after_first)
 
     # AC-06
     def test_dry_run_prints_plan_without_writing(self):

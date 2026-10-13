@@ -71,14 +71,15 @@ class ApiPublicaTest(unittest.TestCase):
 
     # AC-03
     def test_rutas_instaladas_en_incluido(self):
-        paths = set(installer.MANIFEST) | set(installer.MANIFEST.values()) | set(installer.INIT_FILES)
+        paths = (set(installer.MANIFEST) | set(installer.MANIFEST.values()) | set(installer.INIT_FILES)
+                 | {installer.INSTALL_RECORD})
         self.assertEqual(missing(self.incluido, paths), [],
                          'rutas instaladas ausentes de «Instalación / Incluido»')
 
     # AC-04
     def test_incluido_solo_lista_rutas_instaladas(self):
         installed = (set(installer.MANIFEST) | set(installer.MANIFEST.values())
-                     | set(installer.INIT_FILES) | {'spec/'})
+                     | set(installer.INIT_FILES) | {installer.INSTALL_RECORD, 'spec/'})
         listed = [m.group(1) for m in re.finditer(r'^- `([^`]+)`', self.incluido, re.M)]
         self.assertTrue(listed, '«Incluido» no contiene elementos de lista con ruta')
         self.assertEqual(sorted(p for p in listed if p not in installed), [],

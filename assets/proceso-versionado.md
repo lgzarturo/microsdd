@@ -20,8 +20,8 @@ Se basa en Semantic Versioning 2.0.0 (https://semver.org/lang/es/) y en Conventi
 - **API-02** · Esquema de `spec.json` (`schema_version` 1): campos y valores que acepta `validate` (`id`, `state`, `model`, `effort`, `max_iterations`, `method`, `scope`, `requirements`, `testing`), incluido `testing.min_tests` (entero ≥ 1, opcional, 1 por defecto); salvo en `terminado`, `testing.commands` (y `mutation.command` si `mutation.enabled` es verdadero) deben empezar por un runner de la lista blanca de `sdd.py`, ampliable con `project.allowed_test_commands`.
 - **API-03** · Esquema de `.microharness/memory.json` (`schema_version` 1): `project` (incluido el opcional `project.allowed_test_commands`) y `tasks`, con aprobaciones, sellos, revisión, iteraciones y eventos de cada tarea. `check` compara la memoria con `HEAD:.microharness/memory.json`: los eventos confirmados son inmutables y los campos vigilados solo cambian con un evento nuevo que lo justifique. El archivo de lock `.microharness/memory.lock` no se versiona y su contenido no es API.
 - **API-04** · Estructura de tarea `spec/<slug>/`: cuatro archivos (`requerimientos.md`, `plan.md`, `tareas.md`, `spec.json`), formato de slug y los tres estados (`pendiente`, `proceso`, `terminado`).
-- **API-05** · Contratos de agentes en `.claude/agents/`: nombres, responsabilidades, frontmatter (`model`, `effort` y, cuando se declara, `tools`) y restricciones por rol que aplica `.claude/hooks/pretool.py`, que además deniega `Write`, `Edit`, `MultiEdit`, `NotebookEdit`, `Bash` y `PowerShell` a cualquier agente distinto de `autor`, `implementador`, `revisor` o `lider` (fail-closed). A `lider`, `autor` e `implementador` les deniega `approve` y `seal`, los comandos de `Bash`/`PowerShell` que mencionan `microharness`, `memory.json` o `sdd.py` fuera de las formas permitidas (lanzador admitido de `.microharness/sdd.py` seguido de `init`, `new`, `check`, `review`, `commit-check`, `note`, `release`, `--version` o `--help`; `sh .microharness/python.sh --version`, `sh .microharness/python.sh -m unittest …` y `git add|diff|status|log|show …`, sin metacaracteres de shell) y toda edición bajo `.microharness/`, salvo `.microharness/sdd.py` y `.microharness/python.sh` al implementador cuando la spec activa aprobada los incluye en `allowed_paths`.
-- **API-06** · `.claude/settings.json` (agente predeterminado, modelo, esfuerzo y registro del hook) y la skill `/sdd`.
+- **API-05** · Contratos de agentes en `.claude/agents/`: nombres, responsabilidades, frontmatter (`model`, `effort` y, cuando se declara, `tools`) y restricciones por rol que aplica `.claude/hooks/pretool.py`, que además deniega `Write`, `Edit`, `MultiEdit`, `NotebookEdit`, `Bash` y `PowerShell` a cualquier agente distinto de `autor`, `implementador`, `revisor` o `lider` (fail-closed). A `lider`, `autor` e `implementador` les deniega `approve` y `seal`, los comandos de `Bash`/`PowerShell` que mencionan `microharness`, `memory.json` o `sdd.py` fuera de las formas permitidas (lanzador admitido de `.microharness/sdd.py` seguido de `init`, `new`, `check`, `review`, `commit-check`, `note`, `release`, `--version` o `--help`; `sh .microharness/python.sh --version`, `sh .microharness/python.sh -m unittest …` y `git add|diff|status|log|show …`, sin metacaracteres de shell) y toda edición bajo `.microharness/`, salvo `.microharness/sdd.py` y `.microharness/python.sh` al implementador cuando la spec activa aprobada los incluye en `allowed_paths`. En `Bash`/`PowerShell` les deniega además ejecutar `microsdd` o `installer.py` con `on`, `off` o `uninstall` y todo comando que mencione `settings.json` o `settings.local.json`, salvo `git add|diff|status|log|show|commit …` y `python -m json.tool <ruta>` (o `python3`), sin metacaracteres de shell: esos cambios los ejecuta el humano en su terminal.
+- **API-06** · `.claude/settings.json` (agente predeterminado, modelo, esfuerzo y registro del hook, que el instalador crea o fusiona), la skill `/sdd` (incluido `/sdd on|off|status`) y el esquema de `.microharness/install.json` (`schema_version` 1) del que dependen `uninstall`, `on` y `off`.
 - **API-07** · Formato de mensaje aceptado por `commit-check`.
 - **API-08** · Conjunto de rutas instaladas (sección «Instalación»).
 - **API-09** · `.microharness/config.json`: archivo humano opcional con las claves `model` y `effort` (valores por defecto de `sdd.py`; otras claves son error). No lo crea el instalador.
@@ -88,7 +88,7 @@ Mientras no exista la herramienta de release, los pasos 3 y 5 se hacen a mano; c
 
 ## Instalación
 
-El instalador (`src/microsdd/installer.py`) copia solo las rutas de su `MANIFEST`: el `CLAUDE.md` del arnés se instala como `CLAUDE.microsdd.md` y al `CLAUDE.md` destino se le anexa un bloque de registro que lo importa (o se crea con ese bloque). Si `.claude/settings.json` ya existe y difiere, se escribe `.claude/settings.microsdd.json` para fusionarlo a mano. Después ejecuta `sdd.py init`, que genera `docs/`, `spec/` y `.microharness/memory.json` sin sobrescribir lo existente. Los documentos usan los nombres `docs/convenciones.md` y `docs/especificaciones.md`; si existen los nombres antiguos `docs/convensiones.md` o `docs/specificaciones.md`, `init` avisa y no mueve archivos.
+El instalador (`src/microsdd/installer.py`) copia solo las rutas de su `MANIFEST`: el `CLAUDE.md` del arnés se instala como `CLAUDE.microsdd.md` y al `CLAUDE.md` destino se le anexa un bloque de registro que lo importa (o se crea con ese bloque). Si `.claude/settings.json` ya existe, se fusionan en él `agent`, `model`, `effortLevel` y la entrada `PreToolUse` del hook, conservando toda otra clave y hook (los valores distintos se reemplazan y se guardan para restaurarlos), tras copiar el original a `.claude/settings.json.bak.<marca UTC>`; si no es JSON válido, su raíz no es un objeto, `hooks` no es un objeto o `hooks.PreToolUse` no es una lista, termina con código 1 sin escribir. Lo creado, añadido o reemplazado se registra en `.microharness/install.json`, del que dependen `microsdd uninstall` (quita lo instalado y conserva `docs/`, `spec/`, `.microharness/memory.json` y lo ajeno), `microsdd off` y `microsdd on` (retiran o reaplican la fusión); los tres devuelven 1 sin escribir si falta el manifiesto, si la variable `CLAUDECODE` está definida o si stdin no es una TTY. `microsdd status` informa `activo`, `inactivo` o `parcial` sin escribir. Después ejecuta `sdd.py init`, que genera `docs/`, `spec/` y `.microharness/memory.json` sin sobrescribir lo existente. Los documentos usan los nombres `docs/convenciones.md` y `docs/especificaciones.md`; si existen los nombres antiguos `docs/convensiones.md` o `docs/specificaciones.md`, `init` avisa y no mueve archivos.
 
 ### Incluido
 
@@ -100,11 +100,15 @@ Copiados desde `MANIFEST`:
 - `.claude/agents/revisor.md`
 - `.claude/hooks/pretool.py`
 - `.claude/skills/sdd/SKILL.md`
-- `.claude/settings.json` (o el alterno indicado arriba)
+- `.claude/settings.json` (creado o fusionado)
 - `.microharness/sdd.py`
 - `.microharness/python.sh`
 - `CLAUDE.microsdd.md` (copia de `CLAUDE.md` del arnés)
 - `CLAUDE.md` (bloque de registro anexado o archivo nuevo)
+
+Generado por el instalador:
+
+- `.microharness/install.json` (manifiesto de lo creado, añadido o reemplazado)
 
 Generados por `sdd.py init`:
 
@@ -119,7 +123,7 @@ Generados por `sdd.py init`:
 
 Todo lo versionado que no figura en «Incluido», en particular: `assets/`, `scripts/`, `historial/` (si existe), `src/`, `tests/`, `pyproject.toml`, `README.md`, `LICENSE`, `.gitignore`, `.gitattributes`, `CHANGELOG.md` y las specs y la memoria del propio arnés. Tampoco se crea `.microharness/config.json` (API-09), ni se copia `.claude/settings.local.json`, que no se versiona.
 
-Nota: sin `--force`, si una ruta del `MANIFEST` ya existe con contenido distinto (salvo `.claude/settings.json`, que usa el alterno), el instalador informa el conflicto y no escribe nada; revisa antes `CLAUDE.md` y `.claude/settings.json` del repositorio destino.
+Nota: sin `--force`, si una ruta del `MANIFEST` ya existe con contenido distinto (salvo `.claude/settings.json`, que se fusiona), el instalador informa el conflicto y no escribe nada; revisa antes `CLAUDE.md` y `.claude/settings.json` del repositorio destino.
 
 ## Herramienta de release
 

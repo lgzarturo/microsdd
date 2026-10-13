@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "id": "fusion-settings-toggle",
+  "title": "Fusionar .claude/settings.json al instalar, desinstalar con manifiesto y on/off/status solo humano",
+  "state": "terminado",
+  "model": "claude-opus-5-5",
+  "effort": "medium",
+  "max_iterations": 3,
+  "method": {
+    "primary": "SDD",
+    "optional": [],
+    "notes": ""
+  },
+  "scope": {
+    "allowed_paths": [
+      "src/microsdd/installer.py",
+      ".claude/hooks/pretool.py",
+      ".claude/skills/sdd/SKILL.md",
+      "CLAUDE.md",
+      "README.md",
+      "assets/proceso-versionado.md",
+      "tests/test_installer.py",
+      "tests/test_api_publica.py",
+      "tests/test_fusion_settings.py",
+      "spec/fusion-settings-toggle/**"
+    ],
+    "excluded": [
+      ".claude/settings.json",
+      ".claude/agents/**",
+      ".microharness/**",
+      "tests/test_sdd.py",
+      "tests/test_hook_fail_closed.py",
+      "tests/test_bloquear_autoaprobacion.py",
+      "pyproject.toml",
+      "CHANGELOG.md",
+      "scripts/**",
+      "historial/**"
+    ]
+  },
+  "requirements": {
+    "acceptance_ids": [
+      "AC-01",
+      "AC-02",
+      "AC-03",
+      "AC-04",
+      "AC-05",
+      "AC-06",
+      "AC-07",
+      "AC-08",
+      "AC-09",
+      "AC-10",
+      "AC-11",
+      "AC-12",
+      "AC-13",
+      "AC-14",
+      "AC-15"
+    ],
+    "preconditions": [
+      "Python 3.10+ solo con biblioteca estándar",
+      ".claude/settings.json del árbol de trabajo igual a HEAD (con el hook)",
+      "Decisión D-01 del líder: quién edita .claude/hooks/pretool.py, .claude/skills/sdd/SKILL.md y CLAUDE.md",
+      "Decisión D-02: reemplazar y restaurar valores previos distintos",
+      "pretool.py se modifica en último lugar (T11)",
+      "Las aprobaciones de spec y cierre las ejecuta el humano en su terminal"
+    ]
+  },
+  "testing": {
+    "strategy": "tdd",
+    "commands": [
+      [
+        "python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tests",
+        "-v"
+      ]
+    ],
+    "protected_tests": [
+      "tests/test_sdd.py",
+      "tests/test_hook_fail_closed.py",
+      "tests/test_bloquear_autoaprobacion.py"
+    ],
+    "min_tests": 1,
+    "mutation": {
+      "enabled": false,
+      "command": [],
+      "reason": "No hay herramienta de mutación en el proyecto (solo stdlib). La sustituyen la fase RED obligatoria (T05) y las listas exhaustivas de denegación y permiso por rol y herramienta (AC-12, AC-13)."
+    }
+  }
+}
