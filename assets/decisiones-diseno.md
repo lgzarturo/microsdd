@@ -43,9 +43,9 @@ Ninguna fuente se reproduce aquí; la redacción es propia y las citas se limita
 
 ### D-04 · Esfuerzo `medium` explícito y modelo único
 
-- **Decisión:** el esfuerzo se fija de forma explícita en `medium` y el único modelo admitido es `claude-opus-5-5`, tanto en la configuración como en el frontmatter de cada agente y en `spec.json`.
-- **Motivo:** declarar el esfuerzo evita heredar valores de modelos anteriores; fijar un solo modelo hace comparables las tareas del MVP.
-- **Evidencia:** `.claude/settings.json` (`model` y `effortLevel`); frontmatter `effort: medium` en `.claude/agents/*.md`; `validate` en `.microharness/sdd.py` (rechaza otro modelo y admite cinco niveles de `effort`), `new` fija `medium`.
+- **Decisión:** el modelo y el esfuerzo por defecto se declaran de forma explícita en `.microharness/config.json`, archivo opcional de configuración humana; si falta, valen `claude-opus-5-5` y `medium`. Se admite un único modelo a la vez: el configurado, que debe coincidir con la configuración, el frontmatter de cada agente y `spec.json`.
+- **Motivo:** declarar el esfuerzo evita heredar valores de modelos anteriores; fijar un solo modelo hace comparables las tareas del MVP; sacarlo del código permite cambiarlo sin editar `sdd.py`.
+- **Evidencia:** `.claude/settings.json` (`model` y `effortLevel`); frontmatter `effort: medium` en `.claude/agents/*.md`; en `.microharness/sdd.py`, `config()` lee `config.json` junto a `memory.json`, `new` copia sus valores y `validate` rechaza un `spec.model` distinto del configurado salvo en tareas `terminado` y admite cinco niveles de `effort`; protocolo de medición no ejecutado en `assets/eval-esfuerzo.md`.
 - **Fuente:** [GUÍA «Calibra el esfuerzo»]; [PROYECTO]: el artículo recomienda fijar el esfuerzo y medir; restringir el arnés a un único modelo es decisión propia, y el `effort` de `spec.json` es solo una preferencia registrada, ya que el runtime lo toma de la configuración y del frontmatter.
 
 ### D-05 · Solo biblioteca estándar de Python

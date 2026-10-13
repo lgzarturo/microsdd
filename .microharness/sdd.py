@@ -27,6 +27,9 @@ __version__ = '0.1.0'
 SUBJECT_RE = re.compile(r'^([a-z]+)(\([^)]*\))?(!)?: ')
 FINAL_TAG_RE = re.compile(r'^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$')
 LOCK_TIMEOUT = 10.0
+DEFAULT_MODEL = 'claude-opus-5-5'
+DEFAULT_EFFORT = 'medium'
+EFFORTS = ('low', 'medium', 'high', 'xhigh', 'max')
 _LOCK_DEPTH = 0
 # Resúmenes de runners: unittest, pytest, bun y Maven (se usa la última coincidencia de cada uno).
 TEST_COUNT_RES = (
@@ -136,6 +139,29 @@ def task_files(slug: str) -> tuple[Path, dict, dict]:
     return path, load(path / 'spec.json'), load(MEMORY)
 
 
+def config() -> dict:
+    # Configuración humana opcional junto a memory.json; solo lectura.
+    path = MEMORY.parent / 'config.json'
+    cfg = {'model': DEFAULT_MODEL, 'effort': DEFAULT_EFFORT}
+    if not path.exists():
+        return cfg
+    try:
+        data = json.loads(path.read_text(encoding='utf-8'))
+    except json.JSONDecodeError as e:
+        raise ValueError(f'.microharness/config.json: JSON inválido ({e})') from None
+    if not isinstance(data, dict):
+        raise ValueError('.microharness/config.json: debe ser un objeto JSON')
+    unknown = sorted(set(data) - set(cfg))
+    if unknown:
+        raise ValueError(f'.microharness/config.json: claves no admitidas: {", ".join(unknown)}')
+    if 'model' in data and not (isinstance(data['model'], str) and data['model'].strip()):
+        raise ValueError('.microharness/config.json: model debe ser una cadena no vacía')
+    if 'effort' in data and data['effort'] not in EFFORTS:
+        raise ValueError(f'.microharness/config.json: effort debe ser uno de: {", ".join(EFFORTS)}')
+    cfg.update(data)
+    return cfg
+
+
 @memory_lock()
 def ensure_init() -> None:
     (ROOT / 'docs').mkdir(exist_ok=True)
@@ -151,6 +177,7 @@ def ensure_init() -> None:
 
 @memory_lock()
 def new(slug: str) -> None:
+    cfg = config()
     ensure_init()
     path = task_dir(slug)
     if path.exists():
@@ -161,8 +188,8 @@ def new(slug: str) -> None:
         'id': slug,
         'title': 'POR DEFINIR',
         'state': 'pendiente',
-        'model': 'claude-opus-5-5',
-        'effort': 'medium',
+        'model': cfg['model'],
+        'effort': cfg['effort'],
         'max_iterations': 3,
         'method': {'primary': 'SDD', 'optional': [], 'notes': ''},
         'scope': {'allowed_paths': [], 'excluded': []},
@@ -289,6 +316,7 @@ def echo(data: bytes, stream) -> None:
 
 
 def validate(slug: str, run: bool = False, scope: bool = True) -> list[str]:
+    cfg = config()
     path, s, memory = task_files(slug)
     errors: list[str] = []
     for name in TASK_FILES:
@@ -303,10 +331,10 @@ def validate(slug: str, run: bool = False, scope: bool = True) -> list[str]:
         errors.append('ID o versión de spec.json incorrectos')
     if s.get('state') not in STATES:
         errors.append('Estado fuera de la máquina de tres estados')
-    if s.get('model') != 'claude-opus-5-5':
-        errors.append('El modelo debe ser exclusivamente claude-opus-5-5')
-    if s.get('effort') not in ('low', 'medium', 'high', 'xhigh', 'max'):
-        errors.append('Effort inválido')
+    if s.get('state') != 'terminado' and s.get('model') != cfg['model']:
+        errors.append(f"El modelo de spec.json ({s.get('model')}) no coincide con el configurado ({cfg['model']}) en .microharness/config.json")
+    if s.get('effort') not in EFFORTS:
+        errors.append(f'Effort inválido; usa uno de: {", ".join(EFFORTS)}')
     if type(s.get('max_iterations')) is not int or not 1 <= s['max_iterations'] <= 3:
         errors.append('max_iterations debe estar entre 1 y 3')
     method = s.get('method', {})

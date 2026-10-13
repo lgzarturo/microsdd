@@ -31,3 +31,4 @@ Cada tarea va en `spec/<slug>/` con exactamente cuatro documentos: `requerimient
 | `memoria-atomica-lock` | terminado | `dump()` atómico (temporal + `fsync` + `os.replace`) y lock exclusivo `memory.lock` con timeout en las operaciones que mutan la memoria. |
 | `check-min-pruebas` | terminado | `check --run` exige al menos `testing.min_tests` pruebas detectadas por comando (unittest, pytest, bun, Maven, Go); tareas cerradas exentas. |
 | `lista-blanca-runners` | terminado | `testing.commands`/`mutation.command` solo con runners conocidos (ampliable con `project.allowed_test_commands`); tareas cerradas exentas. |
+| `modelo-configurable` | terminado | Modelo y esfuerzo por defecto en `.microharness/config.json` (opcional); `check` compara `spec.model` con él salvo en tareas cerradas; protocolo de mini-eval en `assets/eval-esfuerzo.md` (no ejecutado). |

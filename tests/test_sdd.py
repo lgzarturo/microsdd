@@ -467,6 +467,109 @@ class MicroSDDTests(unittest.TestCase):
         self.assertNotIn('EJECUTANDO:', out)
         self.assertFalse(marker.exists())
 
+    def _write_config(self, text):
+        (sdd.MEMORY.parent / 'config.json').write_text(text, encoding='utf-8')
+
+    def _new_spec(self, slug='x'):
+        with contextlib.redirect_stdout(io.StringIO()):
+            sdd.new(slug)
+        return sdd.load(sdd.ROOT / 'spec' / slug / 'spec.json')
+
+    def _set_spec(self, **values):
+        data = sdd.load(self.folder / 'spec.json')
+        data.update(values)
+        sdd.dump(self.folder / 'spec.json', data)
+
+    def _model_errors(self):
+        return [e for e in sdd.validate('fix-sesiones') if 'modelo' in e.lower()]
+
+    def _effort_errors(self):
+        return [e for e in sdd.validate('fix-sesiones') if 'effort' in e.lower()]
+
+    def test_new_uses_defaults_without_config(self):
+        # AC-01: sin config.json se mantienen claude-opus-5-5 y medium.
+        self.assertFalse((sdd.MEMORY.parent / 'config.json').exists())
+        data = self._new_spec()
+        self.assertEqual((data['model'], data['effort']), ('claude-opus-5-5', 'medium'))
+
+    def test_new_uses_configured_values(self):
+        # AC-02: valores configurados y, para cada clave ausente, el valor por defecto.
+        cases = (('{"model": "claude-prueba-1", "effort": "high"}', ('claude-prueba-1', 'high')),
+                 ('{"model": "claude-prueba-1"}', ('claude-prueba-1', 'medium')),
+                 ('{"effort": "low"}', ('claude-opus-5-5', 'low')))
+        for index, (text, expected) in enumerate(cases):
+            with self.subTest(config=text):
+                self._write_config(text)
+                data = self._new_spec(f'x{index}')
+                self.assertEqual((data['model'], data['effort']), expected)
+
+    def test_check_compares_model_with_config(self):
+        # AC-03: en pendiente y proceso, spec.model debe coincidir con el configurado.
+        self._write_config('{"model": "claude-prueba-1"}')
+        for state in ('pendiente', 'proceso'):
+            with self.subTest(state=state):
+                self._set_spec(state=state, model='claude-opus-5-5')
+                errors = self._model_errors()
+                self.assertEqual(len(errors), 1, errors)
+                for text in ('claude-opus-5-5', 'claude-prueba-1', '.microharness/config.json'):
+                    self.assertIn(text, errors[0])
+                self._set_spec(model='claude-prueba-1')
+                self.assertEqual(self._model_errors(), [])
+
+    def test_check_model_defaults_without_config(self):
+        # AC-03: sin config.json el modelo esperado es claude-opus-5-5.
+        self._set_spec(model='claude-otro')
+        errors = self._model_errors()
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn('claude-otro', errors[0])
+        self._set_spec(model='claude-opus-5-5')
+        self.assertEqual(self._model_errors(), [])
+
+    def test_check_effort_levels(self):
+        # AC-04: effort inválido enumera los niveles; uno válido distinto del configurado no es error.
+        self._set_spec(effort='ultra')
+        errors = self._effort_errors()
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn('low, medium, high, xhigh, max', errors[0])
+        self._write_config('{"effort": "medium"}')
+        self._set_spec(effort='max')
+        self.assertEqual(self._effort_errors(), [])
+
+    def test_check_skips_model_for_closed_task(self):
+        # AC-05: una tarea terminado no se compara con el modelo configurado.
+        sdd.approve('fix-sesiones', 'spec', 'Humano', 'Sí, aprobada')
+        sdd.review('fix-sesiones', 'APROBADO', 'Comparados diff y pruebas')
+        sdd.approve('fix-sesiones', 'close', 'Humano', 'Sí, cerrar tarea')
+        self.assertEqual(sdd.load(self.folder / 'spec.json')['state'], 'terminado')
+        self._write_config('{"model": "claude-prueba-1"}')
+        self.assertEqual(self._model_errors(), [])
+
+    def _run_main(self, *argv):
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.object(sys, 'argv', ['sdd.py', *argv]), \
+                contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            try:
+                code = sdd.main()
+            except SystemExit as e:
+                code = e.code
+        return code, err.getvalue()
+
+    def test_invalid_config_aborts_new_and_check(self):
+        # AC-06: config.json inválido termina con código 1 y ERROR: sin escrituras parciales.
+        invalid = ('{', '[]', '{"model": ""}', '{"model": 5}', '{"effort": "ultra"}', '{"efort": "high"}')
+        for text in invalid:
+            with self.subTest(config=text):
+                self._write_config(text)
+                before = sdd.MEMORY.read_bytes()
+                code, err = self._run_main('new', 'y')
+                self.assertEqual(code, 1)
+                self.assertRegex(err, r'ERROR: .*config\.json')
+                self.assertFalse((sdd.ROOT / 'spec' / 'y').exists())
+                self.assertEqual(sdd.MEMORY.read_bytes(), before)
+                code, err = self._run_main('check', 'fix-sesiones', '--no-scope')
+                self.assertEqual(code, 1)
+                self.assertRegex(err, r'ERROR: .*config\.json')
+
 
 class TestsRanTests(unittest.TestCase):
     def test_recognized_summaries(self):

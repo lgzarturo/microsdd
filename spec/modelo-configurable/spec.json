@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "id": "modelo-configurable",
+  "title": "Modelo y esfuerzo por defecto configurables en .microharness/config.json",
+  "state": "terminado",
+  "model": "claude-opus-5-5",
+  "effort": "medium",
+  "max_iterations": 3,
+  "method": {
+    "primary": "SDD",
+    "optional": [],
+    "notes": ""
+  },
+  "scope": {
+    "allowed_paths": [
+      ".microharness/sdd.py",
+      "tests/**",
+      "README.md",
+      "assets/eval-esfuerzo.md",
+      "assets/decisiones-diseno.md",
+      "docs/arquitectura.md",
+      "spec/modelo-configurable/**"
+    ],
+    "excluded": [
+      "src/microsdd/installer.py",
+      "pyproject.toml",
+      ".claude/**",
+      "scripts/**",
+      ".microharness/config.json"
+    ]
+  },
+  "requirements": {
+    "acceptance_ids": [
+      "AC-01",
+      "AC-02",
+      "AC-03",
+      "AC-04",
+      "AC-05",
+      "AC-06",
+      "AC-07",
+      "AC-08",
+      "AC-09",
+      "AC-10"
+    ],
+    "preconditions": [
+      "Python 3.10+ solo con biblioteca estándar",
+      "El implementador puede modificar .microharness/sdd.py (antes de bloquear-autoaprobacion o con parche aplicado por el humano)"
+    ]
+  },
+  "testing": {
+    "strategy": "tdd",
+    "commands": [
+      [
+        "python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tests",
+        "-v"
+      ]
+    ],
+    "protected_tests": [],
+    "min_tests": 1,
+    "mutation": {
+      "enabled": false,
+      "command": [],
+      "reason": "Lógica de lectura y comparación simple, cubierta por pruebas de casos límite (AC-02..AC-06); el costo de mutación no se justifica para esta lógica."
+    }
+  }
+}

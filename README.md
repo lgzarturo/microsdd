@@ -151,6 +151,7 @@ spec/<slug>/                 # Exactamente cuatro archivos por tarea
   spec.json                  # Máquina de estado y política de ejecución
 .microharness/
   memory.json                # Estado operativo, decisiones, aprobaciones, hashes
+  config.json                # Opcional, humano: modelo y esfuerzo por defecto (no lo crea el instalador)
   sdd.py                     # Puertas estructurales y ejecución de pruebas
 .claude/hooks/pretool.py     # Límites de Write/Edit/Bash según agente
 tests/test_sdd.py            # Pruebas unitarias del controlador
@@ -285,6 +286,29 @@ El comando `new` genera un ejemplo completo y editable con estos campos relevant
 
 `commands` y `mutation.command` son **arreglos de argumentos**, no cadenas shell; el verificador los ejecuta con `shell=False`. No puede determinar que un comando sea confiable: el líder debe verificarlo antes de ejecutar. `max_iterations` limita revisiones declaradas, no las llamadas internas al modelo, y `effort` es una preferencia consignada en la especificación; el runtime real lo configuran settings/frontmatter, no el JSON automáticamente.
 
+### Modelo y esfuerzo por defecto: `.microharness/config.json`
+
+Archivo opcional de configuración humana del proyecto; el instalador no lo crea ni lo distribuye y `sdd.py` solo lo lee. Es un objeto JSON con dos claves opcionales y ninguna otra:
+
+```json
+{ "model": "claude-opus-5-5", "effort": "medium" }
+```
+
+- `model`: cadena no vacía. `effort`: uno de `low`, `medium`, `high`, `xhigh`, `max`.
+- Si el archivo no existe, o falta una clave, se usan `claude-opus-5-5` y `medium`.
+- `new` copia ambos valores en el `spec.json` generado.
+- `check` exige que `spec.model` sea igual al modelo configurado, salvo en tareas `terminado` (no se invalidan al cambiar de modelo). `spec.effort` solo debe ser un nivel válido; puede diferir del configurado.
+- Un archivo inválido (JSON mal formado, no objeto, claves desconocidas o valores inválidos) hace fallar `new`, `check` y `approve` con `ERROR:` y el motivo, sin escrituras.
+
+Cambiar de modelo o esfuerzo es manual y debe hacerse en todas las fuentes, que `check` no sincroniza:
+
+1. `.microharness/config.json` (`model`, `effort`).
+2. `.claude/settings.json` (`model`, `effortLevel`).
+3. El frontmatter `model`/`effort` de los cuatro agentes en `.claude/agents/*.md`.
+4. La línea 14 de `.claude/agents/autor.md`, que nombra el modelo y el esfuerzo de la plantilla.
+
+Las tareas en `pendiente` o `proceso` fallarán `check` hasta actualizar su `spec.model`; ese cambio altera la huella de la especificación y exige reaprobarla.
+
 ### EARS, SDD, RDD, ODD
 
 - **EARS:** en `requerimientos.md`, declarar comportamiento del tipo `WHEN <evento>, THE <sistema> SHALL <respuesta>` y AC con datos de entrada y salida verificables. No sustituye discusiones de dominio difíciles.
@@ -318,6 +342,8 @@ El hook necesita confianza del workspace y uv para estar activo; si falla al arr
 ## 8. Evaluación del MVP
 
 Prueba primero con 3 tareas reales de distinto perfil: **corrección localizada**, **funcionalidad de una sola regla**, y **refactor pequeño sin cambio de comportamiento**. Registra por tarea: cambios de líneas, archivos afectados, porcentaje de AC cumplidos, defectos encontrados por revisor y humano, ciclos de rechazo, tiempo/costo y eventual regresión. Compara con las mismas tareas realizadas con Claude Code sin arnés. El arnés se justifica solo si mejora calidad y control con sobrecarga aceptable.
+
+Para comparar esfuerzo `medium` frente a `high`, ver el protocolo (no ejecutado) en [`assets/eval-esfuerzo.md`](assets/eval-esfuerzo.md).
 
 No agregues más agentes, estado ni pasos hasta observar fallas repetibles.
 

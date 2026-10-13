@@ -1431,6 +1431,47 @@
           "by": "Programador"
         }
       ]
+    },
+    "modelo-configurable": {
+      "approvals": {
+        "spec": {
+          "by": "Programador",
+          "evidence": "Autorización global del programador 2026-10-13 (serie autónoma); Q-01 rechazar claves desconocidas, Q-02 D-04 en alcance, Q-03 autor.md sin tocar, según recomendación del autor",
+          "at": "2026-10-13T07:28:34+00:00",
+          "fingerprint": "e68e272a4edd422beb3b9ac575908b8cc55a9cf33bdd9799a0919d3d0d0ab598"
+        },
+        "close": {
+          "by": "Programador",
+          "evidence": "Autorización global del programador en sesión 2026-10-13 para cerrar y commitear las tareas de la serie sin aprobación por paso",
+          "at": "2026-10-13T07:33:20+00:00"
+        }
+      },
+      "sealed_tests": {},
+      "review": "APROBADO",
+      "review_fingerprint": "9fcb264d969c92dd17eed6e2fdeab356d20515af97150ce0293b5cb0dd4af84c",
+      "iterations": 1,
+      "events": [
+        {
+          "at": "2026-10-13T07:25:42+00:00",
+          "event": "creada"
+        },
+        {
+          "at": "2026-10-13T07:28:34+00:00",
+          "event": "aprobación_spec",
+          "by": "Programador"
+        },
+        {
+          "at": "2026-10-13T07:33:12+00:00",
+          "event": "revisión",
+          "verdict": "APROBADO",
+          "evidence": "Revisor independiente 2026-10-13: AC-01..AC-09 cumplidos y D-04 actualizado; @memory_lock conservado en las seis mutadoras; config() valida antes de escribir; modelo exento en terminado; eval-esfuerzo.md sin resultados. check --run: Ran 148 tests OK (skipped=2). Observaciones menores: UnicodeDecodeError sin nombrar config.json; redacción de D-04."
+        },
+        {
+          "at": "2026-10-13T07:33:20+00:00",
+          "event": "aprobación_close",
+          "by": "Programador"
+        }
+      ]
     }
   }
 }
