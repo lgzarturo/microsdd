@@ -17,14 +17,15 @@ Se basa en Semantic Versioning 2.0.0 (https://semver.org/lang/es/) y en Conventi
 
 ## API pública
 
-- **API-01** · CLI de `.microharness/sdd.py`: subcomandos `init`, `new`, `check` (`--run`, `--no-scope`), `approve` (`spec`/`close`, `--by`, `--evidence`), `review` (`APROBADO`/`RECHAZADO`, `--evidence`), `seal` (`--by`) y `commit-check`; código de salida 0 en éxito y 1 en error de ejecución (los errores de uso de argumentos devuelven 2, comportamiento estándar de `argparse`).
-- **API-02** · Esquema de `spec.json` (`schema_version` 1): campos y valores que acepta `validate` (`id`, `state`, `model`, `effort`, `max_iterations`, `method`, `scope`, `requirements`, `testing`).
-- **API-03** · Esquema de `.microharness/memory.json` (`schema_version` 1): `project` y `tasks`, con aprobaciones, sellos, revisión, iteraciones y eventos de cada tarea.
+- **API-01** · CLI de `.microharness/sdd.py`: subcomandos `init`, `new`, `check` (`--run`, `--no-scope`), `approve` (`spec`/`close`, `--by`, `--evidence`), `review` (`APROBADO`/`RECHAZADO`, `--evidence`), `seal` (`--by`), `note` (`--fact`, `--decision`, `--by`, `--evidence`), `commit-check` y `release` (acción `propose`), más la opción global `--version`; código de salida 0 en éxito y 1 en error de ejecución, incluidos el tiempo de espera del lock y los fallos de integridad (los errores de uso de argumentos devuelven 2, comportamiento estándar de `argparse`). El lanzador `.microharness/python.sh` ejecuta sus argumentos con el primer Python ≥ 3.10 válido (respeta `MICROSDD_PYTHON`) y devuelve 2 si no encuentra un intérprete válido.
+- **API-02** · Esquema de `spec.json` (`schema_version` 1): campos y valores que acepta `validate` (`id`, `state`, `model`, `effort`, `max_iterations`, `method`, `scope`, `requirements`, `testing`), incluido `testing.min_tests` (entero ≥ 1, opcional, 1 por defecto); salvo en `terminado`, `testing.commands` y `mutation.command` deben empezar por un runner de la lista blanca de `sdd.py`, ampliable con `project.allowed_test_commands`.
+- **API-03** · Esquema de `.microharness/memory.json` (`schema_version` 1): `project` (incluido el opcional `project.allowed_test_commands`) y `tasks`, con aprobaciones, sellos, revisión, iteraciones y eventos de cada tarea. `check` compara la memoria con `HEAD:.microharness/memory.json`: los eventos confirmados son inmutables y los campos vigilados solo cambian con un evento nuevo que lo justifique. El archivo de lock `.microharness/memory.lock` no se versiona y su contenido no es API.
 - **API-04** · Estructura de tarea `spec/<slug>/`: cuatro archivos (`requerimientos.md`, `plan.md`, `tareas.md`, `spec.json`), formato de slug y los tres estados (`pendiente`, `proceso`, `terminado`).
-- **API-05** · Contratos de agentes en `.claude/agents/`: nombres, responsabilidades, frontmatter (`model`, `effort` y, cuando se declara, `tools`) y restricciones por rol que aplica `.claude/hooks/pretool.py`.
+- **API-05** · Contratos de agentes en `.claude/agents/`: nombres, responsabilidades, frontmatter (`model`, `effort` y, cuando se declara, `tools`) y restricciones por rol que aplica `.claude/hooks/pretool.py`, que además deniega `Write`, `Edit`, `MultiEdit`, `NotebookEdit`, `Bash` y `PowerShell` a cualquier agente distinto de `autor`, `implementador`, `revisor` o `lider` (fail-closed).
 - **API-06** · `.claude/settings.json` (agente predeterminado, modelo, esfuerzo y registro del hook) y la skill `/sdd`.
 - **API-07** · Formato de mensaje aceptado por `commit-check`.
 - **API-08** · Conjunto de rutas instaladas (sección «Instalación»).
+- **API-09** · `.microharness/config.json`: archivo humano opcional con las claves `model` y `effort` (valores por defecto de `sdd.py`; otras claves son error). No lo crea el instalador.
 
 No forman parte de la API pública: los textos de los mensajes de salida y de error (sí sus códigos de salida), las funciones internas de `sdd.py`, `tests/`, `README.md`, `assets/`, `CHANGELOG.md` y las specs y la memoria del propio arnés.
 
@@ -39,7 +40,7 @@ Justificación: de estos elementos dependen un repositorio instalado, sus specs 
 | `fix`, `perf` | corrección compatible | PATCH |
 | `docs`, `test`, `refactor`, `chore` | sin cambio de API | ninguno propio |
 
-- El tipo es una señal; manda el efecto real sobre API-01 a API-08. Un `docs` o `refactor` que cambie un contrato de agente de forma incompatible debe llevar `!`.
+- El tipo es una señal; manda el efecto real sobre API-01 a API-09. Un `docs` o `refactor` que cambie un contrato de agente de forma incompatible debe llevar `!`.
 - El release toma el mayor incremento entre los commits desde el último tag. MAJOR pone MINOR y PATCH a 0; MINOR pone PATCH a 0. Si solo hay commits sin incremento propio, no se publica versión.
 - Lo incompatible se marca con `!` en el asunto (por ejemplo, `feat!: ...`), porque `commit-check` solo valida un mensaje de una línea: un mensaje con cuerpo o con pie `BREAKING CHANGE:` es rechazado. El pie puede añadirse en el cuerpo del commit, pero `commit-check` se aplica solo a la primera línea.
 
@@ -88,34 +89,38 @@ Mientras no exista la herramienta de release, los pasos 3 y 5 se hacen a mano; c
 
 ## Instalación
 
-Una instalación copia todo el contenido versionado del arnés, excepto lo indicado en «Excluido».
+El instalador (`src/microsdd/installer.py`) copia solo las rutas de su `MANIFEST`: el `CLAUDE.md` del arnés se instala como `CLAUDE.microsdd.md` y al `CLAUDE.md` destino se le anexa un bloque de registro que lo importa (o se crea con ese bloque). Si `.claude/settings.json` ya existe y difiere, se escribe `.claude/settings.microsdd.json` para fusionarlo a mano. Después ejecuta `sdd.py init`, que genera `docs/`, `spec/` y `.microharness/memory.json` sin sobrescribir lo existente. Los documentos usan los nombres `docs/convenciones.md` y `docs/especificaciones.md`; si existen los nombres antiguos `docs/convensiones.md` o `docs/specificaciones.md`, `init` avisa y no mueve archivos.
 
 ### Incluido
 
-Todo el contenido versionado, cuyos elementos principales son:
+Copiados desde `MANIFEST`:
 
-- `README.md`
-- `CLAUDE.md`
-- `.gitignore`
-- `.claude/settings.json`
-- `.claude/agents/` (cuatro agentes: `autor`, `implementador`, `lider` y `revisor`)
+- `.claude/agents/autor.md`
+- `.claude/agents/implementador.md`
+- `.claude/agents/lider.md`
+- `.claude/agents/revisor.md`
 - `.claude/hooks/pretool.py`
 - `.claude/skills/sdd/SKILL.md`
+- `.claude/settings.json` (o el alterno indicado arriba)
 - `.microharness/sdd.py`
-- `.microharness/memory.json`
-- `docs/` (cuatro documentos generales)
-- `spec/`
-- `tests/test_sdd.py`
+- `.microharness/python.sh`
+- `CLAUDE.microsdd.md` (copia de `CLAUDE.md` del arnés)
+- `CLAUDE.md` (bloque de registro anexado o archivo nuevo)
 
-Cuando exista, `CHANGELOG.md` también se incluirá por estar versionado.
+Generados por `sdd.py init`:
+
+- `docs/AGENT.md`
+- `docs/arquitectura.md`
+- `docs/convenciones.md`
+- `docs/especificaciones.md`
+- `.microharness/memory.json`
+- `spec/`
 
 ### Excluido
 
-- `assets/`: material de consulta; es la única exclusión.
+Todo lo versionado que no figura en «Incluido», en particular: `assets/`, `scripts/`, `historial/` (si existe), `src/`, `tests/`, `pyproject.toml`, `README.md`, `LICENSE`, `.gitignore`, `.gitattributes`, `CHANGELOG.md` (cuando exista) y las specs y la memoria del propio arnés. Tampoco se crea `.microharness/config.json` (API-09), ni se copia `.claude/settings.local.json`, que no se versiona.
 
-Como hecho, no como exclusión nueva: `.claude/settings.local.json` no se versiona porque figura en `.gitignore`, por lo que no forma parte del contenido copiado.
-
-Nota: antes de copiar, revisa conflictos con archivos homónimos del repositorio destino, en especial `README.md`, `CLAUDE.md`, `.gitignore` y `.claude/settings.json`.
+Nota: sin `--force`, si una ruta del `MANIFEST` ya existe con contenido distinto (salvo `.claude/settings.json`, que usa el alterno), el instalador informa el conflicto y no escribe nada; revisa antes `CLAUDE.md` y `.claude/settings.json` del repositorio destino.
 
 ## Herramienta de release
 

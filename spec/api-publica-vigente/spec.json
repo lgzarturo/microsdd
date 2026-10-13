@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "id": "api-publica-vigente",
+  "title": "Actualiza «API pública» e «Instalación» de assets/proceso-versionado.md al código actual (C-01) y añade una prueba que impide su divergencia con el parser de sdd.py y el MANIFEST del instalador",
+  "state": "terminado",
+  "model": "claude-opus-5-5",
+  "effort": "medium",
+  "max_iterations": 3,
+  "method": {
+    "primary": "SDD",
+    "optional": [],
+    "notes": "Solo SDD; RDD y ODD no se activan por falta de definición operativa para esta tarea."
+  },
+  "scope": {
+    "allowed_paths": [
+      "assets/proceso-versionado.md",
+      "tests/test_api_publica.py",
+      "docs/**",
+      "spec/api-publica-vigente/**"
+    ],
+    "excluded": [
+      ".microharness/sdd.py",
+      "src/**",
+      ".claude/**",
+      "pyproject.toml",
+      "README.md",
+      "CLAUDE.md",
+      "scripts/**",
+      "tests/ existentes (test_sdd.py, test_installer.py, etc.)",
+      "secciones de assets/proceso-versionado.md distintas de «API pública», la viñeta «El tipo es una señal…» de «Reglas de incremento» e «Instalación» (en especial «Estado actual», la frase del primer tag en «Fase 0.y.z» y la frase sobre CHANGELOG.md en «Herramienta de release», que corresponden a release-v1-0-0)",
+      "spec de otras tareas (incluida spec/release-v1-0-0/**)",
+      "docs/** salvo por el líder antes de la revisión"
+    ]
+  },
+  "requirements": {
+    "acceptance_ids": [
+      "AC-01",
+      "AC-02",
+      "AC-03",
+      "AC-04",
+      "AC-05",
+      "AC-06",
+      "AC-07",
+      "AC-08",
+      "AC-09",
+      "AC-10",
+      "AC-11"
+    ],
+    "preconditions": [
+      "HEAD 5caba80 en main, sin tags; suite en verde (171 pruebas, OK skipped=2)",
+      "Se implementa y cierra antes que release-v1-0-0",
+      "Aprobación humana spec, incluidas las decisiones D-01 a D-05 de plan.md"
+    ]
+  },
+  "testing": {
+    "strategy": "tdd",
+    "commands": [
+      [
+        "python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tests",
+        "-v"
+      ]
+    ],
+    "protected_tests": [
+      "tests/test_api_publica.py"
+    ],
+    "min_tests": 172,
+    "mutation": {
+      "enabled": false,
+      "command": [],
+      "reason": "Sin lógica de producción nueva (solo documento y una prueba de coherencia) y sin herramienta de mutación en el proyecto (solo stdlib). Sustituto proporcional: fase RED de T01 contra el documento actual y mutaciones manuales de T07 (quitar `note` de API-01, añadir `README.md` a «Incluido») que deben hacer fallar la prueba."
+    }
+  }
+}
