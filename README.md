@@ -336,6 +336,7 @@ Las tareas en `pendiente` o `proceso` fallarán `check` hasta actualizar su `spe
 | Huella de revisión | Hash de archivos cambiados en el diff | Detecta nuevos cambios de código después de `APROBADO`; no protege de Git/memoria manipulados |
 | Tests y mutación | `check --run` | Código de salida de comandos configurados y, en tareas no `terminado`, recuento mínimo de pruebas ejecutadas por comando (`testing.min_tests`, sin contar la mutación); un resumen falso o una prueba deficiente no prueba corrección |
 | Lista blanca de runners | `sdd.py check` | En tareas no `terminado`, `testing.commands` y `mutation.command` activo deben empezar por un prefijo conocido o ampliado en `project.allowed_test_commands`; acota el ejecutable, no el código del proyecto que el runner ejecuta, y la ampliación vive en `memory.json` editable |
+| Integridad de la memoria | `validate` (`check`, `approve`) frente a `HEAD:.microharness/memory.json` | Compara todas las tareas confirmadas en el último commit: `events` debe conservar como prefijo los eventos confirmados (solo se añade al final); un cambio en `approvals.spec` exige un evento nuevo `aprobación_spec`, en `approvals.close` `aprobación_close` o `aprobación_spec`, en `sealed_tests` `sellado_tests`, y en `review`, `review_fingerprint` o `iterations` `revisión` o `aprobación_spec`; una tarea cerrada en `HEAD` no puede cambiar ni reabrirse, y no puede desaparecer de la memoria mientras exista su `spec/<slug>/`. No aplica sin repositorio, sin commits o sin memoria en `HEAD`; una memoria de `HEAD` ilegible es error. No compara tareas aún no confirmadas ni `project`. Detecta, no impide (ver limitaciones) |
 | Reviews y aprobación | Líder + JSON | Contrato procedimental; no autentica al humano |
 | Conventional Commits | `commit-check` | Comprueba patrón básico; el carácter atómico depende del `git add` y revisión humana |
 
@@ -359,6 +360,8 @@ No agregues más agentes, estado ni pasos hasta observar fallas repetibles.
 - https://code.claude.com/docs/en/hooks
 
 **Limitaciones conocidas:** sin autenticación de aprobaciones, sin sandbox obligatorio, sin validación semántica automática de AC, sin control de costos/tokens por agente, sin comparador histórico de benchmarks. Son límites intencionales del MVP, no características implementadas.
+
+**Integridad de `memory.json`:** la comprobación detecta, no impide. Su base es el último commit (`HEAD`): quien confirma `memory.json` fija la nueva base, de modo que una manipulación confirmada (o un `HEAD` reescrito) se acepta, y un agente puede añadir al final el evento que justifica un cambio fabricado. La protección efectiva depende de que el humano revise el diff de `.microharness/memory.json` antes de cada commit. Ante un error `Integridad de memoria`, recupera la memoria versionada con `git restore --source=HEAD -- .microharness/memory.json` o, si el cambio es legítimo (p. ej. una corrección manual), confírmalo tras revisar el diff. Un error en cualquier tarea bloquea `check` y `approve` de todas. Cualquier fallo de `git show` (incluido uno forzado por el entorno, p. ej. `GIT_DIR`) deja la comprobación en «no aplica»; solo una memoria presente en `HEAD` pero ilegible (no UTF-8, no JSON o `tasks` no objeto) es error.
 
 ## 10. Licencia
 

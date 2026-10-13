@@ -48,6 +48,15 @@ TEST_COMMANDS = (
     ('bun', 'test'), ('go', 'test'), ('cargo', 'test'), ('mvn', 'test'), ('./mvnw', 'test'),
     ('gradle', 'test'), ('./gradlew', 'test'), ('mutmut', 'run'),
 )
+# Campos vigilados de cada tarea abierta en HEAD y tipos de evento nuevo que justifican su cambio.
+INTEGRITY_FIELDS = (
+    (('approvals', 'spec'), ('aprobación_spec',)),
+    (('approvals', 'close'), ('aprobación_close', 'aprobación_spec')),
+    (('sealed_tests',), ('sellado_tests',)),
+    (('review',), ('revisión', 'aprobación_spec')),
+    (('review_fingerprint',), ('revisión', 'aprobación_spec')),
+    (('iterations',), ('revisión', 'aprobación_spec')),
+)
 
 
 def dump(path: Path, data: dict) -> None:
@@ -325,6 +334,62 @@ def echo(data: bytes, stream) -> None:
         buffer.flush()
 
 
+def _field(task, path: tuple[str, ...]):
+    for key in path:
+        task = task.get(key) if isinstance(task, dict) else None
+    return task
+
+
+def memory_integrity(memory: dict) -> list[str]:
+    # Detección relativa a HEAD: no impide editar memory.json; quien confirma fija la nueva base.
+    try:
+        raw = git('show', f'HEAD:{MEMORY.relative_to(ROOT).as_posix()}')
+    except UnicodeDecodeError:
+        raw = None  # Existe en HEAD pero no es UTF-8 válido: ilegible, no «no aplica».
+    except (ValueError, OSError):
+        return []  # Sin repositorio, sin commits o sin memoria en HEAD: no aplica.
+    try:
+        base_tasks = json.loads(raw).get('tasks') if raw is not None else None
+    except (ValueError, AttributeError):
+        base_tasks = None
+    if not isinstance(base_tasks, dict):
+        return ['Integridad de memoria: .microharness/memory.json: memoria versionada en HEAD ilegible; '
+                'confirma una memoria válida']
+    work_tasks = memory.get('tasks') if isinstance(memory.get('tasks'), dict) else {}
+    errors: list[str] = []
+    for slug, base in base_tasks.items():
+        tag = f'Integridad de memoria: {slug}:'
+        if slug not in work_tasks:
+            if (ROOT / 'spec' / slug).is_dir():
+                errors.append(f'{tag} tarea eliminada de la memoria')
+            continue
+        work = work_tasks[slug]
+        if _field(base, ('approvals', 'close')) is not None:
+            if work != base:
+                errors.append(f'{tag} tarea cerrada modificada')
+            spec_path = ROOT / 'spec' / slug / 'spec.json'
+            if spec_path.is_file():
+                try:
+                    state = load(spec_path).get('state')
+                except (OSError, ValueError, AttributeError):
+                    state = None
+                if state != 'terminado':
+                    errors.append(f'{tag} tarea cerrada reabierta (spec.json no está en terminado)')
+            continue
+        base_events = _field(base, ('events',))
+        base_events = base_events if isinstance(base_events, list) else []
+        work_events = _field(work, ('events',))
+        new_events: set = set()
+        if not isinstance(work_events, list) or work_events[:len(base_events)] != base_events:
+            errors.append(f'{tag} events: se borraron, alteraron o reordenaron eventos confirmados')
+        else:
+            new_events = {e.get('event') for e in work_events[len(base_events):] if isinstance(e, dict)}
+        for path, kinds in INTEGRITY_FIELDS:
+            if _field(work, path) != _field(base, path) and not new_events.intersection(kinds):
+                errors.append(f'{tag} {".".join(path)} cambió sin evento {" o ".join(kinds)}')
+    return errors
+
+
 def validate(slug: str, run: bool = False, scope: bool = True) -> list[str]:
     cfg = config()
     path, s, memory = task_files(slug)
@@ -337,6 +402,7 @@ def validate(slug: str, run: bool = False, scope: bool = True) -> list[str]:
             errors.append(f'Nombre de archivo no ASCII en spec/{slug}/: {entry.name}')
     if errors:
         return errors
+    errors.extend(memory_integrity(memory))
     if s.get('id') != slug or s.get('schema_version') != 1:
         errors.append('ID o versión de spec.json incorrectos')
     if s.get('state') not in STATES:

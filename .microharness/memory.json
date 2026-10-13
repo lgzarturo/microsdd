@@ -372,6 +372,12 @@
         "by": "Líder (autorización global del Programador)",
         "decision": "memoria-atomica-lock: se autoriza ampliar el filtro outside() de tests/test_limpiar_arnes.py para excluir también .microharness/memory.lock (artefacto ignorado que ahora crea init). La aserción no cambia; dentro de tests/**.",
         "evidence": "Informe del implementador: único fallo de la suite en test_keeps_other_files_head_index_and_prints_next_steps por memory.lock; autorización global del programador 2026-10-13"
+      },
+      {
+        "at": "2026-10-13T08:53:15+00:00",
+        "by": "Líder (autorización global del Programador)",
+        "decision": "integridad-aprobaciones: se acepta que memory_integrity se ejecute tras el retorno temprano por archivos de spec faltantes o no ASCII (desviación menor del plan), pues check y approve ya fallan en ese caso.",
+        "evidence": "Informe del implementador 2026-10-13"
       }
     ]
   },
@@ -1515,6 +1521,63 @@
         },
         {
           "at": "2026-10-13T07:43:31+00:00",
+          "event": "aprobación_close",
+          "by": "Programador"
+        }
+      ]
+    },
+    "integridad-aprobaciones": {
+      "approvals": {
+        "spec": {
+          "by": "Programador",
+          "evidence": "Autorización global del programador 2026-10-13 (serie autónoma); D-02 sin trailer Approved-by; Q-01 project fuera de alcance; Q-02 HEAD ilegible falla; Q-03 se mantiene el orden de la serie (esta antes de bloquear-autoaprobacion, que va última)",
+          "at": "2026-10-13T07:48:27+00:00",
+          "fingerprint": "188c728366b79f9645d6a45a4fb89ba3f4be0015885f4a0a5bc13a85bf716e02"
+        },
+        "close": {
+          "by": "Programador",
+          "evidence": "Autorización global del programador en sesión 2026-10-13 para cerrar y commitear las tareas de la serie sin aprobación por paso",
+          "at": "2026-10-13T08:57:42+00:00"
+        }
+      },
+      "sealed_tests": {
+        "tests/test_integridad_memoria.py": "634b99cb93efe0c93514a7b7acde736ed240b86dfbdb8aaa91c5ac99dd17c84e"
+      },
+      "review": "APROBADO",
+      "review_fingerprint": "7e96a9f2d9eb7228eda5ebf7eb8a36dfc07ac0654aad22ab31999106eb93af88",
+      "iterations": 2,
+      "events": [
+        {
+          "at": "2026-10-13T07:43:36+00:00",
+          "event": "creada"
+        },
+        {
+          "at": "2026-10-13T07:48:27+00:00",
+          "event": "aprobación_spec",
+          "by": "Programador"
+        },
+        {
+          "at": "2026-10-13T08:51:33+00:00",
+          "event": "sellado_tests",
+          "by": "Programador",
+          "files": [
+            "tests/test_integridad_memoria.py"
+          ]
+        },
+        {
+          "at": "2026-10-13T08:55:32+00:00",
+          "event": "revisión",
+          "verdict": "RECHAZADO",
+          "evidence": "Revisor 2026-10-13: sdd.py git() decodifica UTF-8 estricto; UnicodeDecodeError (subclase de ValueError) hace que memory_integrity devuelva [] en vez de 'HEAD ilegible' (incumple REQ-02/Q-02). Menor: README no menciona que cualquier fallo de git show deja 'no aplica'."
+        },
+        {
+          "at": "2026-10-13T08:57:32+00:00",
+          "event": "revisión",
+          "verdict": "APROBADO",
+          "evidence": "Revisor independiente, iteración 2, 2026-10-13: AC-01..AC-13 cumplidos; corregido UnicodeDecodeError como HEAD ilegible con prueba nueva; README con límites. Prueba sellada intacta (634b99cb…c84e). check --run: Ran 166 tests OK (skipped=2)."
+        },
+        {
+          "at": "2026-10-13T08:57:42+00:00",
           "event": "aprobación_close",
           "by": "Programador"
         }

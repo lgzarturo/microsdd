@@ -1,0 +1,15 @@
+# PASOS: trabajo verificable
+
+Pruebas nuevas en `tests/test_integridad_memoria.py` (archivo nuevo; reutiliza el patrón de `tests/test_sdd.py`: carga `sdd.py` con `importlib`, reasigna `sdd.ROOT`/`sdd.MEMORY` a un temporal, crea repo con `git init` + commit con `commit.gpgsign=false`; `skipUnless(shutil.which('git'))`). Helper local: `commit_all()` que confirma `memory.json` y `spec/`. No se modifican pruebas existentes.
+
+- [ ] T01 (AC-01, AC-02): pruebas RED de «no aplica» (sin repo, repo sin commits, `HEAD` sin `memory.json`) y de base ilegible (texto no JSON; `tasks` lista).
+- [ ] T02 (AC-03): pruebas RED de `events`: borrar `creada`, cambiar `at`, insertar antes del último confirmado → error con slug y `events`; añadir al final → sin error de `events`.
+- [ ] T03 (AC-04): prueba RED parametrizada con `subTest` por cada campo de la tabla: cambio sin evento → error con el campo; con evento justificante → sin error; con evento no justificante → error.
+- [ ] T04 (AC-05): prueba RED sin falsos positivos con las operaciones reales `approve spec`, cambio de spec + `approve spec`, `seal`, `review RECHAZADO`, `review APROBADO`, `approve close`, validando tras cada paso (solo se filtran mensajes `Integridad de memoria`).
+- [ ] T05 (AC-06, AC-07, AC-08): pruebas RED de tarea cerrada (modificada, reabierta, intacta), tarea eliminada con y sin `spec/<slug>/` (simulación de limpieza + `new`), tarea nueva no confirmada y cambio en `project`.
+- [ ] T06 (AC-09, AC-10, AC-11): pruebas RED de alcance global y `--no-scope` vía `main()` (código 1, `ERROR: Integridad de memoria` en stderr), de `approve spec` bloqueado sin escritura (bytes iguales) y `run=True` sin `EJECUTANDO:`, y de una sola invocación `git` con `HEAD:.microharness/memory.json` (doble sobre `sdd.subprocess.run` que delega en el real).
+- [ ] T07: ejecutar la suite y comprobar que las pruebas nuevas de T01-T06 fallan por la razón esperada (RED) y las existentes pasan. Comunicar al líder para el sellado humano de `tests/test_integridad_memoria.py`.
+- [ ] T08 (AC-01..AC-11): implementar en `.microharness/sdd.py` (por Bash) la constante `INTEGRITY_FIELDS` y `memory_integrity(memory)` según `plan.md` D-01, y llamarla desde `validate` tras cargar la memoria. Sin otros cambios de comportamiento.
+- [ ] T09 (AC-13): ejecutar `sh .microharness/python.sh -m unittest discover -s tests -v` (todo en verde) y `sh .microharness/python.sh .microharness/sdd.py check integridad-aprobaciones --no-scope` sin errores de integridad sobre este repositorio.
+- [ ] T10 (AC-12): actualizar `README.md`: fila en la tabla de controles (comparación con `HEAD`, append-only de `events`, tabla de eventos justificantes, tareas cerradas inmutables) y párrafo en limitaciones (detecta, no impide; base = último commit; recuperación con `git restore --source=HEAD -- .microharness/memory.json` o confirmar tras revisar). `docs/` lo actualiza el líder.
+- [ ] T11 (AC-13): `check integridad-aprobaciones --run` y entrega al revisor con salida literal.
