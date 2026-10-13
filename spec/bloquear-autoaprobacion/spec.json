@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "id": "bloquear-autoaprobacion",
+  "title": "Bloquear autoaprobación: el hook niega approve/seal y la edición de .microharness/ a los agentes (salvo sdd.py/python.sh al implementador en alcance); sdd.py exige TTY sin CLAUDECODE",
+  "state": "terminado",
+  "model": "claude-opus-5-5",
+  "effort": "medium",
+  "max_iterations": 3,
+  "method": {
+    "primary": "SDD",
+    "optional": [],
+    "notes": ""
+  },
+  "scope": {
+    "allowed_paths": [
+      ".claude/hooks/pretool.py",
+      ".claude/agents/lider.md",
+      ".microharness/sdd.py",
+      "tests/**",
+      "README.md",
+      "CHANGELOG.md",
+      "assets/proceso-versionado.md",
+      "docs/arquitectura.md",
+      "docs/especificaciones.md",
+      "spec/bloquear-autoaprobacion/**"
+    ],
+    "excluded": [
+      ".claude/settings.json",
+      ".claude/agents/autor.md",
+      ".claude/agents/implementador.md",
+      ".claude/agents/revisor.md",
+      ".claude/skills/**",
+      ".microharness/memory.json",
+      ".microharness/config.json",
+      ".microharness/python.sh",
+      "CLAUDE.md",
+      "src/**",
+      "pyproject.toml",
+      "scripts/**"
+    ]
+  },
+  "requirements": {
+    "acceptance_ids": [
+      "AC-01",
+      "AC-02",
+      "AC-03",
+      "AC-04",
+      "AC-05",
+      "AC-06",
+      "AC-07",
+      "AC-08",
+      "AC-09",
+      "AC-10",
+      "AC-11",
+      "AC-12",
+      "AC-13",
+      "AC-14",
+      "AC-15",
+      "AC-16",
+      "AC-17"
+    ],
+    "preconditions": [
+      "Python 3.10+ solo con biblioteca estándar",
+      "Decisión del líder Q-01 sobre cómo se editan .claude/ y .microharness/sdd.py en esta tarea (el hook vigente lo niega al implementador)",
+      "Decisión Q-05 sobre el asunto del commit (con o sin !) y el grupo de CHANGELOG",
+      "pretool.py se modifica en último lugar (T12)",
+      "La aprobación de spec y de cierre las ejecuta el humano en su terminal"
+    ]
+  },
+  "testing": {
+    "strategy": "tdd",
+    "commands": [
+      [
+        "python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tests",
+        "-v"
+      ]
+    ],
+    "protected_tests": [],
+    "mutation": {
+      "enabled": false,
+      "command": [],
+      "reason": "No hay herramienta de mutación en el proyecto (solo stdlib). Lo sustituyen la fase RED obligatoria (T07: las pruebas nuevas deben fallar antes de implementar) y las listas exhaustivas de bypass y de no regresión por rol y herramienta."
+    }
+  }
+}

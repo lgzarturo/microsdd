@@ -1277,17 +1277,48 @@
     },
     "bloquear-autoaprobacion": {
       "approvals": {
-        "spec": null,
-        "close": null
+        "spec": {
+          "by": "Programador",
+          "evidence": "Contenido aprobado explícitamente por el programador en sesión 2026-10-13 (AskUserQuestion: excepciones git y lanzador, sin sello, R-02 a R-04 aceptados, implementación por Bash con pretool.py al final) y autorización global posterior; actualización de la spec a HEAD c257391 con mitigación de R-01 (Write/Edit del implementador solo sobre sdd.py y python.sh dentro de allowed_paths), Q-01 Bash en esta tarea, Q-05 commit con ! en Incompatible",
+          "at": "2026-10-13T09:31:17+00:00",
+          "fingerprint": "0848062bba70c00c73960fe0dbd8b159601beadc06b4f77e120b874408c0c9a9"
+        },
+        "close": {
+          "by": "Programador",
+          "evidence": "Cierre aprobado por el programador en su terminal, 2026-10-13",
+          "at": "2026-10-13T12:21:55+00:00"
+        }
       },
       "sealed_tests": {},
-      "review": null,
-      "review_fingerprint": null,
-      "iterations": 0,
+      "review": "APROBADO",
+      "review_fingerprint": "e589eb2d49c2059897e58b22d6769b39538f8870a3ef037f07bafecf99def7e4",
+      "iterations": 2,
       "events": [
         {
           "at": "2026-10-13T06:35:04+00:00",
           "event": "creada"
+        },
+        {
+          "at": "2026-10-13T09:31:17+00:00",
+          "event": "aprobación_spec",
+          "by": "Programador"
+        },
+        {
+          "at": "2026-10-13T09:42:42+00:00",
+          "event": "revisión",
+          "verdict": "RECHAZADO",
+          "evidence": "Revisor 2026-10-13, iteración 1: (1) docs/arquitectura.md afirma una excepción git commit que legit_exception no tiene; (2) bypass en PowerShell con comillas tipográficas U+2018..U+201E: shlex las trata como texto y PowerShell como comillas, lo que permite encadenar sentencias tras una invocación permitida. Resto de AC verificado; check --run OK con 191 pruebas."
+        },
+        {
+          "at": "2026-10-13T09:44:41+00:00",
+          "event": "revisión",
+          "verdict": "APROBADO",
+          "evidence": "Revisor independiente 2026-10-13, iteración 2: AC-01..AC-17 cumplidos; corregidos docs/arquitectura (sin excepción git commit) y bypass por comillas tipográficas (U+2018..U+201E prohibidos en tokens con 8 casos nuevos). check --run del líder y del revisor: Ran 191 tests OK (skipped=2)."
+        },
+        {
+          "at": "2026-10-13T12:21:55+00:00",
+          "event": "aprobación_close",
+          "by": "Programador"
         }
       ]
     },

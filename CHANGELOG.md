@@ -7,6 +7,7 @@ Formato y reglas: `assets/proceso-versionado.md` (R-04). Entradas derivadas de l
 ### Incompatible
 - `spec`: renombra diseño.md a plan.md en las 15 tareas (289b996)
 - `docs`: renombra convensiones.md y specificaciones.md (64e4733)
+- `hook`: impide que los agentes aprueben, sellen o editen la memoria
 
 ### Añadido
 - definir espacio de memoria (bd91f95)

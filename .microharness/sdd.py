@@ -698,6 +698,10 @@ def main() -> int:
     rel.add_subparsers(dest='action', required=True).add_parser('propose')
     args = p.parse_args()
     try:
+        if args.command in ('approve', 'seal') and (
+                'CLAUDECODE' in os.environ or sys.stdin is None or not sys.stdin.isatty()):
+            raise ValueError(f'{args.command} es una decisión humana: ejecútalo tú en una terminal '
+                             'interactiva, fuera de Claude Code.')
         if args.command == 'init': ensure_init()
         elif args.command == 'new': new(args.slug)
         elif args.command == 'check':

@@ -212,6 +212,13 @@ Programador -> LÍDER -> AUTOR -> spec/...
 
 **Importante:** ejecutar `approve` registra una *declaración* de aprobación. El script no autentica al usuario ni puede demostrar que la aprobación fue emitida por un humano. En esta versión la aprobación válida sigue siendo la respuesta expresa del programador. El líder no debe inventarla. Para políticas de seguridad fuertes se necesita control externo de identidad, reglas Git y CI.
 
+**Bloqueo de autoaprobación:** `approve` y `seal` los ejecuta solo el humano, en una terminal propia: no con `!` dentro de Claude Code ni en una terminal abierta desde ella, que hereda `CLAUDECODE`. `sdd.py` los rechaza con `ERROR:` y código 1 si la variable de entorno `CLAUDECODE` está definida (aunque esté vacía) o si stdin no es una terminal interactiva (TTY); los demás subcomandos no cambian. Además, el hook deniega a `lider`, `autor` e `implementador`:
+
+- `approve` y `seal` por cualquier vía, y todo comando de `Bash`/`PowerShell` que mencione `microharness`, `memory.json` o `sdd.py` (sin distinguir mayúsculas) fuera de estas formas permitidas: un lanzador admitido (`sh .microharness/python.sh`, `python`, `python3`, `py -3` o `uv run --no-project [--quiet] [--python V]`) seguido de `.microharness/sdd.py` y de `init`, `new`, `check`, `review`, `commit-check`, `note`, `release`, `--version` o `--help`; `sh .microharness/python.sh --version`; `sh .microharness/python.sh -m unittest …`; y `git add|diff|status|log|show …` con argumentos simples, sin `--output` ni `--ext-diff`. En ningún caso se admiten `$`, comilla invertida, `\`, saltos de línea ni `;`, `|`, `&`, `>`, `<`, `(`, `)` fuera de comillas. Un `git commit -m` cuyo mensaje mencione esas cadenas también se deniega.
+- Toda edición (`Write`, `Edit`, `MultiEdit`, `NotebookEdit`) bajo `.microharness/`, salvo `.microharness/sdd.py` y `.microharness/python.sh` al implementador cuando la spec activa aprobada los incluye en `allowed_paths`.
+
+Los agentes leen la memoria con la herramienta Read (o Grep/Glob), no con `cat`. El hook es una heurística de texto (best effort): no detecta ofuscación ni scripts cuyo comando no nombra esas rutas; lo complementan la comprobación `CLAUDECODE`/TTY y la integridad de la memoria frente a `HEAD`. Bajo mintty (Git Bash en Windows), Python nativo puede no ver stdin como TTY: usa Windows Terminal, PowerShell o `winpty`.
+
 ## 5. Ciclo operativo por tarea
 
 Comandos ilustrativos; ejecutarlos desde la raíz del repositorio. Sustituye el slug y ajusta specs:
@@ -223,12 +230,12 @@ sh .microharness/python.sh .microharness/sdd.py new corregir-sesion
 # Autor edita los cuatro documentos con EARS, AC, alcance y pruebas
 sh .microharness/python.sh .microharness/sdd.py check corregir-sesion
 
-# SOLO DESPUÉS de que el humano diga explícitamente que aprueba la spec
+# HUMANO, en su terminal (fuera de Claude Code): solo si aprueba explícitamente la spec
 sh .microharness/python.sh .microharness/sdd.py approve corregir-sesion spec \
   --by 'Programador' --evidence 'Confirmación explícita: aprobar especificación'
 
 # El implementador escribe y ejecuta pruebas y código.
-# Opcional: tras revisión humana de pruebas base, fija su SHA-256.
+# Opcional, HUMANO en su terminal: tras revisar las pruebas base, fija su SHA-256.
 sh .microharness/python.sh .microharness/sdd.py seal corregir-sesion --by 'Programador'
 
 # El revisor comprueba límites, integridad, comandos y criterios
@@ -236,7 +243,7 @@ sh .microharness/python.sh .microharness/sdd.py check corregir-sesion --run
 sh .microharness/python.sh .microharness/sdd.py review corregir-sesion APROBADO \
   --evidence 'AC-01 satisfecha, tests ejecutados, diff revisado'
 
-# SOLO después de aprobación humana de cierre
+# HUMANO, en su terminal (fuera de Claude Code): solo si aprueba explícitamente el cierre
 sh .microharness/python.sh .microharness/sdd.py approve corregir-sesion close \
   --by 'Programador' --evidence 'Confirmación explícita: aprobar cierre'
 
