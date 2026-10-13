@@ -1,8 +1,71 @@
 {
   "schema_version": 1,
   "project": {
-    "observations": [],
-    "decisions": []
+    "observations": [
+      {
+        "at": "2026-10-13T00:02:13+00:00",
+        "observation": "En este entorno Windows `python3` no existe (alias de Microsoft Store); `python` y `py -3` resuelven a Python 3.12.3."
+      }
+    ],
+    "decisions": [
+      {
+        "at": "2026-10-13T00:02:13+00:00",
+        "by": "Programador",
+        "decision": "Documentar decisiones de diseño y versionado en tres tareas secuenciales: fundamentos-diseno, proceso-versionado y herramienta de release."
+      },
+      {
+        "at": "2026-10-13T00:02:13+00:00",
+        "by": "Programador",
+        "decision": "Versionado: documentación + herramienta (comando de release); la herramienta va en una tarea propia con código y pruebas."
+      },
+      {
+        "at": "2026-10-13T00:02:13+00:00",
+        "by": "Programador",
+        "decision": "Fuentes de diseño (README 0.1 y guía de prompting Opus 5.5): no copiar originales; solo registro de decisiones en assets/, que no forma parte de la instalación."
+      }
+    ]
   },
-  "tasks": {}
+  "tasks": {
+    "fundamentos-diseno": {
+      "approvals": {
+        "spec": {
+          "by": "Programador",
+          "evidence": "Confirmación explícita en chat: \"si apruebo la especificación\"",
+          "at": "2026-10-13T00:17:25+00:00",
+          "fingerprint": "c7a37e26cff0f632df04f541cc335f978e457bbc081813d09cd2da54301a63f0"
+        },
+        "close": {
+          "by": "Programador",
+          "evidence": "Confirmación explícita en chat: \"si apruebo que cierres la tarea y hagas commit\"",
+          "at": "2026-10-13T00:27:59+00:00"
+        }
+      },
+      "sealed_tests": {},
+      "review": "APROBADO",
+      "review_fingerprint": "6b750fcedcc4a437cd1c21191c9b4bf71515f748a2351aa0def3bd7e1e2e7e93",
+      "iterations": 1,
+      "events": [
+        {
+          "at": "2026-10-13T00:02:13+00:00",
+          "event": "creada"
+        },
+        {
+          "at": "2026-10-13T00:17:25+00:00",
+          "event": "aprobación_spec",
+          "by": "Programador"
+        },
+        {
+          "at": "2026-10-13T00:25:23+00:00",
+          "event": "revisión",
+          "verdict": "APROBADO",
+          "evidence": "Revisor independiente: AC-01..AC-07 y REQ-01..REQ-09 cumplidos; D-01..D-14 verificadas contra el repo; sin párrafos copiados >30 palabras; check --run OK (10 tests, OK estructura). Observaciones menores no bloqueantes: \"coste\" (l.89), \"admitido\" en D-04 (l.46)."
+        },
+        {
+          "at": "2026-10-13T00:27:59+00:00",
+          "event": "aprobación_close",
+          "by": "Programador"
+        }
+      ]
+    }
+  }
 }
