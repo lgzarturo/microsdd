@@ -11,21 +11,28 @@
 |---|---|---|
 | **Python** | 3.10+ | Ejecuta `.microharness/sdd.py` y el hook `.claude/hooks/pretool.py` (solo biblioteca estándar). |
 | **uv** | reciente, ejecutable real en `PATH` (`uv.exe` en Windows) | Hook en forma exec: `uv run --no-project --quiet --python ">=3.10" …/pretool.py`. |
-| `sh` POSIX | macOS/Linux; Git Bash en Windows | Lanzador `.microharness/python.sh`. |
 | Git | reciente | Alcance por diff; el instalador exige la raíz del repo. |
 | Claude Code | ≥ 2.1.295 | `onFailure: block`, agente predeterminado y `PreToolUse`. |
 
-Instalación recomendada de uv: https://docs.astral.sh/uv/ (macOS/Linux: curl del instalador oficial; Windows: script PowerShell oficial). En Windows hace falta Git for Windows para `sh`.
+En **Windows 11** usa PowerShell 7 o `cmd` con los lanzadores del arnés; **no hace falta Git Bash** para el CLI del arnés. En Unix/macOS sigue disponible `sh .microharness/python.sh`.
 
-Comprobación rápida:
+Instalación recomendada de uv: https://docs.astral.sh/uv/
+
+Comprobación rápida (misma semántica en todas las plataformas):
 
 ```bash
 uv --version
-sh .microharness/python.sh --version
-sh .microharness/python.sh .microharness/sdd.py --help
+python .microharness/sdd.py --version
+python .microharness/sdd.py --help
 ```
 
-Detalle del lanzador, lista blanca de runners, `min_tests`, sesiones sin rol y límites del MVP: [assets/arnes-completo.md](assets/arnes-completo.md). CI: `.github/workflows/tests.yml` (unittest). Detalle de seguridad 1.1.2 (H1–H5): [CHANGELOG](CHANGELOG.md) y [aprobacion-firmada-futuro.md](assets/aprobacion-firmada-futuro.md).
+```powershell
+uv --version
+python .microharness\sdd.py --version
+.\.microharness\python.ps1 .microharness\sdd.py --help
+```
+
+Worktrees Git: `microsdd worktree sync <ruta>` (humano, TTY); ver [assets/windows-worktrees.md](assets/windows-worktrees.md). Detalle del lanzador: [assets/arnes-completo.md](assets/arnes-completo.md). CI: `.github/workflows/tests.yml` (unittest en Ubuntu y Windows).
 
 ## 2. Instalación por proyecto
 
@@ -60,6 +67,7 @@ claude --agent lider --model claude-opus-5-5 --effort medium
 | `microsdd off` | Retira lo del manifiesto y restaura previos (respaldo `.bak`). Solo humano, TTY, sin `CLAUDECODE`. |
 | `microsdd on` | Reaplica la fusión. Mismas restricciones que `off`. |
 | `microsdd uninstall` | Quita MicroSDD según el manifiesto; conserva `docs/`, `spec/` y `memory.json`. |
+| `microsdd worktree sync <ruta>` | Copia arnés y `docs/` a un worktree; memoria local (opcional `--with-memory`). Solo humano, TTY. |
 
 Sin manifiesto, `on`/`off`/`uninstall` fallan con código 1. Tras `on`/`off`, reinicia Claude Code.
 
@@ -76,6 +84,7 @@ Flujo completo, archivos, máquina de estados y `spec.json`: [assets/arnes-compl
 | Documento | Contenido |
 |---|---|
 | [assets/arnes-completo.md](assets/arnes-completo.md) | Lanzador, archivos, flujo, ciclo operativo, `spec.json`, obligaciones y fuentes |
+| [assets/windows-worktrees.md](assets/windows-worktrees.md) | Windows, PowerShell y `worktree sync` |
 | [assets/proceso-versionado.md](assets/proceso-versionado.md) | SemVer, API pública, instalación, releases |
 | [assets/decisiones-diseno.md](assets/decisiones-diseno.md) | Decisiones de diseño y fuentes |
 | [assets/eval-esfuerzo.md](assets/eval-esfuerzo.md) | Protocolo medium vs high (no ejecutado) |
