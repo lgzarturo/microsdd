@@ -1,6 +1,6 @@
 # Índice de especificaciones
 
-Cada tarea va en `spec/<slug>/` con exactamente cuatro documentos: `requerimientos.md`, `diseño.md`, `tareas.md`, `spec.json`.
+Cada tarea va en `spec/<slug>/` con exactamente cuatro documentos: `requerimientos.md`, `plan.md`, `tareas.md`, `spec.json`. Nombres de archivo solo ASCII (`check` rechaza entradas no ASCII en `spec/<slug>/`).
 
 - Estado: `pendiente`, `proceso`, `terminado` (únicos estados).
 - Flujo: solicitud → autor → aprobación humana de spec → implementador → revisor y check → aprobación humana de cierre → commit.
@@ -25,3 +25,4 @@ Cada tarea va en `spec/<slug>/` con exactamente cuatro documentos: `requerimient
 | `proceso-versionado` | terminado | Proceso de versionado SemVer del arnés en `assets/proceso-versionado.md`; `assets/` excluido de la instalación |
 | `herramienta-release` | terminado | `sdd.py --version` (`__version__`) y `sdd.py release propose` (solo lectura: propone la versión desde Conventional Commits) |
 | `instalador-sin-python3` | terminado | El instalador exige `uv` real (en Windows `uv.exe`) en lugar de `python3` y ejecuta `init` y el smoke test con `sys.executable`; README con `uvx --no-cache` para pruebas locales |
+| `spec-plan-md` | terminado | `diseño.md` pasa a `plan.md` en el arnés y en las 15 tareas; huellas `spec` migradas con `scripts/migrar_plan_md.py` (evento `migración_plan_md`); `check` exige nombres ASCII en `spec/<slug>/`. |

@@ -2,7 +2,7 @@
   "schema_version": 1,
   "id": "spec-plan-md",
   "title": "Renombrar diseño.md a plan.md en el arnés y en todas las tareas (con migración auditable de huellas) y exigir nombres de archivo ASCII en spec/<slug>/",
-  "state": "proceso",
+  "state": "terminado",
   "model": "claude-opus-5-5",
   "effort": "medium",
   "max_iterations": 3,

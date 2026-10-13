@@ -324,7 +324,7 @@
           "by": "Programador",
           "evidence": "Respuesta explícita en sesión 2026-10-12: 'Reapruebo la spec' (enmienda REQ-10/AC-08 python3.exe en Windows, REQ-13/AC-13 smoke 'solo lectura', AC-11 README)",
           "at": "2026-10-13T00:14:53+00:00",
-          "fingerprint": "dbe87a61e988e52ffde36c6b8959a993cb462a1e2a1f596bbfe53cc3be6a8180"
+          "fingerprint": "0da2c671d4467beb6ea4bfb73e62a745bda4916b940b4aaf6ce3fbb514b66783"
         },
         "close": {
           "by": "Programador",
@@ -378,6 +378,12 @@
           "at": "2026-10-13T04:46:28+00:00",
           "event": "huella_migrada",
           "evidence": "Integración en main: spec sin cambios (git diff main vacío; huella cruda d6c6d5d855d7 coincide). eol-hashes-estables normaliza CRLF→LF en spec_fingerprint; se recalcula a dbe87a61e988 sin reaprobar contenido."
+        },
+        {
+          "at": "2026-10-13T06:16:35+00:00",
+          "event": "migración_plan_md",
+          "old": "dbe87a61e988e52ffde36c6b8959a993cb462a1e2a1f596bbfe53cc3be6a8180",
+          "new": "0da2c671d4467beb6ea4bfb73e62a745bda4916b940b4aaf6ce3fbb514b66783"
         }
       ]
     },
@@ -387,7 +393,7 @@
           "by": "Programador",
           "evidence": "Respuesta explícita en sesión 2026-10-12: 'Apruebo la spec' (fix-sdd-rutas-unicode)",
           "at": "2026-10-12T23:55:56+00:00",
-          "fingerprint": "27847f14a903d422ce190d289700d66a1e48d240786bec6d2c28966fa5addaf6"
+          "fingerprint": "53de6937e0c0e91a0c39f9a06f3636542081249aaf8db2bf88800eaf9f54118f"
         },
         "close": {
           "by": "Programador",
@@ -419,6 +425,12 @@
           "at": "2026-10-13T00:00:11+00:00",
           "event": "aprobación_close",
           "by": "Programador"
+        },
+        {
+          "at": "2026-10-13T06:16:35+00:00",
+          "event": "migración_plan_md",
+          "old": "27847f14a903d422ce190d289700d66a1e48d240786bec6d2c28966fa5addaf6",
+          "new": "53de6937e0c0e91a0c39f9a06f3636542081249aaf8db2bf88800eaf9f54118f"
         }
       ]
     },
@@ -428,7 +440,7 @@
           "by": "Programador",
           "evidence": "Respuesta explícita en sesión 2026-10-12 19:29 (UTC-5): 'aprobado' (limpieza-historial-release), tras resumen del líder",
           "at": "2026-10-13T00:29:57+00:00",
-          "fingerprint": "20c1119363c67dd0095d6b09a85b6cd5740568049712d64b21f6923f7f015633"
+          "fingerprint": "294f6535173e4639e6bce3b5107997b8a6b176c870fb089a6662500a30dbd015"
         },
         "close": {
           "by": "Programador",
@@ -465,6 +477,12 @@
           "at": "2026-10-13T00:40:37+00:00",
           "event": "aprobación_close",
           "by": "Programador"
+        },
+        {
+          "at": "2026-10-13T06:16:35+00:00",
+          "event": "migración_plan_md",
+          "old": "20c1119363c67dd0095d6b09a85b6cd5740568049712d64b21f6923f7f015633",
+          "new": "294f6535173e4639e6bce3b5107997b8a6b176c870fb089a6662500a30dbd015"
         }
       ]
     },
@@ -474,7 +492,7 @@
           "by": "Programador",
           "evidence": "Respuesta explícita en sesión 2026-10-12: 'Apruebo la spec' (licencia-mit)",
           "at": "2026-10-13T03:53:58+00:00",
-          "fingerprint": "f32d2f8ce8a6592094edbe5f3b5986631effff61166f51642b56313745c9406b"
+          "fingerprint": "22c6f70399d1859b84393c91bfc8d2d2171d73aa20ff318c31b8830f51247e12"
         },
         "close": {
           "by": "Programador",
@@ -506,6 +524,12 @@
           "at": "2026-10-13T03:59:02+00:00",
           "event": "aprobación_close",
           "by": "Programador"
+        },
+        {
+          "at": "2026-10-13T06:16:35+00:00",
+          "event": "migración_plan_md",
+          "old": "f32d2f8ce8a6592094edbe5f3b5986631effff61166f51642b56313745c9406b",
+          "new": "22c6f70399d1859b84393c91bfc8d2d2171d73aa20ff318c31b8830f51247e12"
         }
       ]
     },
@@ -515,7 +539,7 @@
           "by": "Programador",
           "evidence": "Confirmación explícita en sesión: 'Apruebo la spec' (registro diferido tras cerrar fix-quotepath-diff; archivos de spec sin cambios desde la aprobación: mtime máx. 00:08:42Z < 00:11:43Z)",
           "at": "2026-10-13T00:22:28+00:00",
-          "fingerprint": "b3728d76bbce6800dd8d8caa76557a17c97b0b442b867e1688463c5f804fd5ed"
+          "fingerprint": "871c2d521a9061108e27be59ff1328c1ef97eb4e5bc79d7676eb717229ea6f30"
         },
         "close": {
           "by": "Programador",
@@ -598,6 +622,12 @@
           "at": "2026-10-13T00:40:45+00:00",
           "event": "aprobación_close",
           "by": "Programador"
+        },
+        {
+          "at": "2026-10-13T06:16:35+00:00",
+          "event": "migración_plan_md",
+          "old": "b3728d76bbce6800dd8d8caa76557a17c97b0b442b867e1688463c5f804fd5ed",
+          "new": "871c2d521a9061108e27be59ff1328c1ef97eb4e5bc79d7676eb717229ea6f30"
         }
       ]
     },
@@ -607,7 +637,7 @@
           "by": "Programador",
           "evidence": "Confirmación explícita en sesión: 'si apruebo la espec' (incluye PRE-01: editar .microharness/sdd.py, solo diff_files())",
           "at": "2026-10-13T00:18:49+00:00",
-          "fingerprint": "30a91da2702f6200553b3de5dc0733c0546e234547505f27348ef9923671b31c"
+          "fingerprint": "093c5d745b9ecd07bb2618960e8551f5c9d28fdb23eaae9f573da4f1b2c6dc67"
         },
         "close": {
           "by": "Programador",
@@ -639,6 +669,12 @@
           "at": "2026-10-13T00:22:02+00:00",
           "event": "aprobación_close",
           "by": "Programador"
+        },
+        {
+          "at": "2026-10-13T06:16:35+00:00",
+          "event": "migración_plan_md",
+          "old": "30a91da2702f6200553b3de5dc0733c0546e234547505f27348ef9923671b31c",
+          "new": "093c5d745b9ecd07bb2618960e8551f5c9d28fdb23eaae9f573da4f1b2c6dc67"
         }
       ]
     },
@@ -648,7 +684,7 @@
           "by": "Programador",
           "evidence": "Confirmación explícita en sesión: 'aprobado' (incluye PRE-01: editar .microharness/sdd.py, solo hash_file y spec_fingerprint)",
           "at": "2026-10-13T01:03:48+00:00",
-          "fingerprint": "cb3fa9367dd17e630802060e6c80532a87bd29674983ddc41cb7bb5d6d119a99"
+          "fingerprint": "bd30011b78a630c48963b37b7064882a435277629df67403b350d1179eeaaa38"
         },
         "close": {
           "by": "Programador",
@@ -680,6 +716,12 @@
           "at": "2026-10-13T03:53:38+00:00",
           "event": "aprobación_close",
           "by": "Programador"
+        },
+        {
+          "at": "2026-10-13T06:16:35+00:00",
+          "event": "migración_plan_md",
+          "old": "cb3fa9367dd17e630802060e6c80532a87bd29674983ddc41cb7bb5d6d119a99",
+          "new": "bd30011b78a630c48963b37b7064882a435277629df67403b350d1179eeaaa38"
         }
       ]
     },
@@ -689,7 +731,7 @@
           "by": "Programador",
           "evidence": "Confirmación explícita en sesión: 'apruebo la spec' (incluye PRE-01: editar .microharness/sdd.py, solo bloque sealed_tests de validate, y la frase de README sección 6)",
           "at": "2026-10-13T03:57:13+00:00",
-          "fingerprint": "88fde30cc22dcdd8fa2b1bd5e2cddb56fdc11d306e9728d5ac76ec5639732923"
+          "fingerprint": "cac167a0708d15894134e78a42f1e92ec9fa011420c959afe6c5689a2eb8affd"
         },
         "close": {
           "by": "Programador",
@@ -721,6 +763,12 @@
           "at": "2026-10-13T04:01:52+00:00",
           "event": "aprobación_close",
           "by": "Programador"
+        },
+        {
+          "at": "2026-10-13T06:16:35+00:00",
+          "event": "migración_plan_md",
+          "old": "88fde30cc22dcdd8fa2b1bd5e2cddb56fdc11d306e9728d5ac76ec5639732923",
+          "new": "cac167a0708d15894134e78a42f1e92ec9fa011420c959afe6c5689a2eb8affd"
         }
       ]
     },
@@ -730,7 +778,7 @@
           "by": "Programador",
           "evidence": "Confirmación explícita en sesión: 'aprobado' (incluye PRE-01 con la resolución de R1 ya decidida: si la guardia bloquea, parche al humano; y AC-05 README)",
           "at": "2026-10-13T04:06:26+00:00",
-          "fingerprint": "3c329710df376d0492a1b77cea649ec92468726aa338ba919b8cb9087e31d13d"
+          "fingerprint": "c0d08f880303b9c2575e2b21698450c68f9fe7b68a4e17d3d4be5770a2cb4c25"
         },
         "close": {
           "by": "Programador",
@@ -762,6 +810,12 @@
           "at": "2026-10-13T04:10:54+00:00",
           "event": "aprobación_close",
           "by": "Programador"
+        },
+        {
+          "at": "2026-10-13T06:16:35+00:00",
+          "event": "migración_plan_md",
+          "old": "3c329710df376d0492a1b77cea649ec92468726aa338ba919b8cb9087e31d13d",
+          "new": "c0d08f880303b9c2575e2b21698450c68f9fe7b68a4e17d3d4be5770a2cb4c25"
         }
       ]
     },
@@ -771,7 +825,7 @@
           "by": "Programador",
           "evidence": "Confirmación explícita en sesión: 'aprobado' (incluye exclusión de @; abreviaturas --outp/--out verificadas como rechazadas por git 2.55, rc 129)",
           "at": "2026-10-13T04:14:59+00:00",
-          "fingerprint": "45035f31722559f319fc0784fdcfb9cafab9f3da89c8999503b15b92a40557db"
+          "fingerprint": "fd183c2b6df79c4e7da2cfa1b3faa7358fbc50bf8f391ef41d9d6f82e7f13b3c"
         },
         "close": {
           "by": "Programador",
@@ -803,6 +857,12 @@
           "at": "2026-10-13T04:20:26+00:00",
           "event": "aprobación_close",
           "by": "Programador"
+        },
+        {
+          "at": "2026-10-13T06:16:35+00:00",
+          "event": "migración_plan_md",
+          "old": "45035f31722559f319fc0784fdcfb9cafab9f3da89c8999503b15b92a40557db",
+          "new": "fd183c2b6df79c4e7da2cfa1b3faa7358fbc50bf8f391ef41d9d6f82e7f13b3c"
         }
       ]
     },
@@ -812,7 +872,7 @@
           "by": "Programador",
           "evidence": "Confirmación explícita en chat: \"si apruebo la especificación\"",
           "at": "2026-10-13T00:17:25+00:00",
-          "fingerprint": "c7a37e26cff0f632df04f541cc335f978e457bbc081813d09cd2da54301a63f0"
+          "fingerprint": "0675b5f7f3ee35bac1ac9ed30247fd70fe9fd5592ef7fc05eaca2e916d621d8f"
         },
         "close": {
           "by": "Programador",
@@ -844,6 +904,12 @@
           "at": "2026-10-13T00:27:59+00:00",
           "event": "aprobación_close",
           "by": "Programador"
+        },
+        {
+          "at": "2026-10-13T06:16:35+00:00",
+          "event": "migración_plan_md",
+          "old": "c7a37e26cff0f632df04f541cc335f978e457bbc081813d09cd2da54301a63f0",
+          "new": "0675b5f7f3ee35bac1ac9ed30247fd70fe9fd5592ef7fc05eaca2e916d621d8f"
         }
       ]
     },
@@ -853,7 +919,7 @@
           "by": "Programador",
           "evidence": "Confirmación explícita en chat: \"apruebo la especificación, continua\"",
           "at": "2026-10-13T01:03:54+00:00",
-          "fingerprint": "c9d392355757950cec0e342877e34bd1b0efe8fce298dc6f1f1d743679226a36"
+          "fingerprint": "19209fd4ee36a6e144774b8e4712e22e04119e6e7ff02321e4bb8c39ac828b8f"
         },
         "close": {
           "by": "Programador",
@@ -885,6 +951,12 @@
           "at": "2026-10-13T03:53:21+00:00",
           "event": "aprobación_close",
           "by": "Programador"
+        },
+        {
+          "at": "2026-10-13T06:16:35+00:00",
+          "event": "migración_plan_md",
+          "old": "c9d392355757950cec0e342877e34bd1b0efe8fce298dc6f1f1d743679226a36",
+          "new": "19209fd4ee36a6e144774b8e4712e22e04119e6e7ff02321e4bb8c39ac828b8f"
         }
       ]
     },
@@ -894,7 +966,7 @@
           "by": "Programador",
           "evidence": "Reaprobación explícita en chat tras ajuste O-1/O-2: \"apruebo la especificación, continua\"",
           "at": "2026-10-13T04:26:41+00:00",
-          "fingerprint": "bb68b23502e76a1c4f879010333fbf6c0ca9dba07cf669002f07570e76a6e0fb"
+          "fingerprint": "5ea5853bdfda87d8f4e50828a3a5afa4f9b2e77ce447755372c72c2baf085a38"
         },
         "close": {
           "by": "Programador",
@@ -955,6 +1027,12 @@
           "at": "2026-10-13T04:39:41+00:00",
           "event": "aprobación_close",
           "by": "Programador"
+        },
+        {
+          "at": "2026-10-13T06:16:35+00:00",
+          "event": "migración_plan_md",
+          "old": "bb68b23502e76a1c4f879010333fbf6c0ca9dba07cf669002f07570e76a6e0fb",
+          "new": "5ea5853bdfda87d8f4e50828a3a5afa4f9b2e77ce447755372c72c2baf085a38"
         }
       ]
     },
@@ -964,7 +1042,7 @@
           "by": "Programador",
           "evidence": "Confirmación explícita en chat: \"apruebo el cambio de la spec\" (AC-06 excluye argv[0]==sys.executable de la prohibición python3*; T12 limitado a la sección 2 del README; T06 alineado)",
           "at": "2026-10-13T05:23:01+00:00",
-          "fingerprint": "16df0254ea2e06a3129c0095895b189a98bdbd0fb16851c3121bef31160d02a8"
+          "fingerprint": "95290b44f8c1b8405679ef5c09c52f16a6effb5bbe21f5302123b3c6f76eb9a5"
         },
         "close": {
           "by": "Programador",
@@ -1007,6 +1085,12 @@
           "at": "2026-10-13T05:28:45+00:00",
           "event": "aprobación_close",
           "by": "Programador"
+        },
+        {
+          "at": "2026-10-13T06:16:35+00:00",
+          "event": "migración_plan_md",
+          "old": "16df0254ea2e06a3129c0095895b189a98bdbd0fb16851c3121bef31160d02a8",
+          "new": "95290b44f8c1b8405679ef5c09c52f16a6effb5bbe21f5302123b3c6f76eb9a5"
         }
       ]
     },
@@ -1016,17 +1100,21 @@
           "by": "Programador",
           "evidence": "Confirmación explícita en chat: \"si borralos y apruebo la spec\" (spec ajustada a Q-01 b, Q-02, Q-03)",
           "at": "2026-10-13T06:00:31+00:00",
-          "fingerprint": "a2c1999e9cc486c35feaa6855ae7ef67fd003c35a4c9c0fcae841c5a10f7061d"
+          "fingerprint": "4986923ad639ddea572dd685015d802523c6bb67bfbad9acc4d9836eb60b6691"
         },
-        "close": null
+        "close": {
+          "by": "Programador",
+          "evidence": "Respuesta explícita en sesión 2026-10-13: 'Apruebo cierre y commit' (spec-plan-md; P-1 resuelto con 'Marcar ! en commit nuevo'; docs actualizados; sin push)",
+          "at": "2026-10-13T06:20:48+00:00"
+        }
       },
       "sealed_tests": {
         "tests/test_sdd.py": "6509d7cc8772f2d9d3e975d5385bb5d11d57c754e6d9127ef7122322fd7a6bb2",
         "tests/test_migrar_plan_md.py": "e8010f9472b4e0d998ecd1e09874453e68ff5753f87909a6bd97b052eb0d84ab"
       },
-      "review": null,
-      "review_fingerprint": null,
-      "iterations": 0,
+      "review": "APROBADO",
+      "review_fingerprint": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "iterations": 1,
       "events": [
         {
           "at": "2026-10-13T05:46:44+00:00",
@@ -1045,6 +1133,23 @@
             "tests/test_sdd.py",
             "tests/test_migrar_plan_md.py"
           ]
+        },
+        {
+          "at": "2026-10-13T06:16:35+00:00",
+          "event": "migración_plan_md",
+          "old": "a2c1999e9cc486c35feaa6855ae7ef67fd003c35a4c9c0fcae841c5a10f7061d",
+          "new": "4986923ad639ddea572dd685015d802523c6bb67bfbad9acc4d9836eb60b6691"
+        },
+        {
+          "at": "2026-10-13T06:19:59+00:00",
+          "event": "revisión",
+          "verdict": "APROBADO",
+          "evidence": "Revisor independiente: diff 61bd1ee..cddb31a dentro de allowed_paths; 15 renombrados puros (0 ins/0 del); memory.json solo cambia 15 fingerprint + 15 eventos migración_plan_md; check spec-plan-md --run OK (100 tests, 2 skipped); check --run OK en deteccion-python-multiplataforma, fix-quotepath-diff, fundamentos-diseno; AC-08 detecta escritura parcial. Líder: check --no-scope OK en 15, sin nombres no ASCII, re-ejecución del script 0 migradas sin cambio de bytes. Hallazgo P-1: commit cddb31a sin '!' pese a Q-03, hecho con review/close null; pendiente decisión humana."
+        },
+        {
+          "at": "2026-10-13T06:20:48+00:00",
+          "event": "aprobación_close",
+          "by": "Programador"
         }
       ]
     }
