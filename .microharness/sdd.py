@@ -236,6 +236,8 @@ def validate(slug: str, run: bool = False, scope: bool = True) -> list[str]:
                 errors.append(f'Archivo modificado fuera de scope: {filename}')
     if run and not errors:
         for command in testing['commands'] + ([mutation['command']] if mutation.get('enabled') else []):
+            if command[0] in ('python', 'python3'):
+                command = [sys.executable, *command[1:]]
             print('EJECUTANDO:', ' '.join(command), flush=True)
             try:
                 outcome = subprocess.run(command, cwd=ROOT, check=False, timeout=300)

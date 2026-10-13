@@ -9,7 +9,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/pretool.py\""
+            "command": "uv",
+            "args": ["run", "--no-project", "--quiet", "--python", ">=3.10", "${CLAUDE_PROJECT_DIR}/.claude/hooks/pretool.py"],
+            "onFailure": "block"
           }
         ]
       }
