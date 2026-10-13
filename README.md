@@ -1,4 +1,7 @@
-# MicroSDD 0.1 · Miniarnés para Claude Opus 5.5
+# MicroSDD for Claude Opus 5.5
+
+> [!WARNING]
+> MicroSDD es un **micro arnés por proyecto**: se instala en la raíz de cada repositorio Git, es agnóstico al stack y trabaja sobre el código base de ese repositorio. **No es un arnés global** ni una configuración de `~/.claude`; el instalador rechaza el directorio home y cualquier ruta bajo `~/.claude`.
 
 > **Propósito:** código mínimo, correcto, verificable y trazable. Claude Code orquesta nativamente. No hay SDK, servidor, base de datos ni dependencia de Python aparte de la biblioteca estándar.
 
@@ -7,7 +10,8 @@
 | Requisito | Versión | Para qué |
 |---|---|---|
 | **Python 3** (obligatorio) | 3.10+ disponible como `python3` | Ejecuta `.microharness/sdd.py`, que valida y da seguimiento a la máquina de estados (`pendiente` → `proceso` → `terminado`), las aprobaciones, huellas SHA-256 y la puerta de pruebas; también ejecuta el hook `.claude/hooks/pretool.py` que limita herramientas por agente. |
-| Git | cualquiera reciente | `check` usa el diff para validar el alcance y la huella de revisión. |
+| Git | cualquiera reciente | `check` usa el diff para validar el alcance y la huella de revisión; el instalador exige la raíz del repositorio. |
+| [uv](https://docs.astral.sh/uv/) | reciente, con `uvx` | Ejecuta el instalador `microsdd` sin instalarlo de forma permanente. |
 | Claude Code | compatible con `agent` predeterminado, frontmatter `effort` y `PreToolUse` | Orquesta los agentes (ver docs oficiales). |
 
 **Sin Python 3 el arnés no puede controlar el flujo:** no hay validación de transiciones de estado, ni registro de aprobaciones, ni puerta de pruebas, ni bloqueo previo de herramientas; las reglas en Markdown quedan como simples instrucciones. Solo se usa la biblioteca estándar, no hay que instalar paquetes.
@@ -21,24 +25,59 @@ python3 .microharness/sdd.py --help    # debe listar los comandos del arnés
 
 En Windows, si Python está instalado solo como `py -3`, crea el alias `python3` o adapta los comandos y el hook de `.claude/settings.json`.
 
-## 2. Instalación en un repositorio de prueba
+## 2. Instalación por proyecto con `uvx`
 
-Copia **el contenido** de esta carpeta a la raíz de un repositorio Git existente (no copies una carpeta `microsdd-opus55/` dentro del proyecto). Revisa conflictos con `.claude/settings.json`, `CLAUDE.md` y otras reglas. Se recomienda un repositorio de prueba o una rama nueva con working tree limpio. Verifica antes los [requisitos mínimos](#1-requisitos-mínimos); Python 3 es indispensable.
+Desde la raíz de un repositorio Git existente (se recomienda una rama nueva con working tree limpio; si hay cambios sin confirmar solo se muestra una advertencia):
 
 ```bash
-python3 .microharness/sdd.py init
-python3 -m unittest discover -s tests -v
+uvx --from git+https://github.com/lgzarturo/microsdd microsdd install --dry-run   # ver el plan
+uvx --from git+https://github.com/lgzarturo/microsdd microsdd install             # instalar
+```
+
+Se recomienda **fijar un tag o commit revisado** para no instalar cambios no revisados de la rama principal: `uvx --from git+https://github.com/lgzarturo/microsdd@<tag> microsdd install`.
+
+| Flag | Efecto |
+|---|---|
+| `--target RUTA` | Raíz del repositorio destino (por defecto, el directorio actual). Debe ser exactamente `git rev-parse --show-toplevel`. |
+| `--dry-run` | Imprime el plan clasificado y termina sin escribir nada. |
+| `--force` | Sobrescribe solo los archivos propios del arnés que difieren (útil para actualizar de versión). |
+
+El instalador verifica antes de escribir: que el destino no sea el home ni esté bajo `~/.claude`, que sea la raíz de un repositorio Git y que `python3` **se ejecute** y reporte 3.10 o superior. En Windows se exige `python3.exe`, como lo resuelve Git Bash donde corre el hook: los shims `python3.cmd`/`.bat` no cuentan. También detecta el alias de Microsoft Store en `WindowsApps` y muestra remediación. Planifica todo antes de escribir, es idempotente (una segunda ejecución no cambia nada) y termina con código 0 (éxito o nada que hacer), 1 (precondición o conflicto) o 2 (uso incorrecto). El código 1 también se devuelve si `sdd.py init` o el smoke test del hook fallan **después de escribir** los archivos; en ese caso revisa el mensaje y vuelve a ejecutar el instalador.
+
+Política de conflictos:
+
+| Archivo en el destino | Si no existe | Si existe idéntico | Si existe y difiere |
+|---|---|---|---|
+| Propios: `.claude/agents/{lider,autor,implementador,revisor}.md`, `.claude/hooks/pretool.py`, `.claude/skills/sdd/SKILL.md`, `.microharness/sdd.py`, `CLAUDE.microsdd.md` | crear | sin cambios | conflicto: código 1 sin escribir nada; `--force` lo actualiza |
+| `CLAUDE.md` (compartido) | crear con el bloque de registro (antepone `@AGENTS.md` si existe `AGENTS.md`) | sin cambios si ya tiene `<!-- microsdd:begin -->` | anexar el bloque una sola vez, respetando LF/CRLF; nunca se sobrescribe |
+| `.claude/settings.json` (compartido) | crear | sin cambios | se conserva intacto y se escribe `.claude/settings.microsdd.json` (alterno); `agent: lider` y el hook no están activos hasta fusionarlo manualmente |
+
+Al terminar, el instalador ejecuta `python3 .microharness/sdd.py init` (crea `docs/`, `spec/` y `.microharness/memory.json` sin sobrescribir), comprueba que el hook deniega `Edit` al revisor por la regla de «solo lectura» (un `deny` por otro motivo, como «Guardia inválida», cuenta como fallo) e imprime la lista exacta de archivos para versionar. Usa siempre un `git add` explícito, nunca `git add .`:
+
+```bash
+git add CLAUDE.md CLAUDE.microsdd.md .claude/agents/lider.md .claude/agents/autor.md \
+  .claude/agents/implementador.md .claude/agents/revisor.md .claude/hooks/pretool.py \
+  .claude/skills/sdd/SKILL.md .claude/settings.json .microharness/sdd.py .microharness/memory.json \
+  docs/AGENT.md docs/arquitectura.md docs/convensiones.md docs/specificaciones.md
 claude --agent lider --model claude-opus-5-5 --effort medium
+```
+
+**Eliminación manual** (no hay desinstalador): borra los archivos propios de la tabla, `.microharness/`, `CLAUDE.microsdd.md` y, si aplica, `.claude/settings.microsdd.json`; quita de `CLAUDE.md` el bloque entre `<!-- microsdd:begin -->` y `<!-- microsdd:end -->`; revisa `.claude/settings.json` si fusionaste `agent: lider` y el hook; conserva o elimina `docs/` y `spec/` según te sirvan.
+
+Para desarrollar este repositorio:
+
+```bash
+python -m unittest discover -s tests -v   # en Windows; python3 en macOS/Linux
 ```
 
 `.claude/settings.json` ya fija `agent: lider`, el modelo y el esfuerzo; el flag es redundante y sirve para comprobar que la sesión corre efectivamente con ese rol. Revisa el encabezado `@lider` en Claude Code. Escribe en la sesión: `Quiero corregir X, con el cambio mínimo y criterios verificables` o invoca `/sdd ...`. **No invoques `autor` o `implementador` como conversación principal:** el líder conserva el contexto de decisiones y aprobaciones.
 
-> No es un paquete listo para publicar ni un sistema de agentes remoto. No se ha ejecutado Claude Code en este entorno; las comprobaciones realizadas son las pruebas locales del script.
+> No está publicado en PyPI ni es un sistema de agentes remoto. No se ha ejecutado Claude Code en este entorno; las comprobaciones realizadas son las pruebas locales del script y del instalador.
 
 ## 3. Archivos y responsabilidades
 
 ```text
-CLAUDE.md                    # Entrada corta al contexto común
+CLAUDE.md                    # Entrada corta al contexto común (en el destino: CLAUDE.microsdd.md)
 .claude/settings.json        # Líder predeterminado, Opus, esfuerzo y hook
 .claude/agents/
   lider.md                   # Orquesta e interactúa con el humano
@@ -61,7 +100,14 @@ spec/<slug>/                 # Exactamente cuatro archivos por tarea
   sdd.py                     # Puertas estructurales y ejecución de pruebas
 .claude/hooks/pretool.py     # Límites de Write/Edit/Bash según agente
 tests/test_sdd.py            # Pruebas unitarias del controlador
+pyproject.toml               # Paquete microsdd (solo para este repositorio; no se instala en el destino)
+src/microsdd/
+  __init__.py
+  installer.py               # Instalador `microsdd install` (stdlib; manifiesto único)
+tests/test_installer.py      # Pruebas del instalador
 ```
+
+En el repositorio destino solo se instalan los archivos del arnés (más `CLAUDE.microsdd.md` y el bloque en `CLAUDE.md`); `pyproject.toml`, `src/` y `tests/` pertenecen a este repositorio.
 
 Los cuatro documentos generales nacen con **pendientes explícitos**, no con datos inventados. El líder los completa al inspeccionar el proyecto y solo los actualiza ante nuevos hechos. La memoria JSON registra aprobaciones declaradas, sellos de tests y revisiones; las especificaciones son contratos separados y versionados. No se usa memoria privada del subagente (`memory:`).
 
@@ -219,3 +265,9 @@ No agregues más agentes, estado ni pasos hasta observar fallas repetibles.
 - https://code.claude.com/docs/en/hooks
 
 **Limitaciones conocidas:** sin autenticación de aprobaciones, sin sandbox obligatorio, sin validación semántica automática de AC, sin control de costos/tokens por agente, sin comparador histórico de benchmarks. Son límites intencionales del MVP, no características implementadas.
+
+## 10. Licencia
+
+MicroSDD se distribuye bajo la licencia MIT. Copyright (c) 2026 Arturo López. Consulte el texto completo en [LICENSE](LICENSE).
+
+Los archivos que `microsdd install` copia en otro repositorio siguen cubiertos por la licencia MIT. Si los redistribuye, debe conservar el aviso de copyright y el aviso de permiso, que el instalador no añade por usted.

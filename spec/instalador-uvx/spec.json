@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "id": "instalador-uvx",
+  "title": "Instalador por proyecto de MicroSDD for Claude Opus 5.5 ejecutable con uvx",
+  "state": "terminado",
+  "model": "claude-opus-5-5",
+  "effort": "medium",
+  "max_iterations": 3,
+  "method": {
+    "primary": "SDD",
+    "optional": [],
+    "notes": ""
+  },
+  "scope": {
+    "allowed_paths": [
+      "pyproject.toml",
+      "src/microsdd/**",
+      "tests/test_installer.py",
+      "README.md"
+    ],
+    "excluded": [
+      ".claude/**",
+      ".microharness/**",
+      "CLAUDE.md",
+      ".gitignore",
+      "docs/**",
+      "tests/test_sdd.py"
+    ]
+  },
+  "requirements": {
+    "acceptance_ids": [
+      "AC-01",
+      "AC-02",
+      "AC-03",
+      "AC-04",
+      "AC-05",
+      "AC-06",
+      "AC-07",
+      "AC-08",
+      "AC-09",
+      "AC-10",
+      "AC-11",
+      "AC-12",
+      "AC-13"
+    ],
+    "preconditions": [
+      "Python >= 3.10 para ejecutar pruebas (en Windows se invoca como python)",
+      "git disponible en PATH para crear repositorios temporales",
+      "uv disponible para AC-10; si falta, la prueba se omite con skipUnless",
+      "Sin dependencias de terceros en tiempo de ejecución"
+    ]
+  },
+  "testing": {
+    "strategy": "tdd",
+    "commands": [
+      [
+        "python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tests",
+        "-v"
+      ]
+    ],
+    "protected_tests": [],
+    "mutation": {
+      "enabled": false,
+      "command": [],
+      "reason": "No hay herramienta de mutation testing en el repositorio y se usa solo stdlib; la lógica crítica (clasificación, cero escrituras, filtro de PATH) se cubre con pruebas de snapshot y casos de error explícitos."
+    }
+  }
+}
