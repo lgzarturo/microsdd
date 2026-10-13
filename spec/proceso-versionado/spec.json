@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "id": "proceso-versionado",
+  "title": "Documentar en assets/ el proceso de versionado SemVer del arnés MicroSDD y excluir assets/ de la instalación en README.md",
+  "state": "terminado",
+  "model": "claude-opus-5-5",
+  "effort": "medium",
+  "max_iterations": 3,
+  "method": {
+    "primary": "SDD",
+    "optional": [],
+    "notes": "Solo SDD; RDD y ODD no se activan por falta de definición operativa para esta tarea."
+  },
+  "scope": {
+    "allowed_paths": [
+      "assets/proceso-versionado.md",
+      "README.md"
+    ],
+    "excluded": [
+      "CLAUDE.md",
+      "docs/**",
+      ".claude/**",
+      ".microharness/sdd.py",
+      "tests/**",
+      "assets/decisiones-diseno.md",
+      "assets/microsdd-prompting.png",
+      "CHANGELOG.md",
+      "VERSION",
+      "título «MicroSDD 0.1» y secciones de README.md distintas del primer párrafo de la sección 2",
+      "implementación del comando o herramienta de release",
+      "creación de tags, releases de GitHub o push",
+      "defecto de core.quotePath en la comprobación de alcance",
+      "uso de python3 en el hook de .claude/settings.json"
+    ]
+  },
+  "requirements": {
+    "acceptance_ids": [
+      "AC-01",
+      "AC-02",
+      "AC-03",
+      "AC-04",
+      "AC-05",
+      "AC-06",
+      "AC-07",
+      "AC-08",
+      "AC-09",
+      "AC-10",
+      "AC-11"
+    ],
+    "preconditions": [
+      "Decisiones del programador en memory.json: versionado con documentación y herramienta de release en tarea posterior; assets/ fuera de la instalación.",
+      "Sin tags, sin CHANGELOG.md ni VERSION; README.md titulado «MicroSDD 0.1» (comprobado).",
+      "Decisiones H-01 a H-09 de diseño.md comunicadas por el líder como decisión del programador; H-06: se instala todo lo versionado salvo assets/.",
+      "python -m unittest discover -s tests pasa antes del cambio (10 pruebas).",
+      "En este entorno se usa python; python3 no existe."
+    ]
+  },
+  "testing": {
+    "strategy": "after",
+    "commands": [
+      [
+        "python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tests"
+      ],
+      [
+        "python",
+        "-c",
+        "import re,pathlib,subprocess,difflib;N=lambda b:b.decode('utf-8').replace('\\r\\n','\\n');raw=pathlib.Path('assets/proceso-versionado.md').read_bytes();t=N(raw);assert len(raw)<=30000,'AC-01 tamaño';assert '[PENDIENTE]' not in t,'AC-01 marcador';assert t.startswith('# Proceso de versionado de MicroSDD\\n'),'AC-01 título';assert 'https://semver.org/lang/es/' in t and '2.0.0' in t,'AC-01 semver';H=['Propósito y alcance','Estado actual','API pública','Reglas de incremento','Fase 0.y.z','Criterios para declarar 1.0.0','Tags y prereleases','Release dentro del flujo MicroSDD','Instalación','Herramienta de release (futura)'];h=re.findall(r'^## (.+)$',t,flags=re.M);assert h==H,('AC-02 secciones',h);S=dict(zip(H,re.split(r'^## .+$',t,flags=re.M)[1:]));assert all(k in S['Estado actual'] for k in ('MicroSDD 0.1','CHANGELOG.md','VERSION','tag')),'AC-02 estado';a=S['API pública'];ids=re.findall(r'\\*\\*(API-\\d{2})\\*\\*',a);assert len(ids)>=8 and ids==['API-%02d'%i for i in range(1,len(ids)+1)],('AC-03 ids',ids);assert all(k in a for k in ('sdd.py','spec.json','memory.json','schema_version','.claude/agents/','pretool.py','settings.json','spec/<slug>/','commit-check')),'AC-03 elementos';assert 'No forman parte de la API pública' in a and 'assets/' in a.split('No forman parte de la API pública',1)[1],'AC-03 exclusiones';r=S['Reglas de incremento'];assert all(k in r for k in ('MAJOR','MINOR','PATCH','`!`','BREAKING CHANGE','commit-check')+tuple('`%s`'%x for x in ('feat','fix','perf','docs','test','refactor','chore'))),'AC-04';f=S['Fase 0.y.z'];assert all(k in f for k in ('0.1.0','MicroSDD 0.1','MINOR','PATCH')),'AC-05 fase';cs=re.findall(r'^- \\*\\*C-(\\d{2})\\*\\*(.*)$',S['Criterios para declarar 1.0.0'],flags=re.M);assert len(cs)>=6 and [x for x,_ in cs]==['%02d'%i for i in range(1,len(cs)+1)] and all('Verificación:' in y for _,y in cs),('AC-05 criterios',cs);g=S['Tags y prereleases'];assert all(k in g for k in ('git tag -a','vX.Y.Z','vX.Y.Z-rc.N','git push origin vX.Y.Z','--tags')),'AC-06';s=S['Release dentro del flujo MicroSDD'];n=re.findall(r'^(\\d+)\\. ',s,flags=re.M);assert len(n)>=10 and n==[str(i) for i in range(1,len(n)+1)],('AC-07 pasos',n);assert all(k in s for k in ('release-vX-Y-Z','sdd.py new','approve','spec','close','check','--run','commit-check','chore(release): vX.Y.Z','git tag -a','autorización explícita','push','GitHub')),'AC-07 contenido';i=S['Instalación'];inc,sep,exc=i.partition('### Excluido');assert sep and '### Incluido' in inc,'AC-08 subsecciones';inc=inc.split('### Incluido',1)[1];assert all(k in inc for k in ('README.md','CLAUDE.md','.gitignore','.claude/settings.json','.claude/agents/','.claude/hooks/pretool.py','.claude/skills/sdd/SKILL.md','.microharness/sdd.py','.microharness/memory.json','docs/','spec/','tests/test_sdd.py')) and 'assets/' not in inc,'AC-08 incluido';assert all(k in exc for k in ('assets/','.claude/settings.local.json','.gitignore')),'AC-08 excluido';fu=S['Herramienta de release (futura)'];rs=re.findall(r'^- \\*\\*R-(\\d{2})\\*\\*',fu,flags=re.M);assert len(rs)>=6 and rs==['%02d'%i for i in range(1,len(rs)+1)],('AC-09 requisitos',rs);assert 'CHANGELOG.md' in fu and 'no existe' in fu,'AC-09 futuro';assert 'sdd.py release' not in t.split('\\n## Herramienta de release (futura)',1)[0],'AC-09 herramienta como existente';assert not any(x in t for x in ('C:'+chr(92),'Downloads','/workspace/')),'AC-09 rutas locales';o=N(subprocess.run(['git','show','HEAD:README.md'],capture_output=True,check=True).stdout);w=N(pathlib.Path('README.md').read_bytes());cut=lambda x:(x.split('\\n## 2. ',1)[0],x.split('\\n## 2. ',1)[1].split('\\n## 3. ',1)[0],x.split('\\n## 3. ',1)[1]);A,B=cut(o),cut(w);assert A[0]==B[0] and A[2]==B[2],'AC-10 cambios fuera de la sección 2';d=[l for l in difflib.ndiff(A[1].splitlines(),B[1].splitlines()) if l[:2] in ('- ','+ ')];assert sum(l[:2]=='- ' for l in d)<=1 and sum(l[:2]=='+ ' for l in d)<=2,('AC-10 diff',d);assert all(k in B[1] for k in ('https://github.com/lgzarturo/microsdd/blob/main/assets/proceso-versionado.md','salvo `assets/`','no forma parte de la instalación')) and '](assets/' not in B[1],'AC-10 contenido';assert w.startswith('# MicroSDD 0.1 · Miniarnés para Claude Opus 5.5\\n'),'AC-10 título';print('OK estructura')"
+      ]
+    ],
+    "protected_tests": [],
+    "mutation": {
+      "enabled": false,
+      "command": [],
+      "reason": "Entregable solo documental, sin lógica ejecutable que mutar."
+    }
+  }
+}

@@ -23,7 +23,7 @@ En Windows, si Python está instalado solo como `py -3`, crea el alias `python3`
 
 ## 2. Instalación en un repositorio de prueba
 
-Copia **el contenido** de esta carpeta a la raíz de un repositorio Git existente (no copies una carpeta `microsdd-opus55/` dentro del proyecto). Revisa conflictos con `.claude/settings.json`, `CLAUDE.md` y otras reglas. Se recomienda un repositorio de prueba o una rama nueva con working tree limpio. Verifica antes los [requisitos mínimos](#1-requisitos-mínimos); Python 3 es indispensable.
+Copia **el contenido** de esta carpeta a la raíz de un repositorio Git existente, salvo `assets/`, que es material de consulta y no forma parte de la instalación (ver el [proceso de versionado](https://github.com/lgzarturo/microsdd/blob/main/assets/proceso-versionado.md)); no copies una carpeta `microsdd-opus55/` dentro del proyecto. Revisa conflictos con `.claude/settings.json`, `CLAUDE.md` y otras reglas. Se recomienda un repositorio de prueba o una rama nueva con working tree limpio. Verifica antes los [requisitos mínimos](#1-requisitos-mínimos); Python 3 es indispensable.
 
 ```bash
 python3 .microharness/sdd.py init

@@ -22,6 +22,51 @@
         "at": "2026-10-13T00:02:13+00:00",
         "by": "Programador",
         "decision": "Fuentes de diseño (README 0.1 y guía de prompting Opus 5.5): no copiar originales; solo registro de decisiones en assets/, que no forma parte de la instalación."
+      },
+      {
+        "at": "2026-10-13T00:39:54+00:00",
+        "by": "Programador",
+        "decision": "proceso-versionado H-02: criterios C-01..C-08 completos para declarar 1.0.0."
+      },
+      {
+        "at": "2026-10-13T00:39:54+00:00",
+        "by": "Programador",
+        "decision": "proceso-versionado H-04: fuente de verdad de versión = tag anotado + constante futura en sdd.py expuesta con --version."
+      },
+      {
+        "at": "2026-10-13T00:39:54+00:00",
+        "by": "Programador",
+        "decision": "proceso-versionado H-06: la instalación incluye todo lo versionado excepto assets/."
+      },
+      {
+        "at": "2026-10-13T00:39:54+00:00",
+        "by": "Programador",
+        "decision": "proceso-versionado H-03: en 0.y.z, incompatible (!) sube MINOR; feat/fix/perf suben PATCH."
+      },
+      {
+        "at": "2026-10-13T03:52:41+00:00",
+        "by": "Programador",
+        "decision": "proceso-versionado H-01: «0.1» equivale a 0.1.0 sin publicar; el primer tag v0.1.0 lo crea la primera tarea de release. (aceptada al aprobar la spec de proceso-versionado)"
+      },
+      {
+        "at": "2026-10-13T03:52:41+00:00",
+        "by": "Programador",
+        "decision": "proceso-versionado H-05: CHANGELOG.md obligatorio desde el primer release. (aceptada al aprobar la spec de proceso-versionado)"
+      },
+      {
+        "at": "2026-10-13T03:52:41+00:00",
+        "by": "Programador",
+        "decision": "proceso-versionado H-07: `!` obligatorio en el asunto para cambios incompatibles; pie BREAKING CHANGE opcional y no validado por commit-check. (aceptada al aprobar la spec de proceso-versionado)"
+      },
+      {
+        "at": "2026-10-13T03:52:41+00:00",
+        "by": "Programador",
+        "decision": "proceso-versionado H-08: solo prereleases -rc.N. (aceptada al aprobar la spec de proceso-versionado)"
+      },
+      {
+        "at": "2026-10-13T03:52:41+00:00",
+        "by": "Programador",
+        "decision": "proceso-versionado H-09: tag local autorizado con el cierre; push del tag y release de GitHub con autorización aparte; tags solo sobre main con git push origin vX.Y.Z, sin --tags ni --force. (aceptada al aprobar la spec de proceso-versionado)"
       }
     ]
   },
@@ -62,6 +107,47 @@
         },
         {
           "at": "2026-10-13T00:27:59+00:00",
+          "event": "aprobación_close",
+          "by": "Programador"
+        }
+      ]
+    },
+    "proceso-versionado": {
+      "approvals": {
+        "spec": {
+          "by": "Programador",
+          "evidence": "Confirmación explícita en chat: \"apruebo la especificación, continua\"",
+          "at": "2026-10-13T01:03:54+00:00",
+          "fingerprint": "c9d392355757950cec0e342877e34bd1b0efe8fce298dc6f1f1d743679226a36"
+        },
+        "close": {
+          "by": "Programador",
+          "evidence": "Confirmación explícita en chat: \"si\" a cerrar la tarea y hacer el commit propuesto",
+          "at": "2026-10-13T03:53:21+00:00"
+        }
+      },
+      "sealed_tests": {},
+      "review": "APROBADO",
+      "review_fingerprint": "badfe04f56e51440814e9bf87e269f76ce55fe716cc5a22aebf5536f61a02b5c",
+      "iterations": 1,
+      "events": [
+        {
+          "at": "2026-10-13T00:29:42+00:00",
+          "event": "creada"
+        },
+        {
+          "at": "2026-10-13T01:03:54+00:00",
+          "event": "aprobación_spec",
+          "by": "Programador"
+        },
+        {
+          "at": "2026-10-13T03:52:42+00:00",
+          "event": "revisión",
+          "verdict": "APROBADO",
+          "evidence": "Revisor independiente: AC-01..AC-11 y REQ-01..REQ-12 cumplidos; H-01..H-09 reflejadas; ningún paso publica sin autorización; README 1+/1- con CRLF intacto; check --run OK (10 tests, OK estructura). Sugerencias no bloqueantes: S1 R-02 vs tarea release en proceso; S2 python vs python3."
+        },
+        {
+          "at": "2026-10-13T03:53:21+00:00",
           "event": "aprobación_close",
           "by": "Programador"
         }
