@@ -2,6 +2,23 @@
 
 Formato y reglas: `assets/proceso-versionado.md` (R-04). Entradas derivadas de los asuntos de commit; se omiten los commits de merge, que no aportan cambios propios (su contenido figura en los commits integrados).
 
+## [1.1.2] - 2026-10-13
+
+### Incompatible
+- `sdd`: `approve`/`seal` exigen TTY y ausencia de `CLAUDECODE` también al importar (no solo en `main`)
+- `hook`: planes solo en raíz de `~/.claude/plans/*.md` y solo el líder; cadenas con settings/protegidos denegadas aunque el primer segmento sea lectura
+
+### Corregido
+- `hook`: `jq -i`/`--in-place` no cuenta como lectura de settings
+- `hook`: `cat settings && rm …` y similares → denegación por encadenado (H5)
+- `hook`: `head`/`tail`/`grep`/`rg` permiten leer settings(.local).json
+- `hook`: líder/autor no escriben ejecutables ni shebang bajo `docs/` ni `spec/`; Bash deniega `python[3] docs|spec/*.py`
+
+### Añadido
+- `sdd`: mutadores de memoria (`approve`/`seal`/`note`/`review`) rechazan si `memory_integrity` ya falla
+- `assets`: documenta aprobación firmada como trabajo futuro (sin implementar firmas)
+- `tests`: `tests/test_security_1112.py` (H1–H5)
+
 ## [1.1.1] - 2026-10-13
 
 ### Corregido

@@ -70,6 +70,7 @@ class HookBypass111Tests(unittest.TestCase):
         self.assert_allowed("git commit -m 'fix(hook): menciona sdd.py'")
 
     def test_allow_write_plans_md_deny_other_claude(self):
+        # H3 (1.1.2): solo el líder escribe *.md en la raíz de ~/.claude/plans.
         with tempfile.TemporaryDirectory() as td:
             home = Path(td) / 'home'
             plans = home / '.claude' / 'plans'
@@ -80,7 +81,7 @@ class HookBypass111Tests(unittest.TestCase):
             cwd.mkdir()
             with mock.patch.object(self.hook.Path, 'home', return_value=home):
                 for agent in RESTRICTED:
-                    allow = self.hook.run({
+                    result = self.hook.run({
                         'agent_type': agent, 'tool_name': 'Write', 'cwd': str(cwd),
                         'tool_input': {'file_path': str(plans / 'foo.md')},
                     })
@@ -89,8 +90,12 @@ class HookBypass111Tests(unittest.TestCase):
                         'tool_input': {'file_path': str(home / '.claude' / 'other.md')},
                     })
                     with self.subTest(agent=agent):
-                        self.assertIsNone(allow)
+                        if agent == 'lider':
+                            self.assertIsNone(result)
+                        else:
+                            self.assertIsNotNone(result)
                         self.assertIsNotNone(deny)
+
 
 
 if __name__ == '__main__':

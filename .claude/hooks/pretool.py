@@ -19,6 +19,13 @@ MSG_APPROVE = ('approve y seal los ejecuta el humano en su terminal fuera de Cla
 MSG_TOGGLE = ('microsdd on|off|uninstall solo lo ejecuta el humano en su terminal fuera de Claude Code.')
 MSG_SETTINGS_WRITE = ('No modifiques .claude/settings.json ni settings.local.json desde el agente; '
                       'usa Read o cat/jq para leerlos; los cambios los hace el humano.')
+MSG_SETTINGS_READ_HINT = ('Para leer settings usa cat, head, tail, grep, rg, jq o python -m json.tool; '
+                          'no los modifiques desde el agente.')
+MSG_EXECUTABLES = ('El líder/autor no escriben ejecutables en docs/ ni spec/; '
+                   'approve/seal los ejecuta el humano en su terminal.')
+EXEC_EXTS = ('.py', '.sh', '.bash', '.zsh', '.ps1', '.bat', '.cmd', '.exe')
+MSG_DOCS_PY = ('No ejecutes scripts bajo docs/ o spec/ desde el agente; '
+              'approve/seal los ejecuta el humano en su terminal.')
 MSG_PROTECTED = ('Comando denegado: menciona microharness, memory.json o sdd.py fuera de las formas '
                  'permitidas (lanzador admitido + .microharness/sdd.py con init, new, check, review, '
                  'commit-check, note, release, --version o --help; sh .microharness/python.sh --version '
@@ -166,17 +173,29 @@ def settings_path_token(t: str) -> bool:
 
 
 def settings_read_ok(toks: list[str]) -> bool:
-    """cat/jq de settings(.local).json sin redirecciones de escritura."""
+    """Lectura segura de settings(.local).json (cat/head/tail/grep/rg/jq)."""
     if not toks:
         return False
-    if toks[0] == 'cat':
-        return len(toks) >= 2 and all(settings_path_token(t) for t in toks[1:])
-    if toks[0] == 'jq':
+    cmd0 = toks[0]
+    if cmd0 in ('cat', 'head', 'tail'):
+        return len(toks) >= 2 and all(settings_path_token(t) for t in toks[1:] if not t.startswith("-")) and (
+            any(settings_path_token(t) for t in toks[1:]))
+    if cmd0 in ('grep', 'rg'):
+        if any(settings_path_token(t) for t in toks[1:]):
+            if any(t in ('-f', '--file', '-o', '--output') or t.startswith(('--output=', '--file='))
+                   for t in toks[1:]):
+                return False
+            return True
+        return False
+    if cmd0 == 'jq':
         if len(toks) < 3:
             return False
-        if any(t in ('-f', '--from-file', '-o', '--output') or t.startswith(('--output=',))
-               for t in toks[1:]):
-            return False
+        # H4: -i / --in-place no es lectura
+        for t in toks[1:]:
+            if t in ('-i', '--in-place', '-f', '--from-file', '-o', '--output') or t.startswith(('--output=',)):
+                return False
+            if t.startswith('-') and not t.startswith('--') and 'i' in t[1:]:
+                return False
         files = [t for t in toks[1:] if settings_path_token(t)]
         others = [t for t in toks[1:] if not settings_path_token(t) and not t.startswith("-")]
         return bool(files) and len(others) == 1
@@ -194,10 +213,47 @@ def settings_ok(toks: list[str]) -> bool:
     return False
 
 
+def segment_guarded_material(cmd: str) -> bool:
+    """H5: cualquier mención de material vigilado (aunque sea lectura)."""
+    return bool(TOGGLE_RE.search(cmd) or SETTINGS_RE.search(cmd) or PROTECTED_RE.search(cmd))
+
+
+def docs_or_spec_py_execution(toks: list[str]) -> bool:
+    """H1-C: python[3] / py -3 ejecutando un .py bajo docs/ o spec/."""
+    if not toks:
+        return False
+    rest = toks
+    if toks[:2] == ['py', '-3']:
+        rest = toks[2:]
+    elif toks[0] in ('python', 'python3') or toks[0].startswith('python3.'):
+        rest = toks[1:]
+    else:
+        return False
+    for t in rest:
+        if t.startswith('-'):
+            continue
+        low = t.replace('\\', '/').lower()
+        if low.endswith('.py') and (low.startswith('docs/') or low.startswith('spec/')
+                                    or '/docs/' in low or '/spec/' in low
+                                    or low == 'docs' or PurePosixPath(low).parts[:1] in (('docs',), ('spec',))):
+            return True
+        # rutas relativas docs/x.py o ./docs/x.py
+        norm = PurePosixPath(low)
+        parts = norm.parts
+        if parts and parts[-1].endswith('.py'):
+            if 'docs' in parts or 'spec' in parts:
+                # solo si docs/spec es un componente de ruta
+                for i, part in enumerate(parts[:-1]):
+                    if part in ('docs', 'spec'):
+                        return True
+    return False
+
+
 def segment_sensitive(cmd: str, toks: list[str] | None) -> bool:
-    """True si el segmento toca material protegido (salvo lecturas/commit legítimos)."""
+    """Compat: material sensible salvo lecturas/commit (ya no gobierna cadenas H5)."""
     if TOGGLE_RE.search(cmd):
-        if toks is not None and toks[:1] == ['git'] and toks[1:2] and toks[1] in SETTINGS_GIT                 and not any(t.startswith('--output') for t in toks):
+        if toks is not None and toks[:1] == ['git'] and toks[1:2] and toks[1] in SETTINGS_GIT \
+                and not any(t.startswith('--output') for t in toks):
             return False
         return True
     if SETTINGS_RE.search(cmd):
@@ -212,10 +268,12 @@ def segment_sensitive(cmd: str, toks: list[str] | None) -> bool:
         return False
     return True
 
-
 def guard_segment(cmd: str) -> str | None:
     """Valida un segmento ya partido; None = permitir."""
     toks = tokens(cmd)
+
+    if toks is not None and docs_or_spec_py_execution(toks):
+        return MSG_DOCS_PY
 
     if TOGGLE_RE.search(cmd):
         # git commit -m '... microsdd on ...' es mensaje, no el toggle
@@ -227,6 +285,8 @@ def guard_segment(cmd: str) -> str | None:
     if SETTINGS_RE.search(cmd):
         if toks is not None and settings_ok(toks):
             return None
+        if toks is not None and toks[:1] in (['cat'], ['head'], ['tail'], ['grep'], ['rg'], ['jq']):
+            return MSG_SETTINGS_READ_HINT
         return MSG_SETTINGS_WRITE
 
     if PROTECTED_RE.search(cmd):
@@ -256,16 +316,14 @@ def check_shell(cmd: str) -> str | None:
             return MSG_UNPARSEABLE
         return None
     reasons = []
-    sensitive = 0
     for seg in segments:
         reason = guard_segment(seg)
         if reason:
             reasons.append(reason)
-        if segment_sensitive(seg, tokens(seg)):
-            sensitive += 1
     if reasons:
         return reasons[0]
-    if len(segments) > 1 and sensitive:
+    # H5: cualquier mención vigilada en cadena (incluida lectura) => deny
+    if len(segments) > 1 and any(segment_guarded_material(seg) for seg in segments):
         return MSG_CHAIN
     return None
 
@@ -284,15 +342,18 @@ def protected_bash(cmd: str) -> str | None:
     return check_shell(cmd)
 
 
-def plans_md_exception(target: Path) -> bool:
-    """Write/Edit de *.md bajo ~/.claude/plans."""
+def plans_md_exception(target: Path, agent: str) -> bool:
+    """H3: solo el líder escribe *.md en la raíz de ~/.claude/plans (sin subcarpetas)."""
+    if agent != 'lider':
+        return False
     try:
         plans = (Path.home() / '.claude' / 'plans').resolve()
         resolved = target.resolve()
-        resolved.relative_to(plans)
     except (ValueError, OSError):
         return False
-    return resolved.name.lower().endswith('.md')
+    if resolved.parent != plans:  # no subcarpetas
+        return False
+    return resolved.suffix.lower() == '.md'
 
 
 def run(event: dict) -> str | None:
@@ -314,7 +375,7 @@ def run(event: dict) -> str | None:
         target = Path(filename)
         if not target.is_absolute():
             target = base / target
-        if plans_md_exception(target):
+        if plans_md_exception(target, agent):
             return None
         try:
             rel = target.resolve().relative_to(base).as_posix()
@@ -322,6 +383,14 @@ def run(event: dict) -> str | None:
             return ('Se prohíbe editar fuera del proyecto (excepción: ~/.claude/plans/*.md). '
                     'No abras el resto de ~/.claude.')
         low = rel.lower()
+        # H1-B: líder/autor no escriben ejecutables ni shebangs en docs/ ni spec/
+        if agent in ('lider', 'autor') and (rel.startswith('docs/') or rel.startswith('spec/')):
+            suffix = Path(rel).suffix.lower()
+            if suffix in EXEC_EXTS:
+                return MSG_EXECUTABLES
+            blob = (inputs.get('content') or inputs.get('new_string') or                     inputs.get('old_string') or '')
+            if isinstance(blob, str) and blob.lstrip().startswith('#!'):
+                return MSG_EXECUTABLES
         if (low == '.microharness' or low.startswith('.microharness/')) and not (
                 agent == 'implementador' and rel in HARNESS_EDITABLE):
             return ('Ningún agente edita .microharness/ (memoria y configuración); '
