@@ -28,3 +28,4 @@ Cada tarea va en `spec/<slug>/` con exactamente cuatro documentos: `requerimient
 | `spec-plan-md` | terminado | `diseño.md` pasa a `plan.md` en el arnés y en las 15 tareas; huellas `spec` migradas con `scripts/migrar_plan_md.py` (evento `migración_plan_md`); `check` exige nombres ASCII en `spec/<slug>/`. |
 | `sdd-note` | terminado | `sdd.py note --fact/--decision … --evidence …` registra observaciones y decisiones en `memory.json` sin edición manual; valida antes de escribir (código 1). |
 | `revisor-git-opciones-extra` | terminado | La allowlist Git del revisor deniega además `--textconv`, `-O` (también agrupado, p. ej. `-pO<f>`) y `--open-files-in-pager`. |
+| `memoria-atomica-lock` | terminado | `dump()` atómico (temporal + `fsync` + `os.replace`) y lock exclusivo `memory.lock` con timeout en las operaciones que mutan la memoria. |

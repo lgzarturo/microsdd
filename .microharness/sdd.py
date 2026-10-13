@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import json
+import os
 import re
+import stat
 import subprocess
 import sys
+import tempfile
+import time
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 
@@ -21,15 +26,84 @@ COMMIT_RE = re.compile(r'^(feat|fix|docs|test|refactor|perf|chore)(\([a-z0-9][a-
 __version__ = '0.1.0'
 SUBJECT_RE = re.compile(r'^([a-z]+)(\([^)]*\))?(!)?: ')
 FINAL_TAG_RE = re.compile(r'^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$')
+LOCK_TIMEOUT = 10.0
+_LOCK_DEPTH = 0
 
 
 def dump(path: Path, data: dict) -> None:
+    # Escritura atómica: temporal en el mismo directorio, fsync y os.replace.
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+    fd, tmp = tempfile.mkstemp(prefix=f'.{path.name}.', suffix='.tmp', dir=path.parent)
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as handle:
+            handle.write(json.dumps(data, ensure_ascii=False, indent=2) + '\n')
+            handle.flush()
+            os.fsync(handle.fileno())
+        if path.exists():
+            mode = stat.S_IMODE(path.stat().st_mode)
+        else:
+            umask = os.umask(0)
+            os.umask(umask)
+            mode = 0o666 & ~umask
+        os.chmod(tmp, mode)
+        os.replace(tmp, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
+    if os.name != 'nt':
+        with contextlib.suppress(OSError):
+            dir_fd = os.open(path.parent, os.O_RDONLY)
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
 
 
 def load(path: Path) -> dict:
     return json.loads(path.read_text(encoding='utf-8'))
+
+
+@contextlib.contextmanager
+def memory_lock():
+    # Lock exclusivo y reentrante sobre <directorio de MEMORY>/memory.lock para las mutaciones de memoria.
+    global _LOCK_DEPTH
+    if _LOCK_DEPTH > 0:
+        _LOCK_DEPTH += 1
+        try:
+            yield
+        finally:
+            _LOCK_DEPTH -= 1
+        return
+    lock = MEMORY.parent / 'memory.lock'
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    with open(lock, 'a+b') as handle:
+        deadline = time.monotonic() + LOCK_TIMEOUT
+        while True:
+            try:
+                if os.name == 'nt':
+                    import msvcrt
+                    handle.seek(0)
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except OSError:
+                if time.monotonic() >= deadline:
+                    raise ValueError(f'No se pudo obtener {lock} en {LOCK_TIMEOUT:g} s: otro proceso de sdd.py '
+                                     'está modificando la memoria; reintenta.')
+                time.sleep(0.05)
+        _LOCK_DEPTH = 1
+        try:
+            yield
+        finally:
+            _LOCK_DEPTH = 0
+            if os.name == 'nt':
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 def now() -> str:
@@ -47,6 +121,7 @@ def task_files(slug: str) -> tuple[Path, dict, dict]:
     return path, load(path / 'spec.json'), load(MEMORY)
 
 
+@memory_lock()
 def ensure_init() -> None:
     (ROOT / 'docs').mkdir(exist_ok=True)
     (ROOT / 'spec').mkdir(exist_ok=True)
@@ -59,6 +134,7 @@ def ensure_init() -> None:
     print('Contexto inicializado, sin sobrescribir documentación existente.')
 
 
+@memory_lock()
 def new(slug: str) -> None:
     ensure_init()
     path = task_dir(slug)
@@ -254,6 +330,7 @@ def validate(slug: str, run: bool = False, scope: bool = True) -> list[str]:
     return errors
 
 
+@memory_lock()
 def approve(slug: str, phase: str, by: str, evidence: str) -> None:
     # Se registra una declaración, no una identidad autenticada. Requiere decisión humana explícita.
     path, spec, memory = task_files(slug)
@@ -294,6 +371,7 @@ def approve(slug: str, phase: str, by: str, evidence: str) -> None:
     print(f'Aprobación declarada registrada ({phase}). No es una firma ni autentica al usuario.')
 
 
+@memory_lock()
 def review(slug: str, verdict: str, evidence: str) -> None:
     path, spec, memory = task_files(slug)
     if spec['state'] != 'proceso' or not memory['tasks'][slug]['approvals']['spec']:
@@ -315,6 +393,7 @@ def review(slug: str, verdict: str, evidence: str) -> None:
     print('Revisión registrada.', 'Escalada al humano.' if spec['state'] == 'pendiente' else '')
 
 
+@memory_lock()
 def note(fact: str | None, decision: str | None, by: str | None, evidence: str) -> None:
     # Se registra una declaración, no una identidad autenticada.
     if (fact is None) == (decision is None):
@@ -338,6 +417,7 @@ def note(fact: str | None, decision: str | None, by: str | None, evidence: str) 
           else 'Decisión declarada registrada. No es una firma ni autentica al usuario.')
 
 
+@memory_lock()
 def seal(slug: str, by: str) -> None:
     _, spec, memory = task_files(slug)
     tests = spec['testing']['protected_tests']
@@ -383,7 +463,7 @@ def release_propose() -> None:
         if record:
             changed.append(record[3:])
             if 'R' in record[:2] or 'C' in record[:2]: changed.append(next(records))  # ruta de origen
-    outside = [p for p in changed if not p.startswith('spec/') and p != '.microharness/memory.json']
+    outside = [p for p in changed if not p.startswith('spec/') and p not in ('.microharness/memory.json', '.microharness/memory.lock')]
     if outside:
         raise ValueError(f'Árbol con cambios fuera de spec/ y .microharness/memory.json: {", ".join(outside)}')
     tags = [t for t in git('tag', '--merged', 'HEAD', '--list', 'v*').split() if FINAL_TAG_RE.match(t)]

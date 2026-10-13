@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "id": "memoria-atomica-lock",
+  "title": "Escritura atómica de JSON y lock de archivo para las mutaciones de memory.json (R9)",
+  "state": "terminado",
+  "model": "claude-opus-5-5",
+  "effort": "medium",
+  "max_iterations": 3,
+  "method": {
+    "primary": "SDD",
+    "optional": [],
+    "notes": ""
+  },
+  "scope": {
+    "allowed_paths": [
+      ".microharness/sdd.py",
+      "tests/**",
+      ".gitignore",
+      "docs/arquitectura.md",
+      "spec/memoria-atomica-lock/**"
+    ],
+    "excluded": [
+      ".claude/**",
+      "CLAUDE.md",
+      ".microharness/memory.json",
+      ".microharness/python.sh",
+      "src/**",
+      "pyproject.toml",
+      "scripts/**",
+      "README.md"
+    ]
+  },
+  "requirements": {
+    "acceptance_ids": [
+      "AC-01",
+      "AC-02",
+      "AC-03",
+      "AC-04",
+      "AC-05",
+      "AC-06",
+      "AC-07",
+      "AC-08",
+      "AC-09",
+      "AC-10",
+      "AC-11",
+      "AC-12",
+      "AC-13",
+      "AC-14"
+    ],
+    "preconditions": [
+      "Python 3.10+ solo con biblioteca estándar; sin dependencias nuevas",
+      "Ejecución desde la raíz del repositorio con .microharness/sdd.py presente",
+      "Decisión humana previa: el implementador modifica .microharness/sdd.py por Bash (el hook niega Write/Edit en .microharness/)",
+      "La ruta del lock se deriva de sdd.MEMORY en cada llamada (las pruebas redirigen ROOT y MEMORY)",
+      "D-01 (release propose tolera .microharness/memory.lock) pendiente de confirmación del líder",
+      "docs/arquitectura.md solo lo modifica el líder al cierre"
+    ]
+  },
+  "testing": {
+    "strategy": "tdd",
+    "commands": [
+      [
+        "python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tests",
+        "-v"
+      ]
+    ],
+    "protected_tests": [],
+    "mutation": {
+      "enabled": false,
+      "command": [],
+      "reason": "No existe herramienta de mutación instalada (solo biblioteca estándar; mutmut no disponible). Sustituto proporcional: las pruebas por AC están diseñadas para matar mutantes manuales clave: quitar el decorador de cualquiera de las seis funciones (AC-06 con subTest), quitar el unlink del temporal (AC-02), omitir el reset del contador (AC-09), sustituir os.replace por escritura directa (AC-01) y omitir chmod (AC-04)."
+    }
+  }
+}

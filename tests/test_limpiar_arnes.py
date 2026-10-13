@@ -152,7 +152,7 @@ class LimpiarArnesTests(unittest.TestCase):
         self.make_repo()
         def outside(snap):
             return {k: v for k, v in snap.items() if not k.startswith(('historial/1.2.0/', 'docs/', 'spec/'))
-                    and k != '.microharness/memory.json'}
+                    and k not in ('.microharness/memory.json', '.microharness/memory.lock')}
         before, state = outside(snapshot(self.root)), head_and_index(self.root)
         code, out, err = self.run_tool(['1.2.0'])
         self.assertEqual(code, 0, out + err)

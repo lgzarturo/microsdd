@@ -9,6 +9,8 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from unittest import mock
 from pathlib import Path
@@ -436,6 +438,12 @@ class GitAttributesTests(unittest.TestCase):
                                 cwd=self.ROOT, capture_output=True, text=True, check=True)
         self.assertTrue(result.stdout.strip().endswith('eol: lf'), result.stdout)
 
+    def test_memory_lock_is_ignored(self):
+        # memoria-atomica-lock AC-12: raíz real del repo.
+        result = subprocess.run(['git', 'check-ignore', '-q', '.microharness/memory.lock'],
+                                cwd=self.ROOT, capture_output=True, check=False)
+        self.assertEqual(result.returncode, 0)
+
 
 class SettingsTests(unittest.TestCase):
     ROOT = SCRIPT.parents[1]
@@ -766,6 +774,21 @@ class ReleaseProposeTests(unittest.TestCase):
         self.assertIn('spec/release-v0-1-1/nota con espacios.md', self.git('status', '--porcelain', '--untracked-files=all'))
         self.assert_proposed('0.1.1')
 
+    # memoria-atomica-lock AC-13.
+    def test_tolerates_untracked_memory_lock(self):
+        self.git('tag', 'v0.1.0')
+        self.git('rm', '--cached', '-q', '--ignore-unmatch', '.microharness/memory.lock')
+        self.commit('fix: a')
+        (sdd.ROOT / '.microharness' / 'memory.lock').touch()
+        self.assertIn('?? .microharness/memory.lock', self.git('status', '--porcelain', '--untracked-files=all'))
+        self.assert_proposed('0.1.1')
+
+    def test_rejects_other_untracked_file_in_microharness(self):
+        self.git('tag', 'v0.1.0')
+        self.commit('fix: a')
+        (sdd.ROOT / '.microharness' / 'otro.txt').write_text('x\n', encoding='utf-8')
+        self.assertIn('.microharness/otro.txt', self.assert_rejected())
+
     # AC-07.
     def test_release_without_action_is_usage_error(self):
         code, out, err = self.run_main('release')
@@ -882,6 +905,252 @@ class NoteTests(unittest.TestCase):
     def test_invalid_json_unchanged(self):
         sdd.MEMORY.write_text('no es json {', encoding='utf-8')
         self.assert_rejected('--fact', 'F', '--evidence', 'E')
+
+
+class MemoryAtomicLockTests(unittest.TestCase):
+    """memoria-atomica-lock: dump atómico y lock de las mutaciones de memoria."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.old_root, self.old_memory = sdd.ROOT, sdd.MEMORY
+        self.addCleanup(self.restore)
+        sdd.ROOT = Path(temporary.name).resolve()
+        sdd.MEMORY = sdd.ROOT / '.microharness' / 'memory.json'
+        self.lock_path = sdd.MEMORY.parent / 'memory.lock'
+
+    def restore(self):
+        sdd.ROOT, sdd.MEMORY = self.old_root, self.old_memory
+
+    def quiet(self, func, *args):
+        with contextlib.redirect_stdout(io.StringIO()):
+            return func(*args)
+
+    def run_main(self, *argv):
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.object(sys, 'argv', ['sdd.py', *argv]), \
+                contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            try:
+                code = sdd.main()
+            except SystemExit as e:
+                code = e.code
+        return code, out.getvalue(), err.getvalue()
+
+    def set_timeout(self, value):
+        missing = object()
+        old = getattr(sdd, 'LOCK_TIMEOUT', missing)
+        sdd.LOCK_TIMEOUT = value
+        self.addCleanup(lambda: delattr(sdd, 'LOCK_TIMEOUT') if old is missing else setattr(sdd, 'LOCK_TIMEOUT', old))
+
+    def hold_lock(self):
+        import fcntl
+        self.lock_path.parent.mkdir(parents=True, exist_ok=True)
+        handle = open(self.lock_path, 'a+b')
+        self.addCleanup(handle.close)
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        return handle
+
+    def assert_lock_free(self):
+        import fcntl
+        with open(self.lock_path, 'a+b') as handle:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)  # lanza si sigue retenido
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+    def make_task(self, slug='tarea'):
+        self.quiet(sdd.new, slug)
+        path = sdd.ROOT / 'spec' / slug / 'spec.json'
+        data = sdd.load(path)
+        data['testing']['protected_tests'] = ['tests/t.py']
+        sdd.dump(path, data)
+        (sdd.ROOT / 'tests').mkdir(exist_ok=True)
+        (sdd.ROOT / 'tests' / 't.py').write_text('x = 1\n', encoding='utf-8')
+        return path
+
+    @staticmethod
+    def expected_bytes(data):
+        # Bytes de la implementación anterior (write_text), con la traducción de saltos de la plataforma.
+        with tempfile.TemporaryDirectory() as folder:
+            control = Path(folder) / 'control.json'
+            control.write_text(json.dumps(data, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+            return control.read_bytes()
+
+    # AC-01.
+    def test_dump_replaces_atomically_with_same_bytes(self):
+        folder = sdd.ROOT / 'd'
+        folder.mkdir()
+        target = folder / 'm.json'
+        target.write_text('{"viejo": 1}\n', encoding='utf-8')
+        data = {'nuevo': True, 'texto': 'año ñ'}
+        with mock.patch.object(os, 'replace', side_effect=os.replace) as replace, \
+                mock.patch.object(os, 'fsync', side_effect=os.fsync) as fsync:
+            sdd.dump(target, data)
+        self.assertEqual(replace.call_count, 1)
+        source, destination = replace.call_args.args
+        self.assertEqual(Path(source).parent, folder)
+        self.assertEqual(Path(destination), target)
+        self.assertGreaterEqual(fsync.call_count, 1)
+        self.assertEqual(target.read_bytes(), self.expected_bytes(data))
+        self.assertEqual(os.listdir(folder), ['m.json'])
+
+    # AC-02.
+    def test_dump_failure_keeps_previous_content(self):
+        for name in ('replace', 'fsync'):
+            for existed in (True, False):
+                with self.subTest(fails=name, existed=existed):
+                    folder = sdd.ROOT / f'{name}-{existed}'
+                    folder.mkdir()
+                    target = folder / 'm.json'
+                    if existed:
+                        target.write_text('{"viejo": 1}\n', encoding='utf-8')
+                        before = target.read_bytes()
+                    with mock.patch.object(os, name, side_effect=OSError('simulado')), \
+                            self.assertRaises(OSError):
+                        sdd.dump(target, {'nuevo': True})
+                    if existed:
+                        self.assertEqual(target.read_bytes(), before)
+                        self.assertEqual(os.listdir(folder), ['m.json'])
+                    else:
+                        self.assertFalse(target.exists())
+                        self.assertEqual(os.listdir(folder), [])
+
+    # AC-03.
+    def test_cli_note_with_failing_replace(self):
+        self.quiet(sdd.ensure_init)
+        before = sdd.MEMORY.read_bytes()
+        with mock.patch.object(os, 'replace', side_effect=OSError('simulado')):
+            code, out, err = self.run_main('note', '--fact', 'x', '--evidence', 'y')
+        self.assertEqual(code, 1, out + err)
+        self.assertIn('ERROR:', err)
+        self.assertEqual(sdd.MEMORY.read_bytes(), before)
+        self.assertEqual([n for n in os.listdir(sdd.MEMORY.parent) if n.endswith('.tmp')], [])
+
+    # AC-04.
+    @unittest.skipIf(os.name == 'nt', 'permisos POSIX')
+    def test_dump_preserves_existing_mode(self):
+        target = sdd.ROOT / 'm.json'
+        target.write_text('{}\n', encoding='utf-8')
+        os.chmod(target, 0o640)
+        sdd.dump(target, {'nuevo': True})
+        self.assertEqual(target.stat().st_mode & 0o777, 0o640)
+
+    @unittest.skipIf(os.name == 'nt', 'permisos POSIX')
+    def test_dump_new_file_uses_umask(self):
+        for mask, expected in ((0o022, 0o644), (0o027, 0o640)):
+            with self.subTest(umask=oct(mask)):
+                old = os.umask(mask)
+                try:
+                    target = sdd.ROOT / f'nuevo-{mask:o}.json'
+                    sdd.dump(target, {'nuevo': True})
+                finally:
+                    os.umask(old)
+                self.assertEqual(target.stat().st_mode & 0o777, expected)
+
+    # AC-05.
+    def test_dump_ignores_directory_fsync_error(self):
+        folder = sdd.ROOT / 'd'
+        folder.mkdir()
+        target = folder / 'm.json'
+        real_open, attempts = os.open, []
+
+        def fake_open(path, *args, **kwargs):
+            # R-09: solo falla la apertura del directorio; mkstemp usa el os.open real.
+            if os.fspath(path) == os.fspath(folder):
+                attempts.append(path)
+                raise OSError('simulado')
+            return real_open(path, *args, **kwargs)
+
+        with mock.patch.object(os, 'open', side_effect=fake_open):
+            sdd.dump(target, {'nuevo': True})
+        self.assertEqual(sdd.load(target), {'nuevo': True})
+        if os.name != 'nt':
+            self.assertEqual(len(attempts), 1)
+
+    # AC-06.
+    @unittest.skipIf(os.name == 'nt', 'fcntl solo en POSIX')
+    def test_held_lock_blocks_mutations(self):
+        spec_path = self.make_task()
+        self.hold_lock()
+        self.set_timeout(0.2)
+        operations = {
+            'ensure_init': lambda: sdd.ensure_init(),
+            'new': lambda: sdd.new('otra'),
+            'approve': lambda: sdd.approve('tarea', 'spec', 'P', 'ok'),
+            'review': lambda: sdd.review('tarea', 'RECHAZADO', 'ev'),
+            'seal': lambda: sdd.seal('tarea', 'P'),
+            'note': lambda: sdd.note('f', None, None, 'e'),
+        }
+        for name, operation in operations.items():
+            with self.subTest(operation=name):
+                memory, spec_bytes = sdd.MEMORY.read_bytes(), spec_path.read_bytes()
+                with contextlib.redirect_stdout(io.StringIO()), \
+                        self.assertRaisesRegex(ValueError, r'memory\.lock'):
+                    operation()
+                self.assertEqual(sdd.MEMORY.read_bytes(), memory)
+                self.assertEqual(spec_path.read_bytes(), spec_bytes)
+                self.assertFalse((sdd.ROOT / 'spec' / 'otra').exists())
+        code, out, err = self.run_main('note', '--fact', 'f', '--evidence', 'e')
+        self.assertEqual(code, 1, out + err)
+        self.assertIn('ERROR:', err)
+        self.assertIn('memory.lock', err)
+
+    # AC-07.
+    @unittest.skipIf(os.name == 'nt', 'fcntl solo en POSIX')
+    def test_waits_until_lock_released(self):
+        import fcntl
+        self.quiet(sdd.ensure_init)
+        handle = self.hold_lock()
+        self.set_timeout(5)
+        timer = threading.Timer(0.2, fcntl.flock, (handle.fileno(), fcntl.LOCK_UN))
+        self.addCleanup(timer.cancel)
+        start = time.monotonic()
+        timer.start()
+        code, out, err = self.run_main('note', '--fact', 'esperada', '--evidence', 'e')
+        elapsed = time.monotonic() - start
+        timer.join()
+        self.assertEqual(code, 0, err)
+        self.assertGreaterEqual(elapsed, 0.15)
+        self.assertEqual(sdd.load(sdd.MEMORY)['project']['observations'][-1]['fact'], 'esperada')
+
+    # AC-08.
+    def test_lock_is_reentrant(self):
+        self.set_timeout(0.2)
+        with sdd.memory_lock():
+            self.quiet(sdd.note, 'f', None, None, 'e')
+            self.quiet(sdd.new, 'anidada')
+        self.assertTrue((sdd.ROOT / 'spec' / 'anidada' / 'spec.json').is_file())
+        self.assertEqual(sdd.load(sdd.MEMORY)['project']['observations'][-1]['fact'], 'f')
+
+    # AC-09.
+    @unittest.skipIf(os.name == 'nt', 'fcntl solo en POSIX')
+    def test_lock_released_after_error_and_success(self):
+        self.make_task()
+        self.set_timeout(0.2)
+        with self.assertRaises(ValueError):
+            sdd.approve('tarea', 'spec', 'P', '  ')
+        self.assert_lock_free()
+        self.quiet(sdd.note, 'f', None, None, 'e')
+        self.assert_lock_free()
+        self.hold_lock()
+        with self.assertRaisesRegex(ValueError, r'memory\.lock'):
+            sdd.note('g', None, None, 'e')
+
+    # AC-10.
+    def test_lock_file_follows_redirected_memory(self):
+        self.quiet(sdd.ensure_init)
+        self.assertTrue(self.lock_path.is_file())
+        self.assertTrue(self.lock_path.resolve().is_relative_to(sdd.ROOT))
+
+    # AC-11.
+    @unittest.skipIf(os.name == 'nt', 'fcntl solo en POSIX')
+    def test_check_does_not_wait_for_lock(self):
+        self.make_task()
+        expected = self.run_main('check', 'tarea', '--no-scope')[0]
+        self.hold_lock()
+        self.set_timeout(5)
+        start = time.monotonic()
+        code, out, err = self.run_main('check', 'tarea', '--no-scope')
+        self.assertLess(time.monotonic() - start, 2)
+        self.assertEqual(code, expected, err)
 
 
 if __name__ == '__main__':

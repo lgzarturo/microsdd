@@ -64,6 +64,11 @@
         "at": "2026-10-13T06:27:10+00:00",
         "fact": "La sesión principal iniciada con `agent: lider` en .claude/settings.json envía agent_type al hook PreToolUse: un Write del líder a un archivo fuera del proyecto se denegó con 'Se prohíbe editar fuera del proyecto', rama que solo se alcanza con agent_type en los cuatro roles. En la misma sesión el líder escribió por Bash fuera del proyecto sin bloqueo (R3 vigente).",
         "evidence": "Write a <scratchpad>/sonda-agent-type.txt -> PreToolUse:Write hook error: Se prohíbe editar fuera del proyecto. (2026-10-13)"
+      },
+      {
+        "at": "2026-10-13T07:03:41+00:00",
+        "fact": "Plan de la serie autónoma: memoria-atomica-lock -> check-min-pruebas (R8) -> lista-blanca-runners (R6, solo tareas no terminadas) -> modelo-configurable (R7/R10) -> renombrar-docs (convenciones/especificaciones con compatibilidad) -> integridad-aprobaciones (punto 4 del análisis) -> hook-fail-closed (R5) -> release-v1-0-0 (CHANGELOG y versión) -> bloquear-autoaprobacion (último: tras él approve/seal solo los ejecuta el humano en su terminal, por lo que su cierre requiere un comando humano) -> limpiar_arnes 1.0.0, tag v1.0.0, push y release en GitHub. Desviación consciente del proceso de versionado: el commit de versión precede a bloquear-autoaprobacion y el tag se pone tras la limpieza, para requerir una sola intervención humana.",
+        "evidence": "Análisis del líder sobre assets/proceso-versionado.md y la spec de bloquear-autoaprobacion (R-01), 2026-10-13"
       }
     ],
     "decisions": [
@@ -355,6 +360,18 @@
         "by": "Programador",
         "decision": "Spec de bloquear-autoaprobacion aprobada en contenido, con excepciones git add/diff/status/log/show y del lanzador (-m unittest, --version), sin sellar tests/test_sdd.py (quitar protected_tests), aceptando R-02 a R-04; el approve formal se registra al retomarla. Implementación por Bash del implementador en pretool.py, lider.md y sdd.py, con pretool.py al final.",
         "evidence": "Respuesta explícita en sesión 2026-10-13 (AskUserQuestion tras la spec de bloquear-autoaprobacion)"
+      },
+      {
+        "at": "2026-10-13T07:02:58+00:00",
+        "by": "Programador",
+        "decision": "Autorización global: implementar de forma autónoma todas las tareas pendientes del parche de seguridad y del análisis (incluidas recomendaciones fuera del alcance inicial, p. ej. renombrar convensiones.md/specificaciones.md), con commits atómicos y sin aprobación por paso (el programador declara validados los cambios de los documentos compartidos); al final limpiar el arnés, etiquetar v1.0.0, hacer push y publicar el release.",
+        "evidence": "Mensaje del programador en sesión 2026-10-13: 'implementa todos las tareas pendientes con commits atomicos, incluyendo los planes que quedaron fuera del scope... no necesitas que te apruebe en cada paso... hacer la limpia del arnes y realizar el tag como v1.0.0 y aplicar el release. El objetivo es publicar el release'"
+      },
+      {
+        "at": "2026-10-13T07:03:49+00:00",
+        "by": "Líder (autorización global del Programador)",
+        "decision": "memoria-atomica-lock: se autoriza ampliar el filtro outside() de tests/test_limpiar_arnes.py para excluir también .microharness/memory.lock (artefacto ignorado que ahora crea init). La aserción no cambia; dentro de tests/**.",
+        "evidence": "Informe del implementador: único fallo de la suite en test_keeps_other_files_head_index_and_prints_next_steps por memory.lock; autorización global del programador 2026-10-13"
       }
     ]
   },
@@ -1287,6 +1304,47 @@
         },
         {
           "at": "2026-10-13T06:50:43+00:00",
+          "event": "aprobación_close",
+          "by": "Programador"
+        }
+      ]
+    },
+    "memoria-atomica-lock": {
+      "approvals": {
+        "spec": {
+          "by": "Programador",
+          "evidence": "Aprobación explícita en sesión 2026-10-13 (AskUserQuestion): spec memoria-atomica-lock con D-01 (release propose tolera memory.lock) y D-02 (0o666 & ~umask)",
+          "at": "2026-10-13T06:56:01+00:00",
+          "fingerprint": "2b9cc8dba16363595624a0d3fff676485ecc878fb3685b4565696848f8b9a847"
+        },
+        "close": {
+          "by": "Programador",
+          "evidence": "Autorización global del programador en sesión 2026-10-13 para cerrar y commitear las tareas de la serie sin aprobación por paso",
+          "at": "2026-10-13T07:06:51+00:00"
+        }
+      },
+      "sealed_tests": {},
+      "review": "APROBADO",
+      "review_fingerprint": "71d60efef0543bee1e0cac91ad3cbcedfe407712f09991e1866440dcdd94a8cb",
+      "iterations": 1,
+      "events": [
+        {
+          "at": "2026-10-13T06:50:55+00:00",
+          "event": "creada"
+        },
+        {
+          "at": "2026-10-13T06:56:01+00:00",
+          "event": "aprobación_spec",
+          "by": "Programador"
+        },
+        {
+          "at": "2026-10-13T07:06:44+00:00",
+          "event": "revisión",
+          "verdict": "APROBADO",
+          "evidence": "Revisor independiente 2026-10-13: AC-01..AC-14 cumplidos; dump atómico (mkstemp, fsync, os.replace, modo conservado), lock reentrante con timeout; filtro de test_limpiar_arnes correcto. check --run: Ran 124 tests OK (skipped=2). Rama msvcrt solo revisada por lectura."
+        },
+        {
+          "at": "2026-10-13T07:06:51+00:00",
           "event": "aprobación_close",
           "by": "Programador"
         }

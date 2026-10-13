@@ -4,3 +4,4 @@ __pycache__/
 .coverage
 .pytest_cache/
 .mutmut-cache/
+.microharness/memory.lock
