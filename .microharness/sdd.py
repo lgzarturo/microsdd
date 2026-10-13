@@ -28,6 +28,14 @@ SUBJECT_RE = re.compile(r'^([a-z]+)(\([^)]*\))?(!)?: ')
 FINAL_TAG_RE = re.compile(r'^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$')
 LOCK_TIMEOUT = 10.0
 _LOCK_DEPTH = 0
+# Resúmenes de runners: unittest, pytest, bun y Maven (se usa la última coincidencia de cada uno).
+TEST_COUNT_RES = (
+    re.compile(r'^Ran (\d+) tests? in', re.M),
+    re.compile(r'\b(\d+) passed\b'),
+    re.compile(r'^[ \t]*(\d+) pass\b', re.M),
+    re.compile(r'Tests run: (\d+)'),
+)
+GO_OK_RE = re.compile(r'^ok[ \t]+\S+', re.M)
 
 
 def dump(path: Path, data: dict) -> None:
@@ -230,6 +238,26 @@ def code_fingerprint(patterns: list[str]) -> str:
     return h.hexdigest()
 
 
+def tests_ran(output: str) -> int | None:
+    counts = [int(m[-1]) for m in (r.findall(output) for r in TEST_COUNT_RES) if m]
+    go = len(GO_OK_RE.findall(output))
+    if go:
+        counts.append(go)
+    return max(counts) if counts else None
+
+
+def echo(data: bytes, stream) -> None:
+    if not data:
+        return
+    buffer = getattr(stream, 'buffer', None)
+    if buffer is None:
+        stream.write(data.decode('utf-8', 'replace'))
+    else:
+        stream.flush()
+        buffer.write(data)
+        buffer.flush()
+
+
 def validate(slug: str, run: bool = False, scope: bool = True) -> list[str]:
     path, s, memory = task_files(slug)
     errors: list[str] = []
@@ -290,6 +318,9 @@ def validate(slug: str, run: bool = False, scope: bool = True) -> list[str]:
     mutation = testing.get('mutation', {})
     if mutation.get('enabled') and not mutation.get('command'):
         errors.append('Mutation testing activado sin comando')
+    min_tests = testing.get('min_tests', 1)
+    if type(min_tests) is not int or min_tests < 1:
+        errors.append('testing.min_tests debe ser un entero mayor o igual a 1')
     if slug not in memory.get('tasks', {}):
         errors.append('No existe memoria para la tarea')
     else:
@@ -317,14 +348,26 @@ def validate(slug: str, run: bool = False, scope: bool = True) -> list[str]:
             if not path_allowed(filename, patterns):
                 errors.append(f'Archivo modificado fuera de scope: {filename}')
     if run and not errors:
-        for command in testing['commands'] + ([mutation['command']] if mutation.get('enabled') else []):
+        commands = [(c, True) for c in testing['commands']]
+        if mutation.get('enabled'):
+            commands.append((mutation['command'], False))
+        for command, counted in commands:
             if command[0] in ('python', 'python3'):
                 command = [sys.executable, *command[1:]]
             print('EJECUTANDO:', ' '.join(command), flush=True)
             try:
-                outcome = subprocess.run(command, cwd=ROOT, check=False, timeout=300)
+                outcome = subprocess.run(command, cwd=ROOT, check=False, timeout=300, capture_output=True)
+                echo(outcome.stdout, sys.stdout)
+                echo(outcome.stderr, sys.stderr)
                 if outcome.returncode:
                     errors.append(f'Comando falló ({outcome.returncode}): {command}')
+                elif counted and s.get('state') != 'terminado':
+                    found = tests_ran(outcome.stdout.decode('utf-8', 'replace') + '\n'
+                                      + outcome.stderr.decode('utf-8', 'replace'))
+                    if found is None or found < min_tests:
+                        detected = 'ninguna' if found is None else found
+                        errors.append(f'Se requieren al menos {min_tests} pruebas ejecutadas; '
+                                      f'detectadas: {detected} en {command}')
             except (OSError, subprocess.TimeoutExpired) as e:
                 errors.append(f'No se pudo ejecutar {command}: {e}')
     return errors

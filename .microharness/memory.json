@@ -1349,6 +1349,47 @@
           "by": "Programador"
         }
       ]
+    },
+    "check-min-pruebas": {
+      "approvals": {
+        "spec": {
+          "by": "Programador",
+          "evidence": "Autorización global del programador 2026-10-13 (serie autónoma del parche validado); decisiones D-01 mínimo por comando, D-02 tipo de min_tests validado siempre, D-03 no tocar test_testing_failure_is_reported, D-04 aceptar límites Go/Maven, según recomendación del autor",
+          "at": "2026-10-13T07:11:40+00:00",
+          "fingerprint": "9003f3dbef60c8bc1ec2f1b30993e46edee99a28b01759a7ab966f8e1b509fa1"
+        },
+        "close": {
+          "by": "Programador",
+          "evidence": "Autorización global del programador en sesión 2026-10-13 para cerrar y commitear las tareas de la serie sin aprobación por paso",
+          "at": "2026-10-13T07:17:26+00:00"
+        }
+      },
+      "sealed_tests": {},
+      "review": "APROBADO",
+      "review_fingerprint": "fb0509ec1a32c7362cbec1c168ff046c24412af5486b897c4a70c566d7fac698",
+      "iterations": 1,
+      "events": [
+        {
+          "at": "2026-10-13T07:06:55+00:00",
+          "event": "creada"
+        },
+        {
+          "at": "2026-10-13T07:11:40+00:00",
+          "event": "aprobación_spec",
+          "by": "Programador"
+        },
+        {
+          "at": "2026-10-13T07:17:19+00:00",
+          "event": "revisión",
+          "verdict": "APROBADO",
+          "evidence": "Revisor independiente 2026-10-13: AC-01..AC-12 cumplidos; recuento por última coincidencia sin cruzar líneas, mínimo por comando, min_tests int>=1 (bool rechazado), exención en terminado, mutación no contada. check --run: Ran 133 tests OK (skipped=2)."
+        },
+        {
+          "at": "2026-10-13T07:17:26+00:00",
+          "event": "aprobación_close",
+          "by": "Programador"
+        }
+      ]
     }
   }
 }

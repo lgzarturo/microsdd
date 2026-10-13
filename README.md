@@ -40,6 +40,16 @@ Opción recomendada: instalar uv con su instalador oficial (https://docs.astral.
 
 En `check --run`, un comando de `testing.commands` (o `mutation.command`) cuyo primer elemento sea exactamente `python` o `python3` se ejecuta con el mismo intérprete que corre el checker (`sys.executable`).
 
+`check --run` captura la salida de cada comando, la reproduce al terminar (no en tiempo real) y, mientras la tarea no esté `terminado`, exige que **cada** comando de `testing.commands` muestre un recuento de pruebas ejecutadas de al menos `testing.min_tests`. `min_tests` es opcional, vale 1 por defecto y debe ser un entero mayor o igual a 1. Un comando que sale con 0 sin un resumen reconocible (por ejemplo, `python -m unittest --help` o `python -c ...`) falla la puerta. Runners reconocidos:
+
+- unittest: `Ran N tests in`.
+- pytest: `N passed`.
+- bun: `N pass` al inicio de línea.
+- Maven: `Tests run: N` (se toma la última línea; en multimódulo refleja solo el último módulo).
+- Go: cada línea `ok <paquete>` cuenta como 1, así que se cuentan paquetes, no pruebas.
+
+Si un formato aparece varias veces se usa la última coincidencia; si coinciden varios formatos, el mayor. `mutation.command` se ejecuta pero no se cuenta, y las tareas `terminado` no se cuentan.
+
 ### Bloqueo si falta uv
 
 El hook usa `"onFailure": "block"`: si uv no está en `PATH` o el hook falla, Claude Code bloquea toda llamada `Write|Edit|MultiEdit|NotebookEdit|Bash`, también en la sesión principal. Para salir, instala uv o edita `.claude/settings.json` **fuera de Claude Code** (editor o terminal) y reinicia la sesión.
@@ -252,6 +262,7 @@ El comando `new` genera un ejemplo completo y editable con estos campos relevant
     "strategy": "tdd",
     "commands": [["python", "-m", "pytest", "tests/auth", "-q"]],
     "protected_tests": ["tests/auth/test_expiration.py"],
+    "min_tests": 1,
     "mutation": {
       "enabled": false,
       "command": [],
@@ -286,7 +297,7 @@ El comando `new` genera un ejemplo completo y editable con estos campos relevant
 | Huella de especificación | SHA-256 en `memory.json` | Invalida cambios posteriores a aprobación; no evita manipulación deliberada de la memoria |
 | Scope de cambios | Git diff en `check` | Evita cerrar con modificaciones fuera de patrones; empieza con working tree limpio |
 | Huella de revisión | Hash de archivos cambiados en el diff | Detecta nuevos cambios de código después de `APROBADO`; no protege de Git/memoria manipulados |
-| Tests y mutación | `check --run` | Código de salida de comandos configurados; un comando deficiente no prueba corrección |
+| Tests y mutación | `check --run` | Código de salida de comandos configurados y, en tareas no `terminado`, recuento mínimo de pruebas ejecutadas por comando (`testing.min_tests`, sin contar la mutación); un resumen falso o una prueba deficiente no prueba corrección |
 | Reviews y aprobación | Líder + JSON | Contrato procedimental; no autentica al humano |
 | Conventional Commits | `commit-check` | Comprueba patrón básico; el carácter atómico depende del `git add` y revisión humana |
 

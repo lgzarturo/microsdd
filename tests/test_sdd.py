@@ -34,7 +34,11 @@ class MicroSDDTests(unittest.TestCase):
         data = sdd.load(self.folder / 'spec.json')
         data['title'] = 'Corregir la sesión'
         data['scope']['allowed_paths'] = ['src/**', 'tests/**']
-        data['testing']['commands'] = [[sys.executable, '-c', 'print("tests ok")']]
+        (sdd.ROOT / 'pruebas').mkdir()
+        (sdd.ROOT / 'pruebas' / 'test_ok.py').write_text(
+            'import unittest\n\n\nclass Ok(unittest.TestCase):\n    def test_ok(self):\n        pass\n',
+            encoding='utf-8')
+        data['testing']['commands'] = [[sys.executable, '-m', 'unittest', 'discover', '-s', 'pruebas']]
         sdd.dump(self.folder / 'spec.json', data)
         (self.folder / 'requerimientos.md').write_text(
             '# QUÉ\nWHEN expire una sesión, THE sistema SHALL rechazar credenciales vencidas.\n'
@@ -258,12 +262,125 @@ class MicroSDDTests(unittest.TestCase):
         for alias in ('python3', 'python'):
             with self.subTest(alias=alias):
                 out = sdd.ROOT / f'interprete-{alias}.txt'
-                code = f'import sys; open({str(out)!r}, "w", encoding="utf-8").write(sys.executable)'
+                (sdd.ROOT / 'pruebas' / 'test_alias.py').write_text(
+                    'import sys\nimport unittest\n\n\nclass Alias(unittest.TestCase):\n'
+                    '    def test_alias(self):\n'
+                    f'        open({str(out)!r}, "w", encoding="utf-8").write(sys.executable)\n',
+                    encoding='utf-8')
                 data = sdd.load(self.folder / 'spec.json')
-                data['testing']['commands'] = [[alias, '-c', code]]
+                data['testing']['commands'] = [[alias, '-m', 'unittest', 'discover', '-s', 'pruebas']]
                 sdd.dump(self.folder / 'spec.json', data)
                 self.assertEqual(sdd.validate('fix-sesiones', run=True), [])
                 self.assertEqual(out.read_text(encoding='utf-8'), sys.executable)
+
+    def _set_testing(self, commands=None, **extra):
+        data = sdd.load(self.folder / 'spec.json')
+        if commands is not None:
+            data['testing']['commands'] = commands
+        data['testing'].update(extra)
+        sdd.dump(self.folder / 'spec.json', data)
+
+    def _run_captured(self):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            errors = sdd.validate('fix-sesiones', run=True)
+        return errors, out.getvalue(), err.getvalue()
+
+    SUITE = [sys.executable, '-m', 'unittest', 'discover', '-s', 'pruebas']
+    NO_TESTS = [sys.executable, '-m', 'unittest', '--help']
+
+    def test_run_counts_and_echoes_suite_output(self):
+        # AC-02: suite real con una prueba pasa la puerta y su salida se reproduce.
+        errors, out, err = self._run_captured()
+        self.assertEqual(errors, [])
+        self.assertIn('Ran 1 test', err)
+        self.assertIn('EJECUTANDO:', out)
+
+    def test_run_without_test_count_fails(self):
+        # AC-03: salir con 0 sin recuento reconocible no pasa la puerta.
+        self._set_testing([self.NO_TESTS])
+        errors, _, _ = self._run_captured()
+        self.assertTrue(any('al menos 1' in e and 'ninguna' in e for e in errors), errors)
+
+    def test_run_enforces_min_tests_threshold(self):
+        # AC-04: el recuento debe alcanzar testing.min_tests.
+        self._set_testing(min_tests=2)
+        errors, _, _ = self._run_captured()
+        self.assertTrue(any('al menos 2' in e and 'detectadas: 1' in e for e in errors), errors)
+        self._set_testing(min_tests=1)
+        errors, _, _ = self._run_captured()
+        self.assertEqual(errors, [])
+
+    def test_min_tests_type_is_validated(self):
+        # AC-05: min_tests debe ser int (no bool) >= 1; ausente equivale a 1.
+        message = 'testing.min_tests debe ser un entero mayor o igual a 1'
+        for value in (0, -1, '2', 1.5, True, None):
+            with self.subTest(value=value):
+                self._set_testing(min_tests=value)
+                self.assertIn(message, sdd.validate('fix-sesiones'))
+        for value in (1, 5):
+            with self.subTest(value=value):
+                self._set_testing(min_tests=value)
+                self.assertNotIn(message, sdd.validate('fix-sesiones'))
+        data = sdd.load(self.folder / 'spec.json')
+        data['testing'].pop('min_tests')
+        sdd.dump(self.folder / 'spec.json', data)
+        self.assertNotIn(message, sdd.validate('fix-sesiones'))
+
+    def test_min_tests_applies_per_command(self):
+        # AC-06: un comando con recuento no compensa a otro sin recuento.
+        self._set_testing([self.SUITE, self.NO_TESTS])
+        errors, _, _ = self._run_captured()
+        count_errors = [e for e in errors if 'al menos' in e]
+        self.assertEqual(len(count_errors), 1, errors)
+        self.assertIn('--help', count_errors[0])
+
+    def test_mutation_command_is_not_counted(self):
+        # AC-07: mutation.command se ejecuta sin exigir recuento.
+        self._set_testing(mutation={'enabled': True, 'command': self.NO_TESTS, 'reason': 'prueba'})
+        errors, out, _ = self._run_captured()
+        self.assertEqual(errors, [])
+        self.assertIn('--help', out)
+
+    def test_failed_command_has_no_count_error(self):
+        # AC-08: un comando que falla solo produce 'Comando falló'.
+        self._set_testing([[sys.executable, '-c', 'raise SystemExit(1)']])
+        errors, _, _ = self._run_captured()
+        self.assertTrue(any('Comando falló' in e for e in errors), errors)
+        self.assertFalse([e for e in errors if 'al menos' in e], errors)
+
+    def test_count_not_required_after_close(self):
+        # AC-09: en proceso se exige el recuento; tras el cierre normal ya no.
+        sdd.approve('fix-sesiones', 'spec', 'Humano', 'Sí, aprobada')
+        with mock.patch.object(sdd, 'tests_ran', return_value=None):
+            errors, _, _ = self._run_captured()
+        self.assertTrue(any('al menos 1' in e and 'ninguna' in e for e in errors), errors)
+        sdd.review('fix-sesiones', 'APROBADO', 'Comparados diff y pruebas')
+        sdd.approve('fix-sesiones', 'close', 'Humano', 'Sí, cerrar tarea')
+        self.assertEqual(sdd.load(self.folder / 'spec.json')['state'], 'terminado')
+        with mock.patch.object(sdd, 'tests_ran', return_value=None):
+            errors, _, _ = self._run_captured()
+        self.assertEqual(errors, [])
+
+
+class TestsRanTests(unittest.TestCase):
+    def test_recognized_summaries(self):
+        # AC-01: casos literales de unittest, pytest, bun, Maven, Go y salidas sin recuento.
+        cases = [
+            ('Ran 12 tests in 0.1s\nOK\n', 12),
+            ('Ran 1 test in 0.0s\n', 1),
+            ('Ran 0 tests in 0.000s\n', 0),
+            ('==== 5 passed, 1 skipped in 0.2s ====', 5),
+            (' 7 pass\n 0 fail\n', 7),
+            ('Tests run: 3, Failures: 0\n...\nResults:\nTests run: 9, Failures: 0', 9),
+            ('ok  \tej/a\t0.01s\nok  \tej/b\t(cached)\n?   \tej/c\t[no test files]\n', 2),
+            ('Ran 1 test in 0.0s\n...\nRan 40 tests in 3.0s\n', 40),
+            ('tests ok', None),
+            ('', None),
+        ]
+        for output, expected in cases:
+            with self.subTest(output=output):
+                self.assertEqual(sdd.tests_ran(output), expected)
 
 
 class HookTests(unittest.TestCase):

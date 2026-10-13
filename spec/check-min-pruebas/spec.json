@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "id": "check-min-pruebas",
+  "title": "check --run exige un recuento mínimo de pruebas ejecutadas por comando (testing.min_tests, R8)",
+  "state": "terminado",
+  "model": "claude-opus-5-5",
+  "effort": "medium",
+  "max_iterations": 3,
+  "method": {
+    "primary": "SDD",
+    "optional": [],
+    "notes": ""
+  },
+  "scope": {
+    "allowed_paths": [
+      ".microharness/sdd.py",
+      "tests/**",
+      "README.md",
+      "docs/arquitectura.md",
+      "spec/check-min-pruebas/**"
+    ],
+    "excluded": [
+      ".claude/**",
+      "CLAUDE.md",
+      ".microharness/memory.json",
+      ".microharness/python.sh",
+      "src/**",
+      "pyproject.toml",
+      "scripts/**",
+      "assets/**"
+    ]
+  },
+  "requirements": {
+    "acceptance_ids": [
+      "AC-01",
+      "AC-02",
+      "AC-03",
+      "AC-04",
+      "AC-05",
+      "AC-06",
+      "AC-07",
+      "AC-08",
+      "AC-09",
+      "AC-10",
+      "AC-11",
+      "AC-12"
+    ],
+    "preconditions": [
+      "Python >= 3.10, solo biblioteca estándar",
+      "El implementador modifica .microharness/sdd.py por Bash (decisión humana previa)",
+      "Decisión humana registrada: las validaciones nuevas sobre comandos de prueba solo se aplican mientras la tarea no esté terminado",
+      "docs/arquitectura.md lo actualiza el líder al cierre"
+    ]
+  },
+  "testing": {
+    "strategy": "tdd",
+    "commands": [
+      [
+        "python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tests",
+        "-v"
+      ]
+    ],
+    "protected_tests": [],
+    "rules": [
+      "TDD: cada prueba nueva se observa en RED antes de implementar",
+      "No cambiar nombres ni aserciones de pruebas existentes; solo el fixture de MicroSDDTests.setUp y la preparación de test_run_replaces_python_alias_with_current_interpreter",
+      "Pruebas de comportamiento ligadas a AC; sin dependencias nuevas"
+    ],
+    "mutation": {
+      "enabled": false,
+      "command": [],
+      "reason": "Lógica acotada (regex y comparación) cubierta por casos literales en AC-01 y por los límites de AC-04/AC-05; no hay herramienta de mutación instalada en el repositorio. Mutación manual sugerida al revisor: invertir < por <=, tomar la primera coincidencia en vez de la última, o quitar la exención de terminado; las pruebas deben fallar."
+    }
+  }
+}
