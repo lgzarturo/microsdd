@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "id": "herramienta-release",
+  "title": "Añadir a sdd.py la constante __version__ con --version y el subcomando de solo lectura release propose (tarea 1 de 2 de la herramienta de release)",
+  "state": "terminado",
+  "model": "claude-opus-5-5",
+  "effort": "medium",
+  "max_iterations": 3,
+  "method": {
+    "primary": "SDD",
+    "optional": [],
+    "notes": "Solo SDD; RDD y ODD no se activan por falta de definición operativa para esta tarea."
+  },
+  "scope": {
+    "allowed_paths": [
+      ".microharness/sdd.py",
+      "tests/test_sdd.py",
+      "assets/proceso-versionado.md"
+    ],
+    "excluded": [
+      "release prepare y release tag (tarea posterior)",
+      "README.md",
+      "CLAUDE.md",
+      "docs/**",
+      ".claude/** (incluido el hook)",
+      ".microharness/memory.json salvo tasks.herramienta-release y project (flujo del líder)",
+      "assets/decisiones-diseno.md",
+      "assets/microsdd-prompting.png",
+      "secciones de assets/proceso-versionado.md distintas de la última y de la línea de la constante en «Estado actual»",
+      "CHANGELOG.md y VERSION reales",
+      "tags reales, push o releases de GitHub",
+      "corrección de core.quotePath en diff_files() y refactor de funciones existentes de sdd.py",
+      "lectura del pie BREAKING CHANGE",
+      "mutation testing con herramientas externas"
+    ]
+  },
+  "requirements": {
+    "acceptance_ids": [
+      "AC-01",
+      "AC-02",
+      "AC-03",
+      "AC-04",
+      "AC-05",
+      "AC-06",
+      "AC-07",
+      "AC-08",
+      "AC-09",
+      "AC-10"
+    ],
+    "preconditions": [
+      "Sin tags, sin CHANGELOG.md ni VERSION, sin constante de versión en sdd.py (comprobado).",
+      "python -m unittest discover -s tests pasa con 10 pruebas antes del cambio; en este entorno se usa python, no python3.",
+      "Decisiones H-01, H-03, H-04, H-07, H-08 y D-01, D-02, D-03, D-04, D-06, D-08, D-09, D-10 registradas en .microharness/memory.json.",
+      "B-01: autorización humana explícita y acotada para que el implementador edite únicamente .microharness/sdd.py (nunca memory.json ni .claude/); el hook no se modifica.",
+      "Git global con commit.gpgsign=true: las pruebas lo desactivan en la configuración local de cada repo temporal."
+    ]
+  },
+  "testing": {
+    "strategy": "tdd",
+    "commands": [
+      [
+        "python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tests"
+      ],
+      [
+        "python",
+        ".microharness/sdd.py",
+        "--version"
+      ],
+      [
+        "python",
+        "-c",
+        "import re,json,pathlib,subprocess,difflib;N=lambda b:b.decode('utf-8').replace('\\r\\n','\\n');G=lambda *a:N(subprocess.run(['git','-c','core.quotePath=false',*a],capture_output=True,check=True).stdout);t=N(pathlib.Path('assets/proceso-versionado.md').read_bytes());o=G('show','HEAD:assets/proceso-versionado.md');sp=lambda x:dict(zip(re.findall(r'^## (.+)$',x,flags=re.M),re.split(r'^## .+$',x,flags=re.M)[1:]));S,O=sp(t),sp(o);H=list(O);H[-1]='Herramienta de release';assert list(S)==H,('AC-08 secciones',list(S));assert t.split('\\n## ',1)[0]==o.split('\\n## ',1)[0],'AC-08 preámbulo';assert all(S[k]==O[k] for k in H[:-1] if k!='Estado actual'),'AC-08 secciones intactas';e=S['Estado actual'];d=[l for l in difflib.ndiff(O['Estado actual'].splitlines(),e.splitlines()) if l[:2] in ('- ','+ ')];assert sum(l[:2]=='- ' for l in d)<=1 and sum(l[:2]=='+ ' for l in d)<=1,('AC-08 estado diff',d);assert '__version__' in e and 'ninguna constante' not in e,'AC-08 estado';f=S['Herramienta de release'];assert re.findall(r'^- \\*\\*R-(\\d{2})\\*\\*',f,flags=re.M)==['%02d'%i for i in range(1,8)],'AC-08 R';assert all(k in f for k in ('release propose','--version','__version__','pendiente','ninguna otra tarea')) and 'Hoy no existe' not in f,'AC-08 herramienta';s=N(pathlib.Path('.microharness/sdd.py').read_bytes());assert len(re.findall(r\"^__version__ = '0\\.1\\.0'$\",s,flags=re.M))==1,'AC-01 constante';st=[l[3:].split(' -> ')[-1] for l in G('status','--porcelain','--untracked-files=all').splitlines() if l];assert not [p for p in st if p.startswith('.claude/') or p=='CLAUDE.md'],('AC-10 .claude',st);assert set(p for p in st if not p.startswith('spec/herramienta-release/') and p!='.microharness/memory.json')<={'.microharness/sdd.py','tests/test_sdd.py','assets/proceso-versionado.md'},('AC-10 alcance',st);m0=json.loads(G('show','HEAD:.microharness/memory.json'));m1=json.loads(pathlib.Path('.microharness/memory.json').read_text(encoding='utf-8'));assert set(m1)==set(m0) and m1['schema_version']==m0['schema_version'],'AC-10 memoria claves';assert {k:v for k,v in m1['tasks'].items() if k!='herramienta-release'}=={k:v for k,v in m0['tasks'].items() if k!='herramienta-release'},'AC-10 memoria tareas';print('OK docs')"
+      ]
+    ],
+    "protected_tests": [
+      "tests/test_sdd.py"
+    ],
+    "mutation": {
+      "enabled": false,
+      "command": [],
+      "reason": "No hay herramienta de mutación en el repositorio y añadir una viola stdlib-first. La lógica crítica (tabla de incrementos y guardas de propose) se cubre con una prueba por fila de la tabla en 0.y.z y ≥1.0.0 y por guarda; el revisor comprueba manualmente que invertir una rama de incremento o eliminar una guarda haría fallar al menos una prueba."
+    }
+  }
+}

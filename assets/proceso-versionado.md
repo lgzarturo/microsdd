@@ -11,7 +11,7 @@ Se basa en Semantic Versioning 2.0.0 (https://semver.org/lang/es/) y en Conventi
 ## Estado actual
 
 - El repositorio no tiene ningún tag (`git tag` no devuelve resultados).
-- No existen `CHANGELOG.md` ni `VERSION`, y `.microharness/sdd.py` no define ninguna constante de versión.
+- No existen `CHANGELOG.md` ni `VERSION`; `.microharness/sdd.py` define la constante `__version__` (`0.1.0`), expuesta con `--version`.
 - El único indicio de versión es el título «MicroSDD 0.1» de `README.md`.
 - Por tanto, la versión vigente es la línea 0.1, aún no publicada.
 
@@ -117,16 +117,20 @@ Como hecho, no como exclusión nueva: `.claude/settings.local.json` no se versio
 
 Nota: antes de copiar, revisa conflictos con archivos homónimos del repositorio destino, en especial `README.md`, `CLAUDE.md`, `.gitignore` y `.claude/settings.json`.
 
-## Herramienta de release (futura)
+## Herramienta de release
 
-Hoy no existe la herramienta de release, ni `CHANGELOG.md`, ni una fuente de versión en el árbol. Cuando se implemente, en su propia tarea, deberá cumplir estos requisitos:
+Existen `sdd.py --version`, que imprime `MicroSDD <__version__>`, y `sdd.py release propose`, que solo lee Git y propone la siguiente versión sin modificar archivos, tags, ramas ni memoria. `release prepare` (actualizar `CHANGELOG.md` y la fuente de versión) y `release tag` (crear el tag) están pendientes de su propia tarea; tampoco existe `CHANGELOG.md`. La herramienta cumple, y la parte pendiente deberá cumplir, estos requisitos:
 
-- **R-01** Usar solo la biblioteca estándar de Python y exponerse como subcomando de `.microharness/sdd.py` (nombre a definir en su tarea).
-- **R-02** Rechazar la ejecución si el árbol no está limpio, la rama no es `main`, hay una tarea en `proceso` o el tag ya existe.
+- **R-01** Usar solo la biblioteca estándar de Python y exponerse como subcomando `release` de `.microharness/sdd.py`, con las acciones `propose`, `prepare` y `tag`.
+- **R-02** Rechazar la ejecución, con código 1, si no se cumplen las precondiciones de su fase:
+  - `release propose`: rama `main`, ninguna tarea en `proceso` y árbol limpio salvo `spec/**` y `.microharness/memory.json` (se ejecuta mientras el autor especifica la tarea de release).
+  - `release prepare X.Y.Z[-rc.N]` (pendiente): rama `main`, árbol limpio salvo `spec/<slug>/**` y `.microharness/memory.json`, la tarea `<slug>` de release en `proceso` y ninguna otra tarea en `proceso`, y tag inexistente.
+  - `release tag X.Y.Z[-rc.N]` (pendiente): rama `main`, árbol totalmente limpio, la tarea `<slug>` en `terminado` con aprobación `close`, ninguna tarea en `proceso` y tag inexistente.
+  - El slug es `release-v` seguido de la versión con `.` sustituido por `-` (por ejemplo, `release-v0-2-0-rc-1`).
 - **R-03** Proponer el incremento según «Reglas de incremento» y «Fase 0.y.z», leyendo los asuntos de commit desde el último tag; la versión final la confirma el humano.
 - **R-04** Actualizar `CHANGELOG.md` (una sección `## [X.Y.Z] - AAAA-MM-DD` por versión, con entradas agrupadas en «Incompatible», «Añadido», «Corregido» y «Otros») y la fuente única de versión, que deberá coincidir con el tag.
 - **R-05** Crear el tag anotado solo tras la aprobación `close` registrada y validar el formato de la sección «Tags y prereleases».
 - **R-06** No ejecutar `push` ni crear releases en GitHub; como máximo, imprimir los comandos para que el humano los autorice.
 - **R-07** Devolver código de salida 0 en éxito y 1 en error, coherente con API-01, con pruebas unitarias en `tests/`.
 
-Fuente única de versión en el árbol (propuesta): una constante en `.microharness/sdd.py` expuesta con `--version`, para que una instalación conozca su versión sin acceso a los tags.
+Fuente única de versión en el árbol: la constante `__version__` de `.microharness/sdd.py`, expuesta con `--version`, para que una instalación conozca su versión sin acceso a los tags.

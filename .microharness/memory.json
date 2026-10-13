@@ -5,6 +5,10 @@
       {
         "at": "2026-10-13T00:02:13+00:00",
         "observation": "En este entorno Windows `python3` no existe (alias de Microsoft Store); `python` y `py -3` resuelven a Python 3.12.3."
+      },
+      {
+        "at": "2026-10-13T04:02:24+00:00",
+        "observation": ".claude/hooks/pretool.py deniega al implementador Write/Edit en .microharness/ y .claude/ antes de consultar allowed_paths; además se lanza con python3, inexistente en este entorno."
       }
     ],
     "decisions": [
@@ -67,6 +71,31 @@
         "at": "2026-10-13T03:52:41+00:00",
         "by": "Programador",
         "decision": "proceso-versionado H-09: tag local autorizado con el cierre; push del tag y release de GitHub con autorización aparte; tags solo sobre main con git push origin vX.Y.Z, sin --tags ni --force. (aceptada al aprobar la spec de proceso-versionado)"
+      },
+      {
+        "at": "2026-10-13T04:02:24+00:00",
+        "by": "Programador",
+        "decision": "herramienta-release B-01: autorización explícita y acotada: en la tarea herramienta-release el implementador puede editar únicamente .microharness/sdd.py (nunca memory.json ni .claude/); el hook no se modifica; el revisor verifica que no se tocó nada más."
+      },
+      {
+        "at": "2026-10-13T04:02:24+00:00",
+        "by": "Programador",
+        "decision": "herramienta-release D-09: dividir en dos tareas: (1) herramienta-release = __version__, --version y release propose; (2) posterior = release prepare y release tag."
+      },
+      {
+        "at": "2026-10-13T04:02:24+00:00",
+        "by": "Programador",
+        "decision": "herramienta-release D-10: sellar tests/test_sdd.py tras revisión humana de las pruebas en RED, antes de implementar."
+      },
+      {
+        "at": "2026-10-13T04:02:24+00:00",
+        "by": "Programador",
+        "decision": "herramienta-release D-04: sin commits con incremento, release propose sale con 1 y no propone."
+      },
+      {
+        "at": "2026-10-13T04:22:40+00:00",
+        "by": "Programador",
+        "decision": "herramienta-release O-1/O-2: corregir ahora; se autoriza añadir pruebas de renombrado y rutas con espacios a tests/test_sdd.py y resellarlo tras revisión humana; requiere ajuste y reaprobación de la spec."
       }
     ]
   },
@@ -148,6 +177,76 @@
         },
         {
           "at": "2026-10-13T03:53:21+00:00",
+          "event": "aprobación_close",
+          "by": "Programador"
+        }
+      ]
+    },
+    "herramienta-release": {
+      "approvals": {
+        "spec": {
+          "by": "Programador",
+          "evidence": "Reaprobación explícita en chat tras ajuste O-1/O-2: \"apruebo la especificación, continua\"",
+          "at": "2026-10-13T04:26:41+00:00",
+          "fingerprint": "bb68b23502e76a1c4f879010333fbf6c0ca9dba07cf669002f07570e76a6e0fb"
+        },
+        "close": {
+          "by": "Programador",
+          "evidence": "Confirmación explícita en chat: \"si apruebo que cierres la tarea y hagas commit\"",
+          "at": "2026-10-13T04:39:41+00:00"
+        }
+      },
+      "sealed_tests": {
+        "tests/test_sdd.py": "ba0a3726d382a757b7b9701aa9265a663df41891b982b621aa1d47fbd91c8d1d"
+      },
+      "review": "APROBADO",
+      "review_fingerprint": "3f6f726a3028070ea5395527537a807cf770c88ddc2a641765e7e733346221a1",
+      "iterations": 1,
+      "events": [
+        {
+          "at": "2026-10-13T03:53:50+00:00",
+          "event": "creada"
+        },
+        {
+          "at": "2026-10-13T04:06:00+00:00",
+          "event": "aprobación_spec",
+          "by": "Programador"
+        },
+        {
+          "at": "2026-10-13T04:10:42+00:00",
+          "event": "sellado_tests",
+          "by": "Programador",
+          "files": [
+            "tests/test_sdd.py"
+          ]
+        },
+        {
+          "at": "2026-10-13T04:22:40+00:00",
+          "event": "revisión",
+          "verdict": "RECHAZADO",
+          "evidence": "REQ-07 incumplido (O-1): `git mv README.md spec/README.md` -> `R  README.md -> spec/README.md` y release propose sale 0 (reproducido por el líder en repo temporal); diseño.md:29 solo analiza el destino del renombrado. O-2: rutas con espacios en spec/** se rechazan por comillas de --porcelain. Decisión del programador: corregir ahora (spec + pruebas + resellado)."
+        },
+        {
+          "at": "2026-10-13T04:26:41+00:00",
+          "event": "aprobación_spec",
+          "by": "Programador"
+        },
+        {
+          "at": "2026-10-13T04:28:47+00:00",
+          "event": "sellado_tests",
+          "by": "Programador",
+          "files": [
+            "tests/test_sdd.py"
+          ]
+        },
+        {
+          "at": "2026-10-13T04:38:52+00:00",
+          "event": "revisión",
+          "verdict": "APROBADO",
+          "evidence": "Iteración 2, revisor independiente: O-1 y O-2 corregidos (reproducidos y cubiertos por pruebas selladas ba0a3726…); casos R/RM/AM/D/ñ/espacios verificados; 17 mutantes muertos, 1 vivo (--merged HEAD, comportamiento verificado a mano); AC-01..AC-10 y REQ-01..REQ-11 cumplidos; check --run OK (29 tests, MicroSDD 0.1.0, OK docs); sin tags; nada en .claude/ ni CLAUDE.md."
+        },
+        {
+          "at": "2026-10-13T04:39:41+00:00",
           "event": "aprobación_close",
           "by": "Programador"
         }
