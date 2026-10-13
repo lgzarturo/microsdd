@@ -18,7 +18,12 @@ RESTRICTED = ('lider', 'autor', 'implementador')
 SHELLS = ('Bash', 'PowerShell')
 EDIT_TOOLS = ('Write', 'Edit', 'MultiEdit', 'NotebookEdit')
 SDD = '.microharness/sdd.py'
-LAUNCHERS = ('sh .microharness/python.sh', 'python', 'python3', 'py -3', 'uv run --no-project')
+LAUNCHERS = (
+    'sh .microharness/python.sh', 'python', 'python3', 'python.exe', 'py -3', 'uv run --no-project',
+    '.microharness/python.ps1', 'cmd /c .microharness/python.cmd',
+    'pwsh -File .microharness/python.ps1', 'powershell -File .microharness/python.ps1',
+    '& python',
+)
 UV_VARIANTS = ("uv run --no-project --quiet --python '>=3.10'",
                'uv run --no-project --python ">=3.10"',
                'uv run --no-project --python 3.12')
@@ -53,6 +58,8 @@ def bypass_commands():
             f'python3 .microharness\\sdd.py {args}',
             f'python3 .MicroHarness/sdd.py {args}',
             f'python3 .microharness/SDD.PY {args}',
+            f'.microharness/python.ps1 {SDD} {args}',
+            f'cmd /c .microharness/python.cmd {SDD} {args}',
         ]
     check = f'sh .microharness/python.sh {SDD} check x'
     commands += [f'{check} && rm -rf src', f'{check}; rm -rf src', f'{check};rm -rf src',
@@ -61,7 +68,6 @@ def bypass_commands():
                  f'{check}\nrm -rf src', f'{check}\rrm -rf src']
     note = f'sh .microharness/python.sh {SDD} note --fact F --evidence'
     commands += [f'{note} "$(rm -rf src)"', f'{note} "`rm -rf src`"']
-    # PowerShell trata U+2018..U+201B como comilla simple y U+201C..U+201E como doble.
     sdd_note = f'python3 {SDD} note --fact'
     commands += [f"{sdd_note} 'a’; Set-Content .microharness/memory.json x; echo ‘b' --evidence E"]
     commands += [f"{sdd_note} 'a{quote}; rm -rf src' --evidence E" for quote in '‘’‚‛']
@@ -126,6 +132,8 @@ class ShellPolicyTests(unittest.TestCase):
         self.assert_allowed([
             'sh .microharness/python.sh -m unittest discover -s tests -v',
             'sh .microharness/python.sh --version',
+            '.microharness/python.ps1 -m unittest discover -s tests -v',
+            'pwsh -File .microharness/python.ps1 -m unittest discover -s tests -v',
             'git add .microharness/memory.json spec/x/plan.md',
             'git diff -- .microharness/sdd.py',
             'git log --oneline -- .microharness/memory.json',
@@ -138,7 +146,8 @@ class ShellPolicyTests(unittest.TestCase):
 
     def test_ac04_unittest_exception_rejects_protected_arguments(self):
         self.assert_denied(['sh .microharness/python.sh -m unittest .microharness/sdd.py',
-                            'sh .microharness/python.sh --version --help'])
+                            'sh .microharness/python.sh --version --help',
+                            '.microharness/python.ps1 -m unittest .microharness/sdd.py'])
 
     def test_ac05_reviewer_cannot_approve_seal_review_or_note(self):
         launcher = f'sh .microharness/python.sh {SDD}'
@@ -166,7 +175,8 @@ class EditPolicyTests(unittest.TestCase):
 
     def test_ac06_lider_and_autor_cannot_edit_microharness(self):
         paths = ('.microharness/memory.json', '.microharness/config.json', '.microharness/sdd.py',
-                 '.microharness/python.sh', self.cwd / 'docs' / '..' / '.microharness' / 'memory.json',
+                 '.microharness/python.sh', '.microharness/python.ps1', '.microharness/python.cmd',
+                 self.cwd / 'docs' / '..' / '.microharness' / 'memory.json',
                  self.cwd / '.MicroHarness' / 'memory.json', self.cwd / '.microharness')
         for agent in ('lider', 'autor'):
             for tool in EDIT_TOOLS:
@@ -196,9 +206,12 @@ class EditPolicyTests(unittest.TestCase):
         (self.cwd / '.microharness' / 'memory.json').write_text(json.dumps(memory), encoding='utf-8')
 
     def test_ac07_implementer_edits_only_harness_files_in_scope(self):
-        self.make_task(['.microharness/sdd.py', '.microharness/python.sh', 'src/**'])
+        self.make_task(['.microharness/sdd.py', '.microharness/python.sh',
+                        '.microharness/python.ps1', '.microharness/python.cmd', 'src/**'])
         for tool in EDIT_TOOLS:
-            for path in ('.microharness/sdd.py', self.cwd / '.microharness' / 'python.sh'):
+            for path in ('.microharness/sdd.py', self.cwd / '.microharness' / 'python.sh',
+                         self.cwd / '.microharness' / 'python.ps1',
+                         self.cwd / '.microharness' / 'python.cmd'):
                 with self.subTest(tool=tool, permitido=str(path)):
                     self.assertIsNone(self.edit('implementador', tool, path))
             for path in ('.microharness/memory.json', '.microharness/config.json',
@@ -208,12 +221,14 @@ class EditPolicyTests(unittest.TestCase):
 
     def test_ac07_implementer_denied_without_scope(self):
         self.make_task(['src/**'])
-        for path in ('.microharness/sdd.py', '.microharness/python.sh'):
+        for path in ('.microharness/sdd.py', '.microharness/python.sh',
+                     '.microharness/python.ps1', '.microharness/python.cmd'):
             with self.subTest(path=path):
                 self.assertIsNotNone(self.edit('implementador', 'Write', path))
 
     def test_ac07_implementer_denied_without_approval(self):
-        self.make_task(['.microharness/sdd.py', '.microharness/python.sh'], approved=False)
+        self.make_task(['.microharness/sdd.py', '.microharness/python.sh',
+                        '.microharness/python.ps1', '.microharness/python.cmd'], approved=False)
         for path in ('.microharness/sdd.py', '.microharness/python.sh'):
             with self.subTest(path=path):
                 self.assertIsNotNone(self.edit('implementador', 'Write', path))
