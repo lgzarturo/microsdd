@@ -131,12 +131,12 @@ def diff_files() -> list[str]:
     if not (ROOT / '.git').exists() and not subprocess.run(['git', 'rev-parse', '--is-inside-work-tree'],
         cwd=ROOT, capture_output=True, text=True).returncode == 0:
         return []
-    commands = (['git', 'diff', '--name-only', 'HEAD'], ['git', 'ls-files', '--others', '--exclude-standard'])
+    commands = (['git', 'diff', '--name-only', '-z', 'HEAD'], ['git', 'ls-files', '-z', '--others', '--exclude-standard'])
     files: set[str] = set()
     for command in commands:
-        r = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, check=False)
+        r = subprocess.run(command, cwd=ROOT, capture_output=True, encoding='utf-8', check=False)
         if r.returncode == 0:
-            files.update(n for n in r.stdout.splitlines() if n)
+            files.update(n for n in r.stdout.split('\0') if n)
     return sorted(files)
 
 

@@ -11,4 +11,5 @@ Cada tarea va en `spec/<slug>/` con exactamente cuatro documentos: `requerimient
 
 | Tarea | Estado | Resumen |
 |---|---|---|
-| (ninguna) | — | Crear con `python3 .microharness/sdd.py new <slug>` |
+| `fix-sdd-rutas-unicode` | terminado | `diff_files()` usa `git -z` y UTF-8: rutas no ASCII (p. ej. `diseño.md`) ya no rompen el alcance ni la huella |
+| `instalador-uvx` | pendiente | Instalador por proyecto con `uvx` (spec aprobada; se activa tras cerrar la tarea anterior) |

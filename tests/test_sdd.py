@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -34,6 +35,49 @@ class MicroSDDTests(unittest.TestCase):
 
     def restore(self):
         sdd.ROOT, sdd.MEMORY = self.old_root, self.old_memory
+
+    def git_repo(self, tracked: dict[str, str]):
+        # Repositorio con commit inicial que no incluye spec/fix-sesiones/.
+        def git(*args):
+            subprocess.run(['git', *args], cwd=sdd.ROOT, check=True, capture_output=True)
+        git('init', '-q')
+        git('config', 'user.email', 'test@example.com')
+        git('config', 'user.name', 'Test')
+        for name, content in tracked.items():
+            path = sdd.ROOT / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding='utf-8')
+            git('add', '--', name)
+        git('-c', 'commit.gpgsign=false', 'commit', '-q', '--no-verify', '--allow-empty', '-m', 'inicial')
+
+    def test_diff_files_non_ascii_paths(self):
+        self.git_repo({'src/módulo.py': 'x = 1\n'})
+        (sdd.ROOT / 'src' / 'módulo.py').write_text('x = 2\n', encoding='utf-8')
+        (sdd.ROOT / 'spec' / 'x').mkdir(parents=True)
+        (sdd.ROOT / 'spec' / 'x' / 'diseño.md').write_text('# CÓMO\n', encoding='utf-8')
+        files = [f for f in sdd.diff_files() if f.startswith(('spec/x/', 'src/'))]
+        self.assertEqual(files, ['spec/x/diseño.md', 'src/módulo.py'])
+        for name in files:
+            self.assertTrue((sdd.ROOT / name).is_file(), name)
+
+    def test_scope_ignores_uncommitted_task_design(self):
+        self.git_repo({'src/app.py': 'x = 1\n'})
+        errors = sdd.validate('fix-sesiones')
+        self.assertFalse([e for e in errors if 'fuera de scope' in e and 'fix-sesiones/dise' in e], errors)
+
+    def test_fingerprint_reads_non_ascii_file(self):
+        self.git_repo({'src/módulo.py': 'x = 1\n'})
+        path = sdd.ROOT / 'src' / 'módulo.py'
+        path.write_text('x = 2\n', encoding='utf-8')
+        before = sdd.code_fingerprint(['src/**'])
+        path.write_text('x = 3\n', encoding='utf-8')
+        self.assertNotEqual(before, sdd.code_fingerprint(['src/**']))
+
+    def test_diff_files_path_with_spaces(self):
+        self.git_repo({'src/app.py': 'x = 1\n'})
+        (sdd.ROOT / 'src' / 'con espacio.py').write_text('y = 1\n', encoding='utf-8')
+        self.assertIn('src/con espacio.py', sdd.diff_files())
+        self.assertTrue((sdd.ROOT / 'src' / 'con espacio.py').is_file())
 
     def test_structure_and_validation(self):
         self.assertEqual({x.name for x in self.folder.iterdir()}, set(sdd.TASK_FILES))

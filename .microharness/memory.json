@@ -1,8 +1,114 @@
 {
   "schema_version": 1,
   "project": {
-    "observations": [],
-    "decisions": []
+    "observations": [
+      {
+        "at": "2026-10-12T23:45:00+00:00",
+        "fact": "En la máquina del mantenedor (Windows 11) `python3` resuelve al alias de Microsoft Store y falla; `python` y `py -3` son 3.12.3. Los hooks corren en Git Bash y una salida distinta de 0/2 es no bloqueante, por lo que `.claude/hooks/pretool.py` queda inactivo en esa máquina.",
+        "evidence": "python3 --version (stub), python --version = 3.12.3; https://code.claude.com/docs/en/hooks"
+      },
+      {
+        "at": "2026-10-12T23:45:00+00:00",
+        "fact": "El repositorio es público (github.com/lgzarturo/microsdd) y no contiene LICENSE.",
+        "evidence": "git remote -v; listado de archivos"
+      }
+    ],
+    "decisions": [
+      {
+        "at": "2026-10-12T23:40:00+00:00",
+        "by": "Programador",
+        "decision": "Instalación por proyecto mediante uvx (paquete Python stdlib `microsdd`), descartando scripts PowerShell/sh duplicados. Requisitos duros: python3 >=3.10, git y uv.",
+        "evidence": "Respuesta explícita en sesión: 'uvx multiplataforma (Recomendado)'; plan aprobado"
+      },
+      {
+        "at": "2026-10-12T23:40:00+00:00",
+        "by": "Programador",
+        "decision": "Si `python3` no ejecuta un Python >=3.10 real, el instalador falla con remediación sin escribir nada.",
+        "evidence": "Respuesta explícita en sesión: 'Fallar con remediación (Recomendado)'"
+      },
+      {
+        "at": "2026-10-12T23:40:00+00:00",
+        "by": "Programador",
+        "decision": "Instalación idempotente; nunca sobrescribir archivos compartidos: en CLAUDE.md solo se agrega el registro de uso de MicroSDD y los recursos que chocan se escriben como <archivo>.microsdd.<ext>; --force solo sobrescribe archivos propios del arnés y sirve para actualizar versiones.",
+        "evidence": "Respuesta explícita en sesión sobre política de conflictos; plan aprobado"
+      },
+      {
+        "at": "2026-10-12T23:52:00+00:00",
+        "by": "Programador",
+        "decision": "Corregir primero el defecto de rutas no ASCII de `sdd.py diff_files()` en una tarea previa `fix-sdd-rutas-unicode`; solo en esa tarea se autoriza al implementador a editar `.microharness/sdd.py` (excepción explícita a la regla del hook). `instalador-uvx` espera en `pendiente` hasta cerrarla.",
+        "evidence": "Respuesta explícita en sesión: 'Tarea previa con excepción (Recomendado)'"
+      },
+      {
+        "at": "2026-10-12T23:52:00+00:00",
+        "by": "Programador",
+        "decision": "Excluir `.serena/` (configuración local del MCP serena) mediante `.git/info/exclude`, sin cambios versionados.",
+        "evidence": "Respuesta explícita en sesión: 'Excluir en .git/info/exclude (Recomendado)'; aplicado"
+      }
+    ]
   },
-  "tasks": {}
+  "tasks": {
+    "instalador-uvx": {
+      "approvals": {
+        "spec": null,
+        "close": null
+      },
+      "sealed_tests": {},
+      "review": null,
+      "review_fingerprint": null,
+      "iterations": 0,
+      "events": [
+        {
+          "at": "2026-10-12T23:44:52+00:00",
+          "event": "creada"
+        },
+        {
+          "at": "2026-10-12T23:52:00+00:00",
+          "event": "aprobación_spec_declarada_diferida",
+          "by": "Programador",
+          "evidence": "Respuesta explícita en sesión: 'Apruebo la spec'. Se registrará con `sdd.py approve` al cerrar `fix-sdd-rutas-unicode` (solo una spec en proceso); requiere que la huella no cambie."
+        }
+      ]
+    },
+    "fix-sdd-rutas-unicode": {
+      "approvals": {
+        "spec": {
+          "by": "Programador",
+          "evidence": "Respuesta explícita en sesión 2026-10-12: 'Apruebo la spec' (fix-sdd-rutas-unicode)",
+          "at": "2026-10-12T23:55:56+00:00",
+          "fingerprint": "27847f14a903d422ce190d289700d66a1e48d240786bec6d2c28966fa5addaf6"
+        },
+        "close": {
+          "by": "Programador",
+          "evidence": "Respuesta explícita en sesión 2026-10-12: 'Apruebo cierre y commit' (fix-sdd-rutas-unicode)",
+          "at": "2026-10-13T00:00:11+00:00"
+        }
+      },
+      "sealed_tests": {},
+      "review": "APROBADO",
+      "review_fingerprint": "5a575e2b9a199fd5de4e34926c04d2027a25305100ac5cd4d314b65d65e21433",
+      "iterations": 1,
+      "events": [
+        {
+          "at": "2026-10-12T23:52:57+00:00",
+          "event": "creada"
+        },
+        {
+          "at": "2026-10-12T23:55:56+00:00",
+          "event": "aprobación_spec",
+          "by": "Programador"
+        },
+        {
+          "at": "2026-10-12T23:59:14+00:00",
+          "event": "revisión",
+          "verdict": "APROBADO",
+          "evidence": "Revisor independiente: check --run exit 0 (14 tests OK); RED verificado contra sdd.py de HEAD (AC-01..AC-03 fallan, AC-04 ya pasaba); diff 3+/3- solo en diff_files(), sin NUL; líder re-ejecutó check --run exit 0"
+        },
+        {
+          "at": "2026-10-13T00:00:11+00:00",
+          "event": "aprobación_close",
+          "by": "Programador"
+        }
+      ]
+    }
+  }
 }
