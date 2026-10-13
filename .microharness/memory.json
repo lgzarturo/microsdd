@@ -1,8 +1,118 @@
 {
   "schema_version": 1,
   "project": {
-    "observations": [],
-    "decisions": []
+    "observations": [
+      {
+        "at": "2026-10-13T00:01:08+00:00",
+        "fact": "Windows 11 + Git Bash: `python3` resuelve al stub de Microsoft Store (WindowsApps\\python3, exit 49); `python`, `py -3` y `uv` resuelven a CPython 3.12.3 / uv 0.12.21. En PowerShell `python3` funciona solo por un shim `.cmd` del usuario.",
+        "evidence": "command -v / --version en Bash y PowerShell durante la sesión"
+      },
+      {
+        "at": "2026-10-13T00:01:08+00:00",
+        "fact": "El hook PreToolUse de .claude/settings.json usa `python3` en forma shell; en Windows con Git Bash falla con exit 49, que Claude Code trata como error no bloqueante: la guardia por rol queda inactiva sin aviso.",
+        "evidence": "Docs oficiales hooks (code.claude.com/docs/en/hooks): exit distinto de 0/2 no bloquea; forma shell usa Git Bash en Windows o PowerShell si no hay Git Bash; forma exec requiere binario real (.exe); onFailure 'block' requiere v2.1.295+. Claude Code local: 2.1.296."
+      },
+      {
+        "at": "2026-10-13T00:01:08+00:00",
+        "fact": "`uv run --no-project --quiet --python \">=3.10\" .claude/hooks/pretool.py` pasa stdin y devuelve la decisión JSON correcta (~0.22 s frente a ~0.14 s con python directo).",
+        "evidence": "Prueba manual en Git Bash durante la sesión"
+      }
+    ],
+    "decisions": [
+      {
+        "at": "2026-10-13T00:01:08+00:00",
+        "by": "Programador",
+        "task": "deteccion-python-multiplataforma",
+        "decision": "Hook en forma exec con uv (`uv run --python >=3.10`) y, además, lanzador POSIX con cadena de detección para CLI manual y agentes.",
+        "evidence": "Respuesta explícita en sesión: 'Ambos: exec uv + lanzador'"
+      },
+      {
+        "at": "2026-10-13T00:01:08+00:00",
+        "by": "Programador",
+        "task": "deteccion-python-multiplataforma",
+        "decision": "Sin Python >=3.10 la guardia bloquea (fail-closed: exit 2 y onFailure 'block').",
+        "evidence": "Respuesta explícita en sesión: 'Bloquear (fail-closed)'"
+      },
+      {
+        "at": "2026-10-13T00:01:08+00:00",
+        "by": "Programador",
+        "task": "deteccion-python-multiplataforma",
+        "decision": "Excepción autorizada SOLO para esta tarea: el implementador puede modificar archivos del arnés (.claude/, .microharness/ salvo memory.json) dentro de scope.allowed_paths.",
+        "evidence": "Respuesta explícita en sesión: 'Autorizar solo esta tarea'"
+      },
+      {
+        "at": "2026-10-13T00:11:43+00:00",
+        "by": "Programador",
+        "task": "fix-quotepath-diff",
+        "decision": "Corregir primero, en tarea aparte con commit propio, el defecto de diff_files() con rutas no ASCII (core.quotePath y decodificación); deteccion-python-multiplataforma queda pendiente hasta entonces.",
+        "evidence": "Respuesta explícita en sesión: 'Tarea aparte primero'"
+      }
+    ]
   },
-  "tasks": {}
+  "tasks": {
+    "deteccion-python-multiplataforma": {
+      "approvals": {
+        "spec": null,
+        "close": null
+      },
+      "sealed_tests": {},
+      "review": null,
+      "review_fingerprint": null,
+      "iterations": 0,
+      "events": [
+        {
+          "at": "2026-10-13T00:01:08+00:00",
+          "event": "creada"
+        },
+        {
+          "at": "2026-10-13T00:11:43+00:00",
+          "event": "aprobación_spec_otorgada_registro_diferido",
+          "by": "Programador",
+          "evidence": "Respuesta explícita en sesión: 'Apruebo la spec'. Se registrará con `sdd.py approve` tras cerrar fix-quotepath-diff, solo si la spec no cambia (misma huella).",
+          "reason": "`check` falla en toda spec por core.quotePath; el programador decidió corregirlo antes en tarea aparte."
+        }
+      ]
+    },
+    "fix-quotepath-diff": {
+      "approvals": {
+        "spec": {
+          "by": "Programador",
+          "evidence": "Confirmación explícita en sesión: 'si apruebo la espec' (incluye PRE-01: editar .microharness/sdd.py, solo diff_files())",
+          "at": "2026-10-13T00:18:49+00:00",
+          "fingerprint": "30a91da2702f6200553b3de5dc0733c0546e234547505f27348ef9923671b31c"
+        },
+        "close": {
+          "by": "Programador",
+          "evidence": "Confirmación explícita en sesión: 'si apruebo el cierre y commit'",
+          "at": "2026-10-13T00:22:02+00:00"
+        }
+      },
+      "sealed_tests": {},
+      "review": "APROBADO",
+      "review_fingerprint": "453fcb6eb0865350a182dfcd0a335e6eeb4e19ef45b0055171be64b3f84beaf2",
+      "iterations": 1,
+      "events": [
+        {
+          "at": "2026-10-13T00:11:43+00:00",
+          "event": "creada"
+        },
+        {
+          "at": "2026-10-13T00:18:49+00:00",
+          "event": "aprobación_spec",
+          "by": "Programador"
+        },
+        {
+          "at": "2026-10-13T00:21:28+00:00",
+          "event": "revisión",
+          "verdict": "APROBADO",
+          "evidence": "Revisor independiente: check --run exit 0 (11 tests OK); AC-01..AC-03 por test_diff_files_returns_literal_non_ascii_paths; AC-04 rojo verificado contra HEAD y mutantes sin -c core.quotePath=false y sin encoding='utf-8' (cp1252); diff limitado a diff_files() y la prueba."
+        },
+        {
+          "at": "2026-10-13T00:22:02+00:00",
+          "event": "aprobación_close",
+          "by": "Programador"
+        }
+      ]
+    }
+  }
 }

@@ -1,5 +1,7 @@
 import importlib.util
 import json
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -92,6 +94,17 @@ class MicroSDDTests(unittest.TestCase):
         data['testing']['commands'] = [[sys.executable, '-c', 'raise SystemExit(1)']]
         sdd.dump(self.folder / 'spec.json', data)
         self.assertTrue(any('Comando falló' in x for x in sdd.validate('fix-sesiones', run=True)))
+
+    @unittest.skipUnless(shutil.which('git'), 'git no disponible')
+    def test_diff_files_returns_literal_non_ascii_paths(self):
+        for command in (['git', 'init'], ['git', 'config', 'core.quotePath', 'true']):
+            subprocess.run(command, cwd=sdd.ROOT, check=True, capture_output=True)
+        (sdd.ROOT / 'fuera').mkdir()
+        (sdd.ROOT / 'fuera' / 'configuración.txt').write_text('x', encoding='utf-8')
+        self.assertIn('spec/fix-sesiones/diseño.md', sdd.diff_files())
+        errors = sdd.validate('fix-sesiones')
+        self.assertFalse([x for x in errors if 'diseño.md' in x])
+        self.assertIn('Archivo modificado fuera de scope: fuera/configuración.txt', errors)
 
 
 class HookTests(unittest.TestCase):

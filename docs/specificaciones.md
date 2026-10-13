@@ -11,4 +11,4 @@ Cada tarea va en `spec/<slug>/` con exactamente cuatro documentos: `requerimient
 
 | Tarea | Estado | Resumen |
 |---|---|---|
-| (ninguna) | — | Crear con `python3 .microharness/sdd.py new <slug>` |
+| `fix-quotepath-diff` | terminado | `diff_files()` devuelve rutas no ASCII literales (`core.quotePath=false` + UTF-8); `check` deja de fallar en falso por `diseño.md`. |
