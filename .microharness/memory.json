@@ -16,6 +16,11 @@
         "at": "2026-10-13T00:01:08+00:00",
         "fact": "`uv run --no-project --quiet --python \">=3.10\" .claude/hooks/pretool.py` pasa stdin y devuelve la decisión JSON correcta (~0.22 s frente a ~0.14 s con python directo).",
         "evidence": "Prueba manual en Git Bash durante la sesión"
+      },
+      {
+        "at": "2026-10-13T03:53:57+00:00",
+        "fact": "validate() (sdd.py ~215-219) aplica sealed_tests sin mirar el estado: el sello de deteccion-python-multiplataforma (terminado) sobre tests/test_sdd.py hace fallar su check tras añadir pruebas en eol-hashes-estables.",
+        "evidence": "check deteccion-python-multiplataforma --no-scope -> 'Test sellado modificado: tests/test_sdd.py' (líder y revisor)."
       }
     ],
     "decisions": [
@@ -46,6 +51,34 @@
         "task": "fix-quotepath-diff",
         "decision": "Corregir primero, en tarea aparte con commit propio, el defecto de diff_files() con rutas no ASCII (core.quotePath y decodificación); deteccion-python-multiplataforma queda pendiente hasta entonces.",
         "evidence": "Respuesta explícita en sesión: 'Tarea aparte primero'"
+      },
+      {
+        "at": "2026-10-13T01:01:25+00:00",
+        "by": "Programador",
+        "task": "eol-hashes-estables",
+        "decision": "Pendiente 1: .gitattributes mínimo (*.sh text eol=lf) y normalización CRLF->LF en hash_file y spec_fingerprint de sdd.py.",
+        "evidence": "Respuesta explícita en sesión: 'Ambos: .gitattributes mínimo + hash normalizado'"
+      },
+      {
+        "at": "2026-10-13T01:01:25+00:00",
+        "by": "Programador",
+        "task": "eol-hashes-estables, hook-powershell, regex-revisor-ascii",
+        "decision": "Excepción autorizada para estas tres tareas: el implementador puede editar archivos del arnés (.microharness/sdd.py, .claude/settings.json, .claude/hooks/pretool.py) limitado al scope de cada spec. Si la guardia activa lo bloquea, el líder entrega parche al humano; nunca se desactivan controles.",
+        "evidence": "Respuesta explícita en sesión: 'Autorizar para estas 3 tareas'"
+      },
+      {
+        "at": "2026-10-13T01:01:25+00:00",
+        "by": "Programador",
+        "task": "eol-hashes-estables, hook-powershell, regex-revisor-ascii",
+        "decision": "Aplicar como tareas separadas y secuenciales: (1) finales de línea y hashes, (2) PowerShell en el hook, (3) [0-9] en vez de \\d en la regex del revisor.",
+        "evidence": "Solicitud explícita en sesión: 'si aplica los siguientes pendientes ... como tareas para corregir estos detalles'"
+      },
+      {
+        "at": "2026-10-13T03:53:57+00:00",
+        "by": "Programador",
+        "task": "sellos-solo-en-proceso",
+        "decision": "Nueva mini-tarea, antes de hook-powershell y regex-revisor-ascii: validate aplica sealed_tests solo mientras la tarea está en proceso; los sellos de tareas terminadas quedan como histórico.",
+        "evidence": "Respuesta explícita en sesión: 'Nueva tarea antes de la 2'"
       }
     ]
   },
@@ -178,6 +211,47 @@
         },
         {
           "at": "2026-10-13T00:22:02+00:00",
+          "event": "aprobación_close",
+          "by": "Programador"
+        }
+      ]
+    },
+    "eol-hashes-estables": {
+      "approvals": {
+        "spec": {
+          "by": "Programador",
+          "evidence": "Confirmación explícita en sesión: 'aprobado' (incluye PRE-01: editar .microharness/sdd.py, solo hash_file y spec_fingerprint)",
+          "at": "2026-10-13T01:03:48+00:00",
+          "fingerprint": "cb3fa9367dd17e630802060e6c80532a87bd29674983ddc41cb7bb5d6d119a99"
+        },
+        "close": {
+          "by": "Programador",
+          "evidence": "Confirmación explícita en sesión: 'Apruebo cierre y commit'",
+          "at": "2026-10-13T03:53:38+00:00"
+        }
+      },
+      "sealed_tests": {},
+      "review": "APROBADO",
+      "review_fingerprint": "6a00a71ebae8effd9a085ff0b042cbf3cd402bde48b4f7725073340ee9b96045",
+      "iterations": 1,
+      "events": [
+        {
+          "at": "2026-10-13T01:01:25+00:00",
+          "event": "creada"
+        },
+        {
+          "at": "2026-10-13T01:03:48+00:00",
+          "event": "aprobación_spec",
+          "by": "Programador"
+        },
+        {
+          "at": "2026-10-13T03:53:04+00:00",
+          "event": "revisión",
+          "verdict": "APROBADO",
+          "evidence": "Revisor independiente: check --run exit 0 (23 OK); contra sdd.py de HEAD fallan 3 pruebas (AC-01/AC-03/AC-05) y AC-05 falla con eol=crlf; diff limitado a hash_file (l.101) y spec_fingerprint (l.111) + .gitattributes + pruebas; sello ba6e61e6 = sha256 de HEAD:tests/test_sdd.py (LF), huellas previas validan. Hallazgo no bloqueante: sello de tarea terminada sobre archivo compartido (sdd.py:215-219)."
+        },
+        {
+          "at": "2026-10-13T03:53:38+00:00",
           "event": "aprobación_close",
           "by": "Programador"
         }

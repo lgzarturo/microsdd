@@ -1,3 +1,4 @@
+import hashlib
 import importlib.util
 import json
 import os
@@ -85,6 +86,42 @@ class MicroSDDTests(unittest.TestCase):
         path.write_text('assert 2 == 2\n', encoding='utf-8')
         self.assertTrue(any('sellado' in x for x in sdd.validate('fix-sesiones')))
 
+    def test_sealed_test_ignores_crlf_conversion(self):
+        # AC-01, AC-02: convertir LF a CRLF no rompe el sello; un cambio real sí.
+        sdd.approve('fix-sesiones', 'spec', 'Humano', 'Sí')
+        path = sdd.ROOT / 'tests' / 'test_auth.py'
+        path.parent.mkdir(parents=True)
+        path.write_bytes(b'import os\nassert 1 == 1\n')
+        data = sdd.load(self.folder / 'spec.json')
+        data['testing']['protected_tests'] = ['tests/test_auth.py']
+        sdd.dump(self.folder / 'spec.json', data)
+        sdd.approve('fix-sesiones', 'spec', 'Humano', 'Aprobé la nueva spec')
+        sdd.seal('fix-sesiones', 'Humano')
+        path.write_bytes(path.read_bytes().replace(b'\n', b'\r\n'))
+        self.assertFalse([x for x in sdd.validate('fix-sesiones') if 'sellado' in x])
+        path.write_bytes(b'import os\r\nassert 2 == 2\r\n')
+        self.assertTrue(any('sellado' in x for x in sdd.validate('fix-sesiones')))
+
+    def test_spec_fingerprint_ignores_crlf_conversion(self):
+        # AC-03: la huella aprobada sobrevive a LF->CRLF; un cambio real en diseño.md no.
+        names = ('requerimientos.md', 'diseño.md', 'tareas.md')
+        for name in names:  # Partir de LF explícito: write_text en Windows ya escribe CRLF.
+            p = self.folder / name
+            p.write_bytes(p.read_bytes().replace(b'\r\n', b'\n'))
+        sdd.approve('fix-sesiones', 'spec', 'Humano', 'Sí')
+        for name in names:
+            p = self.folder / name
+            p.write_bytes(p.read_bytes().replace(b'\n', b'\r\n'))
+        self.assertFalse([x for x in sdd.validate('fix-sesiones') if 'alterada' in x])
+        (self.folder / 'diseño.md').write_bytes('# CÓMO\r\nOtro diseño.\r\n'.encode('utf-8'))
+        self.assertTrue(any('alterada' in x for x in sdd.validate('fix-sesiones')))
+
+    def test_hash_file_unchanged_for_lf_content(self):
+        # AC-04: compatibilidad con hashes ya registrados sobre LF.
+        p = sdd.ROOT / 'lf.txt'
+        p.write_bytes('línea uno\nlínea dos\n'.encode('utf-8'))
+        self.assertEqual(sdd.hash_file(p), hashlib.sha256(p.read_bytes()).hexdigest())
+
     def test_conventional_commit_message(self):
         sdd.commit_check('fix(auth): valida expiración de sesión')
         with self.assertRaises(ValueError):
@@ -166,6 +203,18 @@ class HookTests(unittest.TestCase):
             with self.subTest(denegado=command):
                 self.assertIsNotNone(hook.run({'agent_type': 'revisor', 'tool_name': 'Bash',
                                                'tool_input': {'command': command}}))
+
+
+@unittest.skipUnless(shutil.which('git'), 'git no disponible')
+class GitAttributesTests(unittest.TestCase):
+    ROOT = Path(__file__).resolve().parents[1]
+
+    def test_shell_scripts_checkout_with_lf(self):
+        # AC-05: raíz real del repo, no sdd.ROOT (redirigido en MicroSDDTests).
+        self.assertTrue((self.ROOT / '.gitattributes').is_file())
+        result = subprocess.run(['git', 'check-attr', 'eol', '--', '.microharness/python.sh'],
+                                cwd=self.ROOT, capture_output=True, text=True, check=True)
+        self.assertTrue(result.stdout.strip().endswith('eol: lf'), result.stdout)
 
 
 class SettingsTests(unittest.TestCase):

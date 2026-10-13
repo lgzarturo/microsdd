@@ -98,7 +98,7 @@ def new(slug: str) -> None:
 
 
 def hash_file(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    return hashlib.sha256(path.read_bytes().replace(b'\r\n', b'\n')).hexdigest()
 
 
 def spec_fingerprint(path: Path, spec: dict) -> str:
@@ -108,7 +108,7 @@ def spec_fingerprint(path: Path, spec: dict) -> str:
     digest = hashlib.sha256(canonical)
     for name in ('requerimientos.md', 'diseño.md', 'tareas.md'):
         digest.update(name.encode('utf-8') + b'\x00')
-        digest.update((path / name).read_bytes())
+        digest.update((path / name).read_bytes().replace(b'\r\n', b'\n'))
     return digest.hexdigest()
 
 
