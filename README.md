@@ -40,6 +40,17 @@ Opción recomendada: instalar uv con su instalador oficial (https://docs.astral.
 
 En `check --run`, un comando de `testing.commands` (o `mutation.command`) cuyo primer elemento sea exactamente `python` o `python3` se ejecuta con el mismo intérprete que corre el checker (`sys.executable`).
 
+**Lista blanca de runners.** Mientras la tarea no esté `terminado`, `check` (también sin `--run`, y por tanto `approve spec`) exige que cada comando de `testing.commands`, y `mutation.command` si `enabled=true`, empiece por uno de estos prefijos de argv (tokens exactos, sensibles a mayúsculas; el resto de argumentos es libre):
+
+`python -m unittest`, `python3 -m unittest`, `python -m pytest`, `python3 -m pytest`, `pytest`, `npm test`, `pnpm test`, `yarn test`, `bun test`, `go test`, `cargo test`, `mvn test`, `./mvnw test`, `gradle test`, `./gradlew test`, `mutmut run`.
+
+- Si el primer elemento es exactamente `sys.executable` se trata como `python`. Cualquier otra ruta (`/usr/bin/python3`, `/tmp/x/python3`) se compara literalmente y queda fuera salvo que se amplíe.
+- Un comando fuera de la lista produce `Comando de pruebas fuera de la lista blanca: <comando>` (o `Comando de mutación ...`) y, con `--run`, no se ejecuta ningún comando.
+- Ampliación por proyecto en `.microharness/memory.json`: `"project": {"allowed_test_commands": [["make", "test"], ["uv", "run", "pytest"]]}`. Cada entrada es un prefijo: lista no vacía de strings no vacíos. Cada entrada inválida (o el valor completo si no es lista) se reporta como `project.allowed_test_commands inválido: <entrada>`, bloquea `check` de las tareas no terminadas y las entradas válidas siguen aplicando.
+- Las tareas `terminado` no se validan contra la lista ni la ampliación.
+- No se incluyen `py -3` ni `uv run`: `python`/`python3` ya se resuelven al intérprete elegido por el lanzador (que contempla `py -3` y `uv`), y `uv run` es un ejecutor genérico (`uv run sh -c ...`) que anularía la lista. Variantes Windows (`mvnw.cmd`, `gradlew.bat`) también requieren ampliación.
+- Límite: la lista acota el ejecutable, no lo que ejecuta. `npm|pnpm|yarn|bun test`, `./mvnw`, `./gradlew`, `pytest` (plugins, `conftest.py`), `python -m unittest` y cualquier runner ejecutan código o scripts del propio proyecto; quien pueda modificarlos cambia lo que se ejecuta.
+
 `check --run` captura la salida de cada comando, la reproduce al terminar (no en tiempo real) y, mientras la tarea no esté `terminado`, exige que **cada** comando de `testing.commands` muestre un recuento de pruebas ejecutadas de al menos `testing.min_tests`. `min_tests` es opcional, vale 1 por defecto y debe ser un entero mayor o igual a 1. Un comando que sale con 0 sin un resumen reconocible (por ejemplo, `python -m unittest --help` o `python -c ...`) falla la puerta. Runners reconocidos:
 
 - unittest: `Ran N tests in`.
@@ -298,6 +309,7 @@ El comando `new` genera un ejemplo completo y editable con estos campos relevant
 | Scope de cambios | Git diff en `check` | Evita cerrar con modificaciones fuera de patrones; empieza con working tree limpio |
 | Huella de revisión | Hash de archivos cambiados en el diff | Detecta nuevos cambios de código después de `APROBADO`; no protege de Git/memoria manipulados |
 | Tests y mutación | `check --run` | Código de salida de comandos configurados y, en tareas no `terminado`, recuento mínimo de pruebas ejecutadas por comando (`testing.min_tests`, sin contar la mutación); un resumen falso o una prueba deficiente no prueba corrección |
+| Lista blanca de runners | `sdd.py check` | En tareas no `terminado`, `testing.commands` y `mutation.command` activo deben empezar por un prefijo conocido o ampliado en `project.allowed_test_commands`; acota el ejecutable, no el código del proyecto que el runner ejecuta, y la ampliación vive en `memory.json` editable |
 | Reviews y aprobación | Líder + JSON | Contrato procedimental; no autentica al humano |
 | Conventional Commits | `commit-check` | Comprueba patrón básico; el carácter atómico depende del `git add` y revisión humana |
 

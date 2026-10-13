@@ -36,6 +36,13 @@ TEST_COUNT_RES = (
     re.compile(r'Tests run: (\d+)'),
 )
 GO_OK_RE = re.compile(r'^ok[ \t]+\S+', re.M)
+# Lista blanca de prefijos de argv para testing.commands y mutation.command (comparación exacta de tokens).
+TEST_COMMANDS = (
+    ('python', '-m', 'unittest'), ('python3', '-m', 'unittest'), ('python', '-m', 'pytest'),
+    ('python3', '-m', 'pytest'), ('pytest',), ('npm', 'test'), ('pnpm', 'test'), ('yarn', 'test'),
+    ('bun', 'test'), ('go', 'test'), ('cargo', 'test'), ('mvn', 'test'), ('./mvnw', 'test'),
+    ('gradle', 'test'), ('./gradlew', 'test'), ('mutmut', 'run'),
+)
 
 
 def dump(path: Path, data: dict) -> None:
@@ -246,6 +253,29 @@ def tests_ran(output: str) -> int | None:
     return max(counts) if counts else None
 
 
+def allowed_test_commands(memory: dict) -> tuple[list[tuple[str, ...]], list[str]]:
+    allowed, errors = list(TEST_COMMANDS), []
+    project = memory.get('project', {})
+    if not isinstance(project, dict) or 'allowed_test_commands' not in project:
+        return allowed, errors
+    extra = project['allowed_test_commands']
+    if not isinstance(extra, list):
+        return allowed, [f'project.allowed_test_commands inválido: {extra}']
+    for entry in extra:
+        if isinstance(entry, list) and entry and all(isinstance(x, str) and x for x in entry):
+            allowed.append(tuple(entry))
+        else:
+            errors.append(f'project.allowed_test_commands inválido: {entry}')
+    return allowed, errors
+
+
+def command_allowed(command, allowed: list[tuple[str, ...]]) -> bool:
+    if not isinstance(command, list) or not command:
+        return False
+    argv = ['python', *command[1:]] if command[0] == sys.executable else command
+    return any(tuple(argv[:len(p)]) == p for p in allowed)
+
+
 def echo(data: bytes, stream) -> None:
     if not data:
         return
@@ -318,6 +348,16 @@ def validate(slug: str, run: bool = False, scope: bool = True) -> list[str]:
     mutation = testing.get('mutation', {})
     if mutation.get('enabled') and not mutation.get('command'):
         errors.append('Mutation testing activado sin comando')
+    if s.get('state') != 'terminado':
+        allowed, invalid = allowed_test_commands(memory)
+        errors.extend(invalid)
+        for cmd in testing.get('commands', []):
+            if isinstance(cmd, list) and cmd and all(isinstance(x, str) and x for x in cmd) \
+                    and not command_allowed(cmd, allowed):
+                errors.append(f'Comando de pruebas fuera de la lista blanca: {cmd}')
+        if mutation.get('enabled') and mutation.get('command') \
+                and not command_allowed(mutation['command'], allowed):
+            errors.append(f'Comando de mutación fuera de la lista blanca: {mutation["command"]}')
     min_tests = testing.get('min_tests', 1)
     if type(min_tests) is not int or min_tests < 1:
         errors.append('testing.min_tests debe ser un entero mayor o igual a 1')

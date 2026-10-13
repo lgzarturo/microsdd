@@ -1390,6 +1390,47 @@
           "by": "Programador"
         }
       ]
+    },
+    "lista-blanca-runners": {
+      "approvals": {
+        "spec": {
+          "by": "Programador",
+          "evidence": "Autorización global del programador 2026-10-13 (serie autónoma del parche validado); D1 reportar entradas inválidas, D2 sin py -3 ni uv run, D3 validación estructural, según recomendación del autor",
+          "at": "2026-10-13T07:20:40+00:00",
+          "fingerprint": "483a0092ab7d3b40022684adfca654f150d5341693df29a28d6b00b971888f4e"
+        },
+        "close": {
+          "by": "Programador",
+          "evidence": "Autorización global del programador en sesión 2026-10-13 para cerrar y commitear las tareas de la serie sin aprobación por paso",
+          "at": "2026-10-13T07:25:36+00:00"
+        }
+      },
+      "sealed_tests": {},
+      "review": "APROBADO",
+      "review_fingerprint": "d6bdabfbfe4086da175083f73fbdacf7d703c683fc9a735bd296eb7c868a723c",
+      "iterations": 1,
+      "events": [
+        {
+          "at": "2026-10-13T07:17:32+00:00",
+          "event": "creada"
+        },
+        {
+          "at": "2026-10-13T07:20:40+00:00",
+          "event": "aprobación_spec",
+          "by": "Programador"
+        },
+        {
+          "at": "2026-10-13T07:25:28+00:00",
+          "event": "revisión",
+          "verdict": "APROBADO",
+          "evidence": "Revisor independiente 2026-10-13: AC-01..AC-11 cumplidos; prefijos comparados token a token, sys.executable solo como python, ampliación con reporte de inválidos, exención en terminado, sin ejecución ante comando no permitido. check --run: Ran 141 tests OK (skipped=2). AC-10 verificado por el líder: check --no-scope OK en las 5 tareas. Observación menor: ejemplo python -c en README:54."
+        },
+        {
+          "at": "2026-10-13T07:25:36+00:00",
+          "event": "aprobación_close",
+          "by": "Programador"
+        }
+      ]
     }
   }
 }

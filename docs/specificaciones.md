@@ -30,3 +30,4 @@ Cada tarea va en `spec/<slug>/` con exactamente cuatro documentos: `requerimient
 | `revisor-git-opciones-extra` | terminado | La allowlist Git del revisor deniega además `--textconv`, `-O` (también agrupado, p. ej. `-pO<f>`) y `--open-files-in-pager`. |
 | `memoria-atomica-lock` | terminado | `dump()` atómico (temporal + `fsync` + `os.replace`) y lock exclusivo `memory.lock` con timeout en las operaciones que mutan la memoria. |
 | `check-min-pruebas` | terminado | `check --run` exige al menos `testing.min_tests` pruebas detectadas por comando (unittest, pytest, bun, Maven, Go); tareas cerradas exentas. |
+| `lista-blanca-runners` | terminado | `testing.commands`/`mutation.command` solo con runners conocidos (ampliable con `project.allowed_test_commands`); tareas cerradas exentas. |

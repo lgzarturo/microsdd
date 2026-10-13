@@ -240,9 +240,17 @@ class MicroSDDTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             sdd.commit_check('arreglos')
 
+    def _failing_suite(self):
+        # Runner permitido por la lista blanca que sale con código 1.
+        (sdd.ROOT / 'pruebas_fallo').mkdir(exist_ok=True)
+        (sdd.ROOT / 'pruebas_fallo' / 'test_falla.py').write_text(
+            'import unittest\n\n\nclass Falla(unittest.TestCase):\n    def test_falla(self):\n'
+            '        self.fail()\n', encoding='utf-8')
+        return [sys.executable, '-m', 'unittest', 'discover', '-s', 'pruebas_fallo']
+
     def test_testing_failure_is_reported(self):
         data = sdd.load(self.folder / 'spec.json')
-        data['testing']['commands'] = [[sys.executable, '-c', 'raise SystemExit(1)']]
+        data['testing']['commands'] = [self._failing_suite()]
         sdd.dump(self.folder / 'spec.json', data)
         self.assertTrue(any('Comando falló' in x for x in sdd.validate('fix-sesiones', run=True)))
 
@@ -344,7 +352,7 @@ class MicroSDDTests(unittest.TestCase):
 
     def test_failed_command_has_no_count_error(self):
         # AC-08: un comando que falla solo produce 'Comando falló'.
-        self._set_testing([[sys.executable, '-c', 'raise SystemExit(1)']])
+        self._set_testing([self._failing_suite()])
         errors, _, _ = self._run_captured()
         self.assertTrue(any('Comando falló' in e for e in errors), errors)
         self.assertFalse([e for e in errors if 'al menos' in e], errors)
@@ -361,6 +369,103 @@ class MicroSDDTests(unittest.TestCase):
         with mock.patch.object(sdd, 'tests_ran', return_value=None):
             errors, _, _ = self._run_captured()
         self.assertEqual(errors, [])
+
+    DEFAULT_PREFIXES = (
+        ['python', '-m', 'unittest'], ['python3', '-m', 'unittest'], ['python', '-m', 'pytest'],
+        ['python3', '-m', 'pytest'], ['pytest'], ['npm', 'test'], ['pnpm', 'test'], ['yarn', 'test'],
+        ['bun', 'test'], ['go', 'test'], ['cargo', 'test'], ['mvn', 'test'], ['./mvnw', 'test'],
+        ['gradle', 'test'], ['./gradlew', 'test'], ['mutmut', 'run'])
+
+    def _whitelist_errors(self, commands=None, **extra):
+        self._set_testing(commands, **extra)
+        return [e for e in sdd.validate('fix-sesiones') if 'lista blanca' in e or 'allowed_test_commands' in e]
+
+    def _set_allowed(self, value):
+        memory = sdd.load(sdd.MEMORY)
+        memory['project']['allowed_test_commands'] = value
+        sdd.dump(sdd.MEMORY, memory)
+
+    def test_whitelist_accepts_default_prefixes(self):
+        # AC-01: los 16 prefijos, con y sin argumentos extra, no generan error de lista blanca.
+        self.assertEqual(len(self.DEFAULT_PREFIXES), 16)
+        for prefix in self.DEFAULT_PREFIXES:
+            for command in (prefix, [*prefix, '-q', './...']):
+                with self.subTest(command=command):
+                    self.assertEqual(self._whitelist_errors([command]), [])
+
+    def test_whitelist_treats_current_interpreter_as_python(self):
+        # AC-02: sys.executable equivale a python; -c sigue rechazado.
+        for command in ([sys.executable, '-m', 'unittest', 'discover'], [sys.executable, '-m', 'pytest']):
+            with self.subTest(command=command):
+                self.assertEqual(self._whitelist_errors([command]), [])
+        command = [sys.executable, '-c', 'print(1)']
+        self.assertEqual(self._whitelist_errors([command]),
+                         [f'Comando de pruebas fuera de la lista blanca: {command}'])
+
+    def test_whitelist_rejects_other_commands(self):
+        # AC-03: ejecutables arbitrarios, rutas, mayúsculas y prefijos incompletos se rechazan.
+        rejected = (['python', '-c', 'print(1)'], ['python3', '.microharness/sdd.py', '--version'],
+                    ['sh', '-c', 'echo x'], ['bash', '-c', 'x'], ['/tmp/evil/python3', '-m', 'unittest'],
+                    ['curl', 'https://example.com'], ['py', '-3', '-m', 'unittest'], ['uv', 'run', 'pytest'],
+                    ['npm', 'run', 'test'], ['Python', '-m', 'unittest'], ['python', '-m'],
+                    ['python', '-m', 'unittestx'])
+        for command in rejected:
+            with self.subTest(command=command):
+                self.assertEqual(self._whitelist_errors([command]),
+                                 [f'Comando de pruebas fuera de la lista blanca: {command}'])
+        bad = ['sh', '-c', 'echo x']
+        self.assertEqual(self._whitelist_errors([self.SUITE, bad, ['pytest']]),
+                         [f'Comando de pruebas fuera de la lista blanca: {bad}'])
+
+    def test_whitelist_applies_to_enabled_mutation(self):
+        # AC-04: mutation.command se valida solo si está activado.
+        bad = ['sh', '-c', 'echo']
+        self.assertEqual(self._whitelist_errors(mutation={'enabled': True, 'command': bad, 'reason': 'x'}),
+                         [f'Comando de mutación fuera de la lista blanca: {bad}'])
+        self.assertEqual(self._whitelist_errors(
+            mutation={'enabled': True, 'command': ['mutmut', 'run'], 'reason': 'x'}), [])
+        self.assertEqual(self._whitelist_errors(mutation={'enabled': False, 'command': bad, 'reason': 'x'}), [])
+
+    def test_whitelist_project_extension(self):
+        # AC-05: la ampliación de memory.json se suma a los predeterminados por prefijo.
+        self.assertEqual(self._whitelist_errors([['make', 'test']]),
+                         ["Comando de pruebas fuera de la lista blanca: ['make', 'test']"])
+        self._set_allowed([['make', 'test']])
+        self.assertEqual(self._whitelist_errors([['make', 'test'], ['make', 'test', '-j2'], self.SUITE]), [])
+        self.assertEqual(self._whitelist_errors([['make', 'install']]),
+                         ["Comando de pruebas fuera de la lista blanca: ['make', 'install']"])
+
+    def test_whitelist_reports_invalid_extension_entries(self):
+        # AC-06: cada entrada inválida se reporta y las válidas siguen aplicando.
+        self._set_allowed('make test')
+        self.assertEqual(self._whitelist_errors([self.SUITE]),
+                         ['project.allowed_test_commands inválido: make test'])
+        self._set_allowed(['make test', [], [''], [1], ['make', 'test']])
+        self.assertEqual(self._whitelist_errors([['make', 'test']]), [
+            'project.allowed_test_commands inválido: make test',
+            'project.allowed_test_commands inválido: []',
+            "project.allowed_test_commands inválido: ['']",
+            'project.allowed_test_commands inválido: [1]'])
+
+    def test_whitelist_skipped_after_close(self):
+        # AC-07: las tareas terminadas no se validan contra la lista blanca.
+        self._set_allowed('x')
+        data = sdd.load(self.folder / 'spec.json')
+        data['state'] = 'terminado'
+        sdd.dump(self.folder / 'spec.json', data)
+        self.assertEqual(self._whitelist_errors(
+            [['python', '-c', 'print(1)']],
+            mutation={'enabled': True, 'command': ['sh', '-c', 'echo'], 'reason': 'x'}), [])
+
+    def test_whitelist_blocks_execution(self):
+        # AC-08: un comando fuera de la lista no se ejecuta con --run.
+        marker = sdd.ROOT / 'marca.txt'
+        command = [sys.executable, '-c', "open('marca.txt','w')"]
+        self._set_testing([self.SUITE, command])
+        errors, out, _ = self._run_captured()
+        self.assertIn(f'Comando de pruebas fuera de la lista blanca: {command}', errors)
+        self.assertNotIn('EJECUTANDO:', out)
+        self.assertFalse(marker.exists())
 
 
 class TestsRanTests(unittest.TestCase):
