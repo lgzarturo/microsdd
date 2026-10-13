@@ -21,6 +21,11 @@
         "at": "2026-10-13T03:53:57+00:00",
         "fact": "validate() (sdd.py ~215-219) aplica sealed_tests sin mirar el estado: el sello de deteccion-python-multiplataforma (terminado) sobre tests/test_sdd.py hace fallar su check tras añadir pruebas en eol-hashes-estables.",
         "evidence": "check deteccion-python-multiplataforma --no-scope -> 'Test sellado modificado: tests/test_sdd.py' (líder y revisor)."
+      },
+      {
+        "at": "2026-10-13T04:03:05+00:00",
+        "fact": "pretool.py: el revisor puede ejecutar cualquier comando vía la herramienta PowerShell (no se inspecciona), y la regex 'git (diff|status)(?: [^;&|\\n]+)?' permite $(...), comillas invertidas, redirecciones < > y --output=, que ejecutan comandos o escriben archivos.",
+        "evidence": "pretool.run con agent_type revisor: 'git diff $(rm -rf src)', 'git diff `rm -rf src`', 'git diff > README.md', 'git status < x', 'git diff --output=README.md' -> PERMITIDO en Bash y PowerShell."
       }
     ],
     "decisions": [
@@ -79,6 +84,13 @@
         "task": "sellos-solo-en-proceso",
         "decision": "Nueva mini-tarea, antes de hook-powershell y regex-revisor-ascii: validate aplica sealed_tests solo mientras la tarea está en proceso; los sellos de tareas terminadas quedan como histórico.",
         "evidence": "Respuesta explícita en sesión: 'Nueva tarea antes de la 2'"
+      },
+      {
+        "at": "2026-10-13T04:03:05+00:00",
+        "by": "Programador",
+        "task": "regex-revisor-ascii",
+        "decision": "Ampliar la tarea 3 a endurecer las expresiones del revisor: [0-9] en vez de \\d y argumentos de git restringidos a caracteres seguros (sin $, comillas invertidas, <, >, paréntesis), rechazando --output y --ext-diff.",
+        "evidence": "Respuesta explícita en sesión: 'Ampliar la tarea 3'"
       }
     ]
   },
@@ -293,6 +305,47 @@
         },
         {
           "at": "2026-10-13T04:01:52+00:00",
+          "event": "aprobación_close",
+          "by": "Programador"
+        }
+      ]
+    },
+    "hook-powershell": {
+      "approvals": {
+        "spec": {
+          "by": "Programador",
+          "evidence": "Confirmación explícita en sesión: 'aprobado' (incluye PRE-01 con la resolución de R1 ya decidida: si la guardia bloquea, parche al humano; y AC-05 README)",
+          "at": "2026-10-13T04:06:26+00:00",
+          "fingerprint": "3c329710df376d0492a1b77cea649ec92468726aa338ba919b8cb9087e31d13d"
+        },
+        "close": {
+          "by": "Programador",
+          "evidence": "Confirmación explícita en sesión: 'si' (aprobación de cierre y commit)",
+          "at": "2026-10-13T04:10:54+00:00"
+        }
+      },
+      "sealed_tests": {},
+      "review": "APROBADO",
+      "review_fingerprint": "45936c764cb4b080424a47c543d3f18db3fc0da039950ed5d125fd9dad86b15f",
+      "iterations": 1,
+      "events": [
+        {
+          "at": "2026-10-13T04:03:06+00:00",
+          "event": "creada"
+        },
+        {
+          "at": "2026-10-13T04:06:26+00:00",
+          "event": "aprobación_spec",
+          "by": "Programador"
+        },
+        {
+          "at": "2026-10-13T04:10:24+00:00",
+          "event": "revisión",
+          "verdict": "APROBADO",
+          "evidence": "Revisor independiente: check --run exit 0 (26 OK); contra HEAD aislado fallan 3 pruebas (AC-01, AC-04); mutaciones del matcher (+Foo, -Bash) detectadas; diff = pretool.py:66, settings.json:8, README.md:222 + pruebas. R2 (nombre real PowerShell/tool_input.command) no verificable por unit tests: prueba manual tras reinicio."
+        },
+        {
+          "at": "2026-10-13T04:10:54+00:00",
           "event": "aprobación_close",
           "by": "Programador"
         }

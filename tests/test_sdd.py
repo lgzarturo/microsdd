@@ -236,6 +236,19 @@ class HookTests(unittest.TestCase):
                 self.assertIsNotNone(hook.run({'agent_type': 'revisor', 'tool_name': 'Bash',
                                                'tool_input': {'command': command}}))
 
+    def test_reviewer_powershell_uses_allowlist(self):
+        # AC-01, AC-02: PowerShell aplica la misma allowlist del revisor que Bash.
+        hook_path = SCRIPT.parents[1] / '.claude' / 'hooks' / 'pretool.py'
+        spec = importlib.util.spec_from_file_location('micro_hook', hook_path)
+        hook = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(hook)
+        self.assertIsNotNone(hook.run({'agent_type': 'revisor', 'tool_name': 'PowerShell',
+                                       'tool_input': {'command': 'rm -rf src'}}))
+        for command in ('python .microharness/sdd.py check fix-a --run', 'git status'):
+            with self.subTest(permitido=command):
+                self.assertIsNone(hook.run({'agent_type': 'revisor', 'tool_name': 'PowerShell',
+                                            'tool_input': {'command': command}}))
+
 
 @unittest.skipUnless(shutil.which('git'), 'git no disponible')
 class GitAttributesTests(unittest.TestCase):
@@ -256,7 +269,8 @@ class SettingsTests(unittest.TestCase):
         settings = json.loads((self.ROOT / '.claude' / 'settings.json').read_text(encoding='utf-8'))
         entries = settings['hooks']['PreToolUse']
         self.assertEqual(len(entries), 1)
-        self.assertEqual(entries[0]['matcher'], 'Write|Edit|MultiEdit|NotebookEdit|Bash')
+        self.assertEqual(set(entries[0]['matcher'].split('|')),
+                         {'Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'Bash', 'PowerShell'})
         self.assertEqual(len(entries[0]['hooks']), 1)
         return entries[0]['hooks'][0]
 

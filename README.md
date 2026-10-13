@@ -219,7 +219,7 @@ El comando `new` genera un ejemplo completo y editable con estos campos relevant
 | Control | Capa | Alcance real |
 |---|---|---|
 | Agente líder predeterminado | Claude Code `agent` | Efectivo salvo override explícito de sesión/usuario |
-| Acceso por rol | Frontmatter + hook | Bloquea herramientas de edición habituales según agente; `Bash` y herramientas externas no son sandbox universal |
+| Acceso por rol | Frontmatter + hook | Bloquea herramientas de edición habituales según agente; `Bash`/`PowerShell` y herramientas externas no son sandbox universal |
 | AC, contrato y tres estados | `sdd.py check` | Validación estructural y estados; no demuestra que el requisito esté bien interpretado |
 | Huella de especificación | SHA-256 en `memory.json` | Invalida cambios posteriores a aprobación; no evita manipulación deliberada de la memoria |
 | Scope de cambios | Git diff en `check` | Evita cerrar con modificaciones fuera de patrones; empieza con working tree limpio |
