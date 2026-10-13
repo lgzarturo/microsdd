@@ -43,6 +43,30 @@
         "by": "Programador",
         "decision": "Excluir `.serena/` (configuración local del MCP serena) mediante `.git/info/exclude`, sin cambios versionados.",
         "evidence": "Respuesta explícita en sesión: 'Excluir en .git/info/exclude (Recomendado)'; aplicado"
+      },
+      {
+        "at": "2026-10-13T00:10:36+00:00",
+        "by": "Programador",
+        "decision": "Herramienta de release `limpieza-historial-release`: el historial del propio arnés (memory.json, docs/, spec/<slug>/) se archiva en `historial/<versión>/` en la raíz del repositorio.",
+        "evidence": "Respuesta explícita en sesión: 'historial/<versión>/ (Recomendado)'"
+      },
+      {
+        "at": "2026-10-13T00:10:36+00:00",
+        "by": "Programador",
+        "decision": "El estado inicial de docs/, spec/ y memory.json tras la limpieza es exactamente el que genera `sdd.py init` (fuente única, idéntico a una instalación uvx); no se fijan plantillas propias en la herramienta.",
+        "evidence": "Respuesta explícita en sesión: 'Lo que genera sdd.py init (Recomendado)'"
+      },
+      {
+        "at": "2026-10-13T00:10:36+00:00",
+        "by": "Programador",
+        "decision": "Si existe alguna tarea que no está en `terminado`, la herramienta de limpieza aborta sin cambios y lista las tareas abiertas.",
+        "evidence": "Respuesta explícita en sesión: 'Abortar sin cambios (Recomendado)'"
+      },
+      {
+        "at": "2026-10-13T00:10:36+00:00",
+        "by": "Programador",
+        "decision": "La herramienta de limpieza es un script de mantenimiento en `scripts/` (solo stdlib), no distribuido por el instalador; no modifica `.microharness/sdd.py` ni `src/microsdd/`.",
+        "evidence": "Respuesta explícita en sesión: 'scripts/ de mantenimiento (Recomendado)'"
       }
     ]
   },
@@ -105,6 +129,52 @@
         },
         {
           "at": "2026-10-13T00:00:11+00:00",
+          "event": "aprobación_close",
+          "by": "Programador"
+        }
+      ]
+    },
+    "limpieza-historial-release": {
+      "approvals": {
+        "spec": {
+          "by": "Programador",
+          "evidence": "Respuesta explícita en sesión 2026-10-12 19:29 (UTC-5): 'aprobado' (limpieza-historial-release), tras resumen del líder",
+          "at": "2026-10-13T00:29:57+00:00",
+          "fingerprint": "20c1119363c67dd0095d6b09a85b6cd5740568049712d64b21f6923f7f015633"
+        },
+        "close": {
+          "by": "Programador",
+          "evidence": "Respuesta explícita en sesión 2026-10-12 19:40 (UTC-5): 'apruebo el cierre y commit' (limpieza-historial-release)",
+          "at": "2026-10-13T00:40:37+00:00"
+        }
+      },
+      "sealed_tests": {},
+      "review": "APROBADO",
+      "review_fingerprint": "20e6dc02b34eff0c9b26a86612c4d01759ddf0f50165a5d23f7dfbf3e70b0981",
+      "iterations": 1,
+      "events": [
+        {
+          "at": "2026-10-13T00:10:36+00:00",
+          "event": "creada"
+        },
+        {
+          "at": "2026-10-13T00:25:50+00:00",
+          "event": "spec_redactada",
+          "evidence": "Autor redactó 4 archivos; crítica independiente del revisor (1 IMPORTANTE: archivos ignorados por git; 5 MENOR) aplicada por el autor en una ronda; líder re-ejecutó sdd.py check limpieza-historial-release: exit 0. Pendiente aprobación humana."
+        },
+        {
+          "at": "2026-10-13T00:29:57+00:00",
+          "event": "aprobación_spec",
+          "by": "Programador"
+        },
+        {
+          "at": "2026-10-13T00:39:20+00:00",
+          "event": "revisión",
+          "verdict": "APROBADO",
+          "evidence": "Iteración 1. Revisor independiente: check --run exit 0 (36 pruebas, 1 omitida AC-15 por Windows sin symlinks); AC-01..AC-14 CUMPLE con pruebas no tautológicas (snapshot+HEAD+índice); invariantes I1-I7 revisados en código; sin archivos fuera de scope; 3 defectos MENOR no bloqueantes. RED observado por implementador: ImportError por scripts/limpiar_arnes.py inexistente (exit 1). Líder: re-ejecutó check --run exit 0 (36 pruebas, OK skipped=1) y verificó AC-15 en WSL Ubuntu 24.04 sobre copia temporal: test_symlink_in_spec_aborts ok, 22 pruebas OK, exit 0."
+        },
+        {
+          "at": "2026-10-13T00:40:37+00:00",
           "event": "aprobación_close",
           "by": "Programador"
         }

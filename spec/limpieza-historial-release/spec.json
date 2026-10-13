@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "id": "limpieza-historial-release",
+  "title": "Script de release que archiva el historial del arnés en historial/<versión>/ y restaura docs/, spec/ y memory.json al estado de sdd.py init",
+  "state": "terminado",
+  "model": "claude-opus-5-5",
+  "effort": "medium",
+  "max_iterations": 3,
+  "method": {
+    "primary": "SDD",
+    "optional": [],
+    "notes": ""
+  },
+  "scope": {
+    "allowed_paths": [
+      "scripts/limpiar_arnes.py",
+      "tests/test_limpiar_arnes.py"
+    ],
+    "excluded": [
+      ".claude/**",
+      ".microharness/**",
+      "docs/**",
+      "CLAUDE.md",
+      "README.md",
+      "src/**",
+      "pyproject.toml",
+      "historial/**",
+      "tests/test_sdd.py"
+    ]
+  },
+  "requirements": {
+    "acceptance_ids": [
+      "AC-01",
+      "AC-02",
+      "AC-03",
+      "AC-04",
+      "AC-05",
+      "AC-06",
+      "AC-07",
+      "AC-08",
+      "AC-09",
+      "AC-10",
+      "AC-11",
+      "AC-12",
+      "AC-13",
+      "AC-14",
+      "AC-15"
+    ],
+    "preconditions": [
+      "Python >= 3.10 invocable como `python` (no `python3`)",
+      "Git disponible en el PATH",
+      "Decisiones humanas D1-D4 registradas en .microharness/memory.json (project.decisions, 2026-10-13T00:10:36Z)",
+      "El comportamiento detallado (CLI, precondiciones, orden, códigos de salida) es propuesta del líder pendiente de aprobación humana",
+      "Las pruebas solo ejecutan la herramienta sobre repositorios git temporales con una copia del .microharness/sdd.py real"
+    ]
+  },
+  "testing": {
+    "strategy": "tdd",
+    "commands": [
+      [
+        "python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tests",
+        "-v"
+      ]
+    ],
+    "protected_tests": [],
+    "mutation": {
+      "enabled": false,
+      "command": [],
+      "reason": "El repositorio no tiene herramienta de mutation testing y añadir una dependencia viola stdlib-first y el alcance. La lógica es de E/S con guardas fail-closed; cada guarda (versión, git, ignorados, enlaces simbólicos, historial, docs, memoria, tareas abiertas, init fallido) tiene una prueba negativa dedicada con snapshot sin cambios, lo que cubre las mutaciones relevantes (eliminar o invertir una guarda)."
+    }
+  }
+}

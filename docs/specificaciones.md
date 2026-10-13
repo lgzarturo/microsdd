@@ -13,3 +13,4 @@ Cada tarea va en `spec/<slug>/` con exactamente cuatro documentos: `requerimient
 |---|---|---|
 | `fix-sdd-rutas-unicode` | terminado | `diff_files()` usa `git -z` y UTF-8: rutas no ASCII (p. ej. `diseño.md`) ya no rompen el alcance ni la huella |
 | `instalador-uvx` | pendiente | Instalador por proyecto con `uvx` (spec aprobada; se activa tras cerrar la tarea anterior) |
+| `limpieza-historial-release` | terminado | `scripts/limpiar_arnes.py <versión>` archiva memoria, docs y specs en `historial/<versión>/` y restaura el estado de `sdd.py init` antes de un release |
