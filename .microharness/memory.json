@@ -69,6 +69,11 @@
         "at": "2026-10-13T07:03:41+00:00",
         "fact": "Plan de la serie autónoma: memoria-atomica-lock -> check-min-pruebas (R8) -> lista-blanca-runners (R6, solo tareas no terminadas) -> modelo-configurable (R7/R10) -> renombrar-docs (convenciones/especificaciones con compatibilidad) -> integridad-aprobaciones (punto 4 del análisis) -> hook-fail-closed (R5) -> release-v1-0-0 (CHANGELOG y versión) -> bloquear-autoaprobacion (último: tras él approve/seal solo los ejecuta el humano en su terminal, por lo que su cierre requiere un comando humano) -> limpiar_arnes 1.0.0, tag v1.0.0, push y release en GitHub. Desviación consciente del proceso de versionado: el commit de versión precede a bloquear-autoaprobacion y el tag se pone tras la limpieza, para requerir una sola intervención humana.",
         "evidence": "Análisis del líder sobre assets/proceso-versionado.md y la spec de bloquear-autoaprobacion (R-01), 2026-10-13"
+      },
+      {
+        "at": "2026-10-13T09:23:33+00:00",
+        "fact": "Tras release-v1-0-0, check herramienta-release --run falla de forma permanente: su comando histórico python -c exige __version__ = '0.1.0'. Es una spec cerrada y no se modifica. Además release propose no funciona mientras haya una tarea en proceso (precondición propia).",
+        "evidence": "Informe del implementador de release-v1-0-0 (2026-10-13); spec/herramienta-release/spec.json"
       }
     ],
     "decisions": [
@@ -1648,17 +1653,42 @@
     },
     "release-v1-0-0": {
       "approvals": {
-        "spec": null,
-        "close": null
+        "spec": {
+          "by": "Programador",
+          "evidence": "Autorización global del programador 2026-10-13 y decisión explícita de versión v1.0.0; C-02 parcial (solo release propose; prepare/tag documentados como trabajo futuro) y C-03/C-04 incumplidos aceptados como desviación",
+          "at": "2026-10-13T09:20:51+00:00",
+          "fingerprint": "a930925af2b78cf0889da9389fafc78e35770f9ef389e400bc514bd4aa3a2251"
+        },
+        "close": {
+          "by": "Programador",
+          "evidence": "Autorización global del programador en sesión 2026-10-13 para cerrar y commitear las tareas de la serie sin aprobación por paso",
+          "at": "2026-10-13T09:27:09+00:00"
+        }
       },
       "sealed_tests": {},
-      "review": null,
-      "review_fingerprint": null,
-      "iterations": 0,
+      "review": "APROBADO",
+      "review_fingerprint": "d5984d7a8623efe8b396f5e5095372f23400218c7e02e74dafa135cd120163ef",
+      "iterations": 1,
       "events": [
         {
           "at": "2026-10-13T09:04:46+00:00",
           "event": "creada"
+        },
+        {
+          "at": "2026-10-13T09:20:51+00:00",
+          "event": "aprobación_spec",
+          "by": "Programador"
+        },
+        {
+          "at": "2026-10-13T09:26:59+00:00",
+          "event": "revisión",
+          "verdict": "APROBADO",
+          "evidence": "Revisor independiente 2026-10-13: AC-01..AC-11 cumplidos; diff de proceso-versionado.md limitado a cinco puntos; sin tags. AC-05/AC-06 verificados por el líder: 40 hashes idénticos a git log --no-merges y descripciones literales. AC-10: wheel microsdd-1.0.0 (evidencia del implementador). check --run: Ran 175 tests OK (skipped=2)."
+        },
+        {
+          "at": "2026-10-13T09:27:09+00:00",
+          "event": "aprobación_close",
+          "by": "Programador"
         }
       ]
     },

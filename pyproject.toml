@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "microsdd"
-version = "0.1.0"
+version = "1.0.0"
 description = "MicroSDD for Claude Opus 5.5: micro arnés SDD por proyecto para Claude Code (no global)."
 readme = "README.md"
 requires-python = ">=3.10"

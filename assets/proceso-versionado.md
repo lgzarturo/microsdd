@@ -10,15 +10,14 @@ Se basa en Semantic Versioning 2.0.0 (https://semver.org/lang/es/) y en Conventi
 
 ## Estado actual
 
-- El repositorio no tiene ningún tag (`git tag` no devuelve resultados).
-- No existen `CHANGELOG.md` ni `VERSION`; `.microharness/sdd.py` define la constante `__version__` (`0.1.0`), expuesta con `--version`.
-- El único indicio de versión es el título «MicroSDD 0.1» de `README.md`.
-- Por tanto, la versión vigente es la línea 0.1, aún no publicada.
+- El repositorio no tiene ningún tag (`git tag` no devuelve resultados) hasta que se cree `v1.0.0`, tras ejecutar `scripts/limpiar_arnes.py 1.0.0`.
+- Existe `CHANGELOG.md`, con la sección `[1.0.0]`; no existe `VERSION`. `.microharness/sdd.py` define la constante `__version__` (`1.0.0`), expuesta con `--version` y replicada en `version` de `pyproject.toml`.
+- No hubo release 0.y.z: el programador fijó la versión 1.0.0 (2026-10-13).
 
 ## API pública
 
 - **API-01** · CLI de `.microharness/sdd.py`: subcomandos `init`, `new`, `check` (`--run`, `--no-scope`), `approve` (`spec`/`close`, `--by`, `--evidence`), `review` (`APROBADO`/`RECHAZADO`, `--evidence`), `seal` (`--by`), `note` (`--fact`, `--decision`, `--by`, `--evidence`), `commit-check` y `release` (acción `propose`), más la opción global `--version`; código de salida 0 en éxito y 1 en error de ejecución, incluidos el tiempo de espera del lock y los fallos de integridad (los errores de uso de argumentos devuelven 2, comportamiento estándar de `argparse`). El lanzador `.microharness/python.sh` ejecuta sus argumentos con el primer Python ≥ 3.10 válido (respeta `MICROSDD_PYTHON`) y devuelve 2 si no encuentra un intérprete válido.
-- **API-02** · Esquema de `spec.json` (`schema_version` 1): campos y valores que acepta `validate` (`id`, `state`, `model`, `effort`, `max_iterations`, `method`, `scope`, `requirements`, `testing`), incluido `testing.min_tests` (entero ≥ 1, opcional, 1 por defecto); salvo en `terminado`, `testing.commands` y `mutation.command` deben empezar por un runner de la lista blanca de `sdd.py`, ampliable con `project.allowed_test_commands`.
+- **API-02** · Esquema de `spec.json` (`schema_version` 1): campos y valores que acepta `validate` (`id`, `state`, `model`, `effort`, `max_iterations`, `method`, `scope`, `requirements`, `testing`), incluido `testing.min_tests` (entero ≥ 1, opcional, 1 por defecto); salvo en `terminado`, `testing.commands` (y `mutation.command` si `mutation.enabled` es verdadero) deben empezar por un runner de la lista blanca de `sdd.py`, ampliable con `project.allowed_test_commands`.
 - **API-03** · Esquema de `.microharness/memory.json` (`schema_version` 1): `project` (incluido el opcional `project.allowed_test_commands`) y `tasks`, con aprobaciones, sellos, revisión, iteraciones y eventos de cada tarea. `check` compara la memoria con `HEAD:.microharness/memory.json`: los eventos confirmados son inmutables y los campos vigilados solo cambian con un evento nuevo que lo justifique. El archivo de lock `.microharness/memory.lock` no se versiona y su contenido no es API.
 - **API-04** · Estructura de tarea `spec/<slug>/`: cuatro archivos (`requerimientos.md`, `plan.md`, `tareas.md`, `spec.json`), formato de slug y los tres estados (`pendiente`, `proceso`, `terminado`).
 - **API-05** · Contratos de agentes en `.claude/agents/`: nombres, responsabilidades, frontmatter (`model`, `effort` y, cuando se declara, `tools`) y restricciones por rol que aplica `.claude/hooks/pretool.py`, que además deniega `Write`, `Edit`, `MultiEdit`, `NotebookEdit`, `Bash` y `PowerShell` a cualquier agente distinto de `autor`, `implementador`, `revisor` o `lider` (fail-closed).
@@ -48,7 +47,7 @@ Justificación: de estos elementos dependen un repositorio instalado, sus specs 
 
 Mientras la versión mayor sea 0, la API pública puede cambiar. En esta fase, un cambio incompatible incrementa MINOR, y `feat`, `fix` y `perf` incrementan PATCH.
 
-«MicroSDD 0.1» equivale a la línea `0.1.0`, aún no publicada. El primer tag será `v0.1.0` y lo creará la primera tarea de release, no esta.
+«MicroSDD 0.1» equivale a la línea `0.1.0`, aún no publicada. Por decisión del programador, el primer tag es `v1.0.0`.
 
 ## Criterios para declarar 1.0.0
 
@@ -118,13 +117,13 @@ Generados por `sdd.py init`:
 
 ### Excluido
 
-Todo lo versionado que no figura en «Incluido», en particular: `assets/`, `scripts/`, `historial/` (si existe), `src/`, `tests/`, `pyproject.toml`, `README.md`, `LICENSE`, `.gitignore`, `.gitattributes`, `CHANGELOG.md` (cuando exista) y las specs y la memoria del propio arnés. Tampoco se crea `.microharness/config.json` (API-09), ni se copia `.claude/settings.local.json`, que no se versiona.
+Todo lo versionado que no figura en «Incluido», en particular: `assets/`, `scripts/`, `historial/` (si existe), `src/`, `tests/`, `pyproject.toml`, `README.md`, `LICENSE`, `.gitignore`, `.gitattributes`, `CHANGELOG.md` y las specs y la memoria del propio arnés. Tampoco se crea `.microharness/config.json` (API-09), ni se copia `.claude/settings.local.json`, que no se versiona.
 
 Nota: sin `--force`, si una ruta del `MANIFEST` ya existe con contenido distinto (salvo `.claude/settings.json`, que usa el alterno), el instalador informa el conflicto y no escribe nada; revisa antes `CLAUDE.md` y `.claude/settings.json` del repositorio destino.
 
 ## Herramienta de release
 
-Existen `sdd.py --version`, que imprime `MicroSDD <__version__>`, y `sdd.py release propose`, que solo lee Git y propone la siguiente versión sin modificar archivos, tags, ramas ni memoria. `release prepare` (actualizar `CHANGELOG.md` y la fuente de versión) y `release tag` (crear el tag) están pendientes de su propia tarea; tampoco existe `CHANGELOG.md`. La herramienta cumple, y la parte pendiente deberá cumplir, estos requisitos:
+Existen `sdd.py --version`, que imprime `MicroSDD <__version__>`, y `sdd.py release propose`, que solo lee Git y propone la siguiente versión sin modificar archivos, tags, ramas ni memoria. `release prepare` (actualizar `CHANGELOG.md` y la fuente de versión) y `release tag` (crear el tag) están pendientes de su propia tarea. La herramienta cumple, y la parte pendiente deberá cumplir, estos requisitos:
 
 - **R-01** Usar solo la biblioteca estándar de Python y exponerse como subcomando `release` de `.microharness/sdd.py`, con las acciones `propose`, `prepare` y `tag`.
 - **R-02** Rechazar la ejecución, con código 1, si no se cumplen las precondiciones de su fase:
