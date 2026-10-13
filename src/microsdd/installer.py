@@ -22,6 +22,7 @@ MANIFEST = {
     '.claude/hooks/pretool.py': '.claude/hooks/pretool.py',
     '.claude/skills/sdd/SKILL.md': '.claude/skills/sdd/SKILL.md',
     '.microharness/sdd.py': '.microharness/sdd.py',
+    '.microharness/python.sh': '.microharness/python.sh',
     'CLAUDE.md': 'CLAUDE.microsdd.md',
     '.claude/settings.json': '.claude/settings.json',
 }

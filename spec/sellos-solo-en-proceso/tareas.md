@@ -1,0 +1,7 @@
+# PASOS: trabajo verificable
+
+- [ ] T01 (AC-01, AC-04): en `tests/test_sdd.py`, clase `MicroSDDTests`, añadir `test_sealed_tests_ignored_after_close`: aprobar spec con `protected_tests = ['tests/test_auth.py']`, `seal`, `review` `APROBADO`, `approve close`; modificar el archivo; afirmar que ningún error de `validate('fix-sesiones')` contiene «sellado» y que `sealed_tests` en memoria conserva el hash previo. Ejecutarla y comprobar que FALLA antes del cambio (TDD).
+- [ ] T02 (AC-03): en `tests/test_sdd.py`, añadir `test_sealed_tests_checked_when_escalated_pending`: aprobar con test protegido, `seal`, tres `review` `RECHAZADO` (estado `pendiente`), modificar el archivo; afirmar que algún error de `validate` contiene «sellado». Debe pasar antes y después del cambio (guarda de regresión frente a usar `== 'proceso'`).
+- [ ] T03 (AC-01, AC-02, AC-03): en `.microharness/sdd.py`, `validate`, envolver el bucle de `sealed_tests` con `if s.get('state') != 'terminado':`, sin cambiar su cuerpo ni otras comprobaciones (PRE-01).
+- [ ] T04 (AC-06): en `README.md`, sección 6, viñeta «SHA-256», añadir una frase: el sello se compara mientras la tarea no esté `terminado`; tras el cierre queda como registro histórico.
+- [ ] T05 (AC-02, AC-05): ejecutar `python -m unittest discover -s tests -v` (todo verde, incluido `test_sealed_tests_detect_changes` sin modificar) y `sh .microharness/python.sh .microharness/sdd.py check deteccion-python-multiplataforma --no-scope` sin «Test sellado modificado».

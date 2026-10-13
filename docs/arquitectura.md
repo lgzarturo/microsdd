@@ -14,5 +14,11 @@ Solo componentes, interfaces e invariantes observados en el repositorio.
 - El manifiesto del instalador vive en `installer.py` (`MANIFEST`) y `pyproject.toml` lo replica; `tests/test_installer.py` (AC-10) verifica la coherencia contra el wheel.
 - El instalador no escribe nada antes de validar destino, `python3` y conflictos; nunca sobrescribe `CLAUDE.md` ni `.claude/settings.json` del destino (anexa un bloque marcado con `@CLAUDE.microsdd.md` y usa `.claude/settings.microsdd.json`); `--force` solo afecta archivos propios del arnés.
 - Los `docs/` del destino los genera `sdd.py init`; los `docs/` de este repositorio describen a MicroSDD y no se distribuyen.
-- El hook se invoca como `python3`; en Windows corre en Git Bash, por lo que solo un `python3.exe` real lo activa.
 - `scripts/limpiar_arnes.py` (solo en este repositorio, no se distribuye): antes de un release exige árbol git limpio y todas las tareas en `terminado`; archiva `.microharness/memory.json`, `docs/` y `spec/<slug>/` en `historial/<versión>/` y restaura el estado inicial ejecutando `.microharness/sdd.py init`. No hace commit, tag ni push.
+## Ejecución de Python (tarea `deteccion-python-multiplataforma`)
+
+- **Hook `PreToolUse`** (`.claude/settings.json`, matcher `Write|Edit|MultiEdit|NotebookEdit|Bash|PowerShell`; la allowlist del revisor se aplica igual a `Bash` y `PowerShell`): forma exec, sin shell: `command: "uv"`, `args: ["run", "--no-project", "--quiet", "--python", ">=3.10", "${CLAUDE_PROJECT_DIR}/.claude/hooks/pretool.py"]`, `onFailure: "block"` (Claude Code ≥ 2.1.295). Invariante: si uv falta o el hook no arranca, la herramienta se bloquea (fail-closed). Requiere `uv` en `PATH` como ejecutable real.
+- **Lanzador** `.microharness/python.sh` (POSIX `sh`, solo builtins): orden `MICROSDD_PYTHON` → `uv` → `python3` → `python` → `py -3`; cada candidato se valida con un sondeo ≥3.10; `exec` conserva stdin/stdout/stderr y código de salida; sin intérprete válido, o con `MICROSDD_PYTHON` inválido, sale con 2.
+- **`sdd.py check --run`**: si el primer elemento de un comando es exactamente `python` o `python3`, se sustituye por `sys.executable`.
+- **`sdd.py diff_files()`**: se conservó la variante `git -z` + UTF-8 de `fix-sdd-rutas-unicode`, que cubre lo mismo que `fix-quotepath-diff`.
+- **Limitación observada (MSYS):** al lanzar el `sh` de Git Bash desde un proceso nativo de Windows, los argumentos sin espacios que contienen comillas llegan alterados; desde Git Bash no ocurre.

@@ -98,7 +98,7 @@ def new(slug: str) -> None:
 
 
 def hash_file(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    return hashlib.sha256(path.read_bytes().replace(b'\r\n', b'\n')).hexdigest()
 
 
 def spec_fingerprint(path: Path, spec: dict) -> str:
@@ -108,7 +108,7 @@ def spec_fingerprint(path: Path, spec: dict) -> str:
     digest = hashlib.sha256(canonical)
     for name in ('requerimientos.md', 'diseño.md', 'tareas.md'):
         digest.update(name.encode('utf-8') + b'\x00')
-        digest.update((path / name).read_bytes())
+        digest.update((path / name).read_bytes().replace(b'\r\n', b'\n'))
     return digest.hexdigest()
 
 
@@ -212,13 +212,14 @@ def validate(slug: str, run: bool = False, scope: bool = True) -> list[str]:
         errors.append('No existe memoria para la tarea')
     else:
         task_memory = memory['tasks'][slug]
-        for file, expected in task_memory.get('sealed_tests', {}).items():
-            try:
-                target = ROOT / normalized_rel(file)
-                if not target.is_file() or hash_file(target) != expected:
-                    errors.append(f'Test sellado modificado: {file}; requiere autorización y nuevo sello')
-            except ValueError as e:
-                errors.append(str(e))
+        if s.get('state') != 'terminado':
+            for file, expected in task_memory.get('sealed_tests', {}).items():
+                try:
+                    target = ROOT / normalized_rel(file)
+                    if not target.is_file() or hash_file(target) != expected:
+                        errors.append(f'Test sellado modificado: {file}; requiere autorización y nuevo sello')
+                except ValueError as e:
+                    errors.append(str(e))
         if s.get('state') in ('proceso', 'terminado'):
             prior = task_memory.get('approvals', {}).get('spec')
             if not prior:
@@ -235,6 +236,8 @@ def validate(slug: str, run: bool = False, scope: bool = True) -> list[str]:
                 errors.append(f'Archivo modificado fuera de scope: {filename}')
     if run and not errors:
         for command in testing['commands'] + ([mutation['command']] if mutation.get('enabled') else []):
+            if command[0] in ('python', 'python3'):
+                command = [sys.executable, *command[1:]]
             print('EJECUTANDO:', ' '.join(command), flush=True)
             try:
                 outcome = subprocess.run(command, cwd=ROOT, check=False, timeout=300)

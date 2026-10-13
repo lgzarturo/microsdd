@@ -9,21 +9,48 @@
 
 | Requisito | Versión | Para qué |
 |---|---|---|
-| **Python 3** (obligatorio) | 3.10+ disponible como `python3` | Ejecuta `.microharness/sdd.py`, que valida y da seguimiento a la máquina de estados (`pendiente` → `proceso` → `terminado`), las aprobaciones, huellas SHA-256 y la puerta de pruebas; también ejecuta el hook `.claude/hooks/pretool.py` que limita herramientas por agente. |
+| **Python** (obligatorio) | 3.10+ | Ejecuta `.microharness/sdd.py`, que valida y da seguimiento a la máquina de estados (`pendiente` → `proceso` → `terminado`), las aprobaciones, huellas SHA-256 y la puerta de pruebas; también ejecuta el hook `.claude/hooks/pretool.py` que limita herramientas por agente. |
+| **uv** (recomendado; obligatorio para el hook) | cualquiera reciente, como ejecutable real en `PATH` (`uv.exe` en Windows) | El hook se declara en forma exec: `uv run --no-project --quiet --python ">=3.10" .claude/hooks/pretool.py`, sin shell ni `python3`. |
+| `sh` POSIX | macOS/Linux nativo; Git Bash en Windows | Lanzador `.microharness/python.sh` para el CLI. |
 | Git | cualquiera reciente | `check` usa el diff para validar el alcance y la huella de revisión; el instalador exige la raíz del repositorio. |
-| [uv](https://docs.astral.sh/uv/) | reciente, con `uvx` | Ejecuta el instalador `microsdd` sin instalarlo de forma permanente. |
-| Claude Code | compatible con `agent` predeterminado, frontmatter `effort` y `PreToolUse` | Orquesta los agentes (ver docs oficiales). |
+| `uvx` (incluido en uv) | — | Ejecuta el instalador `microsdd` sin instalarlo de forma permanente. |
+| Claude Code | ≥ 2.1.295 | Necesario para `"onFailure": "block"` del hook, además de `agent` predeterminado, frontmatter `effort` y `PreToolUse`. |
 
-**Sin Python 3 el arnés no puede controlar el flujo:** no hay validación de transiciones de estado, ni registro de aprobaciones, ni puerta de pruebas, ni bloqueo previo de herramientas; las reglas en Markdown quedan como simples instrucciones. Solo se usa la biblioteca estándar, no hay que instalar paquetes.
+**Sin Python ≥3.10 el arnés no puede controlar el flujo:** no hay validación de transiciones de estado, ni registro de aprobaciones, ni puerta de pruebas. Solo se usa la biblioteca estándar, no hay que instalar paquetes.
+
+### Instalación por sistema operativo
+
+Opción recomendada: instalar uv con su instalador oficial (https://docs.astral.sh/uv/); uv obtiene un Python ≥3.10 si no hay uno (la primera ejecución puede descargarlo).
+
+- **macOS / Linux:** `curl -LsSf https://astral.sh/uv/install.sh | sh`. Alternativa: Python ≥3.10 del sistema o del gestor de paquetes.
+- **Windows (PowerShell):** `powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`. Instala también Git for Windows para disponer de `sh` (Git Bash).
+
+**Stub de Microsoft Store (Windows):** `python3`/`python` pueden resolver a un alias de la Store que no ejecuta Python (sale con código 49). El lanzador lo descarta al sondear la versión. Para quitarlo: Configuración → Aplicaciones → Configuración avanzada de aplicaciones → Alias de ejecución de aplicaciones, y desactivar `python.exe` y `python3.exe`.
+
+**Windows sin Git Bash:** el hook funciona igual (uv en forma exec, sin shell), pero `sh .microharness/python.sh` no está disponible; invoca el CLI con un Python ≥3.10 explícito, p. ej. `uv run --no-project --python ">=3.10" .microharness/sdd.py --help` o `py -3.12 .microharness/sdd.py --help` (usa una versión ≥3.10 instalada; `py -3` elige la más reciente y no garantiza ≥3.10).
+
+**Argumentos con comillas desde procesos nativos de Windows:** al invocar `sh .microharness/python.sh` desde un proceso nativo (no desde Git Bash), MSYS puede alterar argumentos sin espacios que contienen comillas (p. ej. `print("x")` llega como `print(\x")`). Desde Git Bash no ocurre; el hook no se ve afectado porque usa uv en forma exec.
+
+### Lanzador `.microharness/python.sh`
+
+`sh .microharness/python.sh <args…>` ejecuta `<args…>` con el primer intérprete que supere el sondeo de versión ≥3.10, en este orden: `MICROSDD_PYTHON` → `uv` → `python3` → `python` → `py -3`. Usa `exec`, así que conserva stdin, stdout, stderr y el código de salida.
+
+- `MICROSDD_PYTHON` (ruta a un ejecutable, sin argumentos) tiene prioridad. Si está definida y no es un Python ≥3.10 válido, el lanzador termina con código 2 sin probar otros candidatos.
+- Si ningún candidato es válido, termina con código 2 e indica cómo instalar uv o Python ≥3.10.
+
+En `check --run`, un comando de `testing.commands` (o `mutation.command`) cuyo primer elemento sea exactamente `python` o `python3` se ejecuta con el mismo intérprete que corre el checker (`sys.executable`).
+
+### Bloqueo si falta uv
+
+El hook usa `"onFailure": "block"`: si uv no está en `PATH` o el hook falla, Claude Code bloquea toda llamada `Write|Edit|MultiEdit|NotebookEdit|Bash`, también en la sesión principal. Para salir, instala uv o edita `.claude/settings.json` **fuera de Claude Code** (editor o terminal) y reinicia la sesión.
 
 Comprobación rápida:
 
 ```bash
-python3 --version                      # debe mostrar 3.10 o superior
-python3 .microharness/sdd.py --help    # debe listar los comandos del arnés
+uv --version                                            # el hook requiere uv
+sh .microharness/python.sh --version                    # debe mostrar 3.10 o superior
+sh .microharness/python.sh .microharness/sdd.py --help  # debe listar los comandos del arnés
 ```
-
-En Windows, si Python está instalado solo como `py -3`, crea el alias `python3` o adapta los comandos y el hook de `.claude/settings.json`.
 
 ## 2. Instalación por proyecto con `uvx`
 
@@ -57,7 +84,7 @@ Al terminar, el instalador ejecuta `python3 .microharness/sdd.py init` (crea `do
 ```bash
 git add CLAUDE.md CLAUDE.microsdd.md .claude/agents/lider.md .claude/agents/autor.md \
   .claude/agents/implementador.md .claude/agents/revisor.md .claude/hooks/pretool.py \
-  .claude/skills/sdd/SKILL.md .claude/settings.json .microharness/sdd.py .microharness/memory.json \
+  .claude/skills/sdd/SKILL.md .claude/settings.json .microharness/sdd.py .microharness/python.sh .microharness/memory.json \
   docs/AGENT.md docs/arquitectura.md docs/convensiones.md docs/specificaciones.md
 claude --agent lider --model claude-opus-5-5 --effort medium
 ```
@@ -144,30 +171,30 @@ Comandos ilustrativos; ejecutarlos desde la raíz del repositorio. Sustituye el 
 
 ```bash
 # El líder prepara contexto y encarga a autor especificar
-python3 .microharness/sdd.py new corregir-sesion
+sh .microharness/python.sh .microharness/sdd.py new corregir-sesion
 
 # Autor edita los cuatro documentos con EARS, AC, alcance y pruebas
-python3 .microharness/sdd.py check corregir-sesion
+sh .microharness/python.sh .microharness/sdd.py check corregir-sesion
 
 # SOLO DESPUÉS de que el humano diga explícitamente que aprueba la spec
-python3 .microharness/sdd.py approve corregir-sesion spec \
+sh .microharness/python.sh .microharness/sdd.py approve corregir-sesion spec \
   --by 'Programador' --evidence 'Confirmación explícita: aprobar especificación'
 
 # El implementador escribe y ejecuta pruebas y código.
 # Opcional: tras revisión humana de pruebas base, fija su SHA-256.
-python3 .microharness/sdd.py seal corregir-sesion --by 'Programador'
+sh .microharness/python.sh .microharness/sdd.py seal corregir-sesion --by 'Programador'
 
 # El revisor comprueba límites, integridad, comandos y criterios
-python3 .microharness/sdd.py check corregir-sesion --run
-python3 .microharness/sdd.py review corregir-sesion APROBADO \
+sh .microharness/python.sh .microharness/sdd.py check corregir-sesion --run
+sh .microharness/python.sh .microharness/sdd.py review corregir-sesion APROBADO \
   --evidence 'AC-01 satisfecha, tests ejecutados, diff revisado'
 
 # SOLO después de aprobación humana de cierre
-python3 .microharness/sdd.py approve corregir-sesion close \
+sh .microharness/python.sh .microharness/sdd.py approve corregir-sesion close \
   --by 'Programador' --evidence 'Confirmación explícita: aprobar cierre'
 
 # Validación sintáctica del mensaje
-python3 .microharness/sdd.py commit-check 'fix(auth): corrige expiración de sesión'
+sh .microharness/python.sh .microharness/sdd.py commit-check 'fix(auth): corrige expiración de sesión'
 
 # Líder: stage EXPLÍCITO y commit atómico; jamás `git add .` o push sin permiso
 # git add src/auth/... tests/... spec/corregir-sesion/... .microharness/memory.json
@@ -179,7 +206,7 @@ El comando `seal` requiere que `testing.protected_tests` contenga rutas de tests
 Para rechazar:
 
 ```bash
-python3 .microharness/sdd.py review corregir-sesion RECHAZADO \
+sh .microharness/python.sh .microharness/sdd.py review corregir-sesion RECHAZADO \
   --evidence 'AC-02 falla con entrada límite; repetir corrección mínima'
 ```
 
@@ -207,7 +234,7 @@ El comando `new` genera un ejemplo completo y editable con estos campos relevant
   },
   "testing": {
     "strategy": "tdd",
-    "commands": [["python3", "-m", "pytest", "tests/auth", "-q"]],
+    "commands": [["python", "-m", "pytest", "tests/auth", "-q"]],
     "protected_tests": ["tests/auth/test_expiration.py"],
     "mutation": {
       "enabled": false,
@@ -231,14 +258,14 @@ El comando `new` genera un ejemplo completo y editable con estos campos relevant
 ### Mutation testing y hashing de pruebas
 
 - **Mutation testing:** activar en un módulo de lógica crítica y con herramienta disponible, nunca como requisito indiscriminado. Revisar mutantes supervivientes relevantes y equivalentes; no convertir la cifra de mutation score en objetivo absoluto. `check --run` ejecuta también `mutation.command` si `enabled=true`.
-- **SHA-256:** `seal` guarda hash por archivo en memoria. `check` detecta cambios. Protege principalmente de deriva accidental de pruebas de aceptación. No aporta inmutabilidad real frente a quien pueda modificar tests, memoria y Git. Para reforzarlo: guardar hash y test en commit previo, CI con verificación, revisión/branch protection.
+- **SHA-256:** `seal` guarda hash por archivo en memoria. `check` detecta cambios. El sello se compara mientras la tarea no esté `terminado`; tras el cierre queda como registro histórico. Protege principalmente de deriva accidental de pruebas de aceptación. No aporta inmutabilidad real frente a quien pueda modificar tests, memoria y Git. Para reforzarlo: guardar hash y test en commit previo, CI con verificación, revisión/branch protection.
 
 ## 7. Qué se obliga y qué NO
 
 | Control | Capa | Alcance real |
 |---|---|---|
 | Agente líder predeterminado | Claude Code `agent` | Efectivo salvo override explícito de sesión/usuario |
-| Acceso por rol | Frontmatter + hook | Bloquea herramientas de edición habituales según agente; `Bash` y herramientas externas no son sandbox universal |
+| Acceso por rol | Frontmatter + hook | Bloquea herramientas de edición habituales según agente; `Bash`/`PowerShell` y herramientas externas no son sandbox universal |
 | AC, contrato y tres estados | `sdd.py check` | Validación estructural y estados; no demuestra que el requisito esté bien interpretado |
 | Huella de especificación | SHA-256 en `memory.json` | Invalida cambios posteriores a aprobación; no evita manipulación deliberada de la memoria |
 | Scope de cambios | Git diff en `check` | Evita cerrar con modificaciones fuera de patrones; empieza con working tree limpio |
@@ -247,7 +274,7 @@ El comando `new` genera un ejemplo completo y editable con estos campos relevant
 | Reviews y aprobación | Líder + JSON | Contrato procedimental; no autentica al humano |
 | Conventional Commits | `commit-check` | Comprueba patrón básico; el carácter atómico depende del `git add` y revisión humana |
 
-El hook necesita confianza del workspace y Python 3 para estar activo. Si no se ejecuta, permanecen los controles de revisión y checker pero se pierde el bloqueo previo a herramientas. No usar `bypassPermissions` para simular una seguridad inexistente.
+El hook necesita confianza del workspace y uv para estar activo; si falla al arrancar (p. ej., falta uv), `"onFailure": "block"` bloquea la herramienta (ver [Bloqueo si falta uv](#bloqueo-si-falta-uv)). Si no se ejecuta, permanecen los controles de revisión y checker pero se pierde el bloqueo previo a herramientas. No usar `bypassPermissions` para simular una seguridad inexistente.
 
 ## 8. Evaluación del MVP
 

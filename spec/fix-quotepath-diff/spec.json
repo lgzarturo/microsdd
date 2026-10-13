@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "id": "fix-quotepath-diff",
+  "title": "Rutas no ASCII literales en diff_files (core.quotePath y UTF-8)",
+  "state": "terminado",
+  "model": "claude-opus-5-5",
+  "effort": "medium",
+  "max_iterations": 3,
+  "method": {
+    "primary": "SDD",
+    "optional": [],
+    "notes": "Mini-tarea. Edita un archivo del arnés (.microharness/sdd.py): requiere aprobación humana explícita."
+  },
+  "scope": {
+    "allowed_paths": [
+      ".microharness/sdd.py",
+      "tests/test_sdd.py"
+    ],
+    "excluded": [
+      "spec/deteccion-python-multiplataforma/**",
+      "README.md",
+      "docs/**",
+      ".microharness/memory.json",
+      ".claude/**"
+    ]
+  },
+  "requirements": {
+    "acceptance_ids": [
+      "AC-01",
+      "AC-02",
+      "AC-03",
+      "AC-04"
+    ],
+    "preconditions": [
+      "PRE-01: el programador aprueba explícitamente editar .microharness/sdd.py (solo diff_files()).",
+      "PRE-02: git disponible en PATH para la prueba nueva; si no, se omite."
+    ]
+  },
+  "testing": {
+    "strategy": "tdd",
+    "commands": [
+      [
+        "python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tests",
+        "-v"
+      ]
+    ],
+    "protected_tests": [],
+    "mutation": {
+      "enabled": false,
+      "command": [],
+      "reason": "Cambio de dos argumentos en una función; la prueba de comportamiento cubre ambos (sin -c falla AC-01 por comillas; sin encoding falla en Windows por mojibake). No hay herramienta de mutación en el repo."
+    }
+  }
+}
