@@ -2,6 +2,20 @@
 
 Formato y reglas: `assets/proceso-versionado.md` (R-04). Entradas derivadas de los asuntos de commit; se omiten los commits de merge, que no aportan cambios propios (su contenido figura en los commits integrados).
 
+## [1.1.0] - 2026-10-13
+
+### Incompatible
+- `instalador`: fusiona `.claude/settings.json` en lugar de escribir `settings.microsdd.json` (3dc8f0a)
+
+### Añadido
+- `instalador`: manifiesto `.microharness/install.json` (3dc8f0a)
+- `instalador`: `microsdd on|off|status|uninstall` con puerta humana (3dc8f0a)
+- `hook`: deniega que el agente desactive el arnés o edite settings desde Bash/PowerShell (3dc8f0a)
+
+### Otros
+- `docs`: documenta fusión, toggle y desinstalación; README reducido con detalle en `assets/arnes-completo.md`
+- `assets`: actualiza «Estado actual» del proceso de versionado hacia 1.1.0
+
 ## [1.0.0] - 2026-10-13
 
 ### Incompatible
