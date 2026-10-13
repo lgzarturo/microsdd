@@ -265,3 +265,9 @@ No agregues más agentes, estado ni pasos hasta observar fallas repetibles.
 - https://code.claude.com/docs/en/hooks
 
 **Limitaciones conocidas:** sin autenticación de aprobaciones, sin sandbox obligatorio, sin validación semántica automática de AC, sin control de costos/tokens por agente, sin comparador histórico de benchmarks. Son límites intencionales del MVP, no características implementadas.
+
+## 10. Licencia
+
+MicroSDD se distribuye bajo la licencia MIT. Copyright (c) 2026 Arturo López. Consulte el texto completo en [LICENSE](LICENSE).
+
+Los archivos que `microsdd install` copia en otro repositorio siguen cubiertos por la licencia MIT. Si los redistribuye, debe conservar el aviso de copyright y el aviso de permiso, que el instalador no añade por usted.

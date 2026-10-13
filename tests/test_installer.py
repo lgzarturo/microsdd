@@ -5,6 +5,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 import unittest
 import zipfile
@@ -18,6 +19,28 @@ installer = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(installer)
 
 BEGIN = b'<!-- microsdd:begin -->'
+
+MIT_LICENSE = '''MIT License
+
+Copyright (c) 2026 Arturo López
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.'''
 
 
 def snapshot(root: Path) -> dict[str, bytes]:
@@ -238,11 +261,16 @@ class InstallerTests(unittest.TestCase):
         self.assertEqual(raised.exception.code, 2)
         self.assertEqual(snapshot(empty), {})
 
-    # AC-10
+    # AC-01 (licencia-mit)
+    def test_license_file_is_canonical_mit(self):
+        text = (SOURCE / 'LICENSE').read_text(encoding='utf-8')
+        self.assertEqual(text.replace('\r\n', '\n').rstrip('\n'), MIT_LICENSE)
+
+    # AC-10; AC-02, AC-03 (licencia-mit)
     @unittest.skipUnless(shutil.which('uv'), 'uv no disponible')
     def test_wheel_from_sdist_contains_payload_without_dependencies(self):
         project = self.base / 'proyecto'
-        for rel in ['pyproject.toml', 'README.md', *installer.MANIFEST]:
+        for rel in ['pyproject.toml', 'README.md', 'LICENSE', *installer.MANIFEST]:
             (project / rel).parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(SOURCE / rel, project / rel)
         shutil.copytree(SOURCE / 'src', project / 'src',
@@ -251,6 +279,11 @@ class InstallerTests(unittest.TestCase):
         subprocess.run(['uv', 'build', '--sdist', '--out-dir', str(dist), str(project)],
                        check=True, capture_output=True)
         sdist = next(dist.glob('*.tar.gz'))
+        with tarfile.open(sdist) as archive:
+            members = [m.name for m in archive.getmembers()
+                       if m.name.count('/') == 1 and m.name.endswith('/LICENSE')]
+            self.assertEqual(len(members), 1, members)
+            sdist_license = archive.extractfile(members[0]).read()
         subprocess.run(['uv', 'build', '--wheel', '--out-dir', str(dist), str(sdist)],
                        check=True, capture_output=True)
         wheel = next(dist.glob('*.whl'))
@@ -261,6 +294,12 @@ class InstallerTests(unittest.TestCase):
             self.assertIn('microsdd/installer.py', names)
             metadata = next(n for n in names if n.endswith('.dist-info/METADATA'))
             self.assertNotIn('Requires-Dist', archive.read(metadata).decode('utf-8'))
+            lines = archive.read(metadata).decode('utf-8').splitlines()
+            self.assertIn('License-Expression: MIT', lines)
+            self.assertIn('License-File: LICENSE', lines)
+            licenses = [n for n in names if n.endswith('.dist-info/licenses/LICENSE')]
+            self.assertEqual(len(licenses), 1, sorted(names))
+            self.assertEqual(archive.read(licenses[0]), sdist_license)
 
 
 if __name__ == '__main__':

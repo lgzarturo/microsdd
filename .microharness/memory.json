@@ -14,7 +14,7 @@
       },
       {
         "at": "2026-10-13T00:20:00+00:00",
-        "fact": "Pendientes fuera de alcance tras instalador-uvx: (1) hook inactivo en Windows cuando python3 es el alias de Store (tarea posterior propuesta); (2) README §1 aún sugiere 'adaptar el hook' para py -3, en tensión con la exigencia de python3.exe; (3) `uvx --from .` reutiliza builds en caché con la misma versión: usar --no-cache al probar en local; (4) repositorio público sin LICENSE; (5) push y tag pendientes de autorización humana: el comando uvx git+https no funciona hasta publicar.",
+        "fact": "Pendientes fuera de alcance tras instalador-uvx: (1) hook inactivo en Windows cuando python3 es el alias de Store (tarea posterior propuesta); (2) README §1 aún sugiere 'adaptar el hook' para py -3, en tensión con la exigencia de python3.exe; (3) `uvx --from .` reutiliza builds en caché con la misma versión: usar --no-cache al probar en local; (4) [resuelto por licencia-mit: MIT] ; (5) push y tag pendientes de autorización humana: el comando uvx git+https no funciona hasta publicar.",
         "evidence": "Informes de implementador y revisor de instalador-uvx; README.md sección 1"
       }
     ],
@@ -54,6 +54,12 @@
         "by": "Programador",
         "decision": "Enmendar la spec de `instalador-uvx`: en Windows buscar solo `python3.exe` (resolución equivalente a Git Bash, ignorando shims .cmd/.bat); el smoke test del hook exige el motivo exacto 'solo lectura'; el README aclara que el código 1 también aplica a fallos posteriores a escribir (init/smoke). Requiere reaprobación de la spec y nueva implementación y revisión.",
         "evidence": "Respuesta explícita en sesión: 'Enmendar spec en esta tarea (Recomendado)'"
+      },
+      {
+        "at": "2026-10-13T01:06:00+00:00",
+        "by": "Programador",
+        "decision": "Licencia MIT, titular 'Arturo López', año 2026; alcance: LICENSE + campo SPDX `license` en pyproject.toml + sección Licencia en README.",
+        "evidence": "Respuestas explícitas en sesión: 'MIT (Recomendado)', 'Arturo López (Recomendado)', 'LICENSE + pyproject + README (Recomendado)'"
       }
     ]
   },
@@ -152,6 +158,47 @@
         },
         {
           "at": "2026-10-13T00:00:11+00:00",
+          "event": "aprobación_close",
+          "by": "Programador"
+        }
+      ]
+    },
+    "licencia-mit": {
+      "approvals": {
+        "spec": {
+          "by": "Programador",
+          "evidence": "Respuesta explícita en sesión 2026-10-12: 'Apruebo la spec' (licencia-mit)",
+          "at": "2026-10-13T03:53:58+00:00",
+          "fingerprint": "f32d2f8ce8a6592094edbe5f3b5986631effff61166f51642b56313745c9406b"
+        },
+        "close": {
+          "by": "Programador",
+          "evidence": "Respuesta explícita en sesión 2026-10-12: 'Apruebo cierre y commit' (licencia-mit)",
+          "at": "2026-10-13T03:59:02+00:00"
+        }
+      },
+      "sealed_tests": {},
+      "review": "APROBADO",
+      "review_fingerprint": "2dec6ef13ac80a8012c97074b493f26a38f11d0545f1192925e66cb1d18f6faa",
+      "iterations": 1,
+      "events": [
+        {
+          "at": "2026-10-13T03:50:56+00:00",
+          "event": "creada"
+        },
+        {
+          "at": "2026-10-13T03:53:58+00:00",
+          "event": "aprobación_spec",
+          "by": "Programador"
+        },
+        {
+          "at": "2026-10-13T03:58:19+00:00",
+          "event": "revisión",
+          "verdict": "APROBADO",
+          "evidence": "Revisor independiente: check --run exit 0 (29 tests, prueba de empaquetado ejecutada); LICENSE idéntico (cmp) al texto MIT canónico SPDX/OSI con 'Copyright (c) 2026 Arturo López', UTF-8 sin BOM; wheel con License-Expression: MIT, License-File y .dist-info/licenses/LICENSE; README solo añade sección 10; líder re-ejecutó check --run exit 0"
+        },
+        {
+          "at": "2026-10-13T03:59:02+00:00",
           "event": "aprobación_close",
           "by": "Programador"
         }
