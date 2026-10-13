@@ -13,6 +13,7 @@ Formato y reglas: `assets/proceso-versionado.md` (R-04). Entradas derivadas de l
 - `instalador`: crea o fusiona `.claude/settings.local.json` (`claudeMdExcludes`, `plansDirectory`) sin pisar claves existentes
 - `ci`: workflow GitHub Actions `tests.yml` con unittest en Python 3.12
 - `tests`: regresión de bypass en `tests/test_hook_bypass_111.py`
+
 ## [1.1.0] - 2026-10-13
 
 ### Incompatible
