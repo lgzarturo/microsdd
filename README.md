@@ -73,6 +73,21 @@ sh .microharness/python.sh --version                    # debe mostrar 3.10 o su
 sh .microharness/python.sh .microharness/sdd.py --help  # debe listar los comandos del arnés
 ```
 
+### Sesiones y subagentes sin rol MicroSDD
+
+El hook deniega por defecto (fail-closed) cuando el evento no trae un `agent_type` exactamente igual a `autor`, `implementador`, `revisor` o `lider`. En ese caso se deniegan `Write`, `Edit`, `MultiEdit`, `NotebookEdit`, `Bash` y `PowerShell` con el motivo:
+
+> Agente no reconocido por MicroSDD: inicia la sesión con `claude --agent lider` o usa uno de los agentes autor, implementador, revisor o lider.
+
+`Read`, `Grep`, `Glob` y las demás herramientas no cambian.
+
+Impacto:
+
+- Una sesión iniciada sin `--agent` y sin `agent: lider` efectivo (por ejemplo, por un override de usuario o un `settings.json` fusionado solo con el hook) queda sin escritura ni shell.
+- Los subagentes ajenos a MicroSDD, como `Explore` o `general-purpose`, pierden esas seis herramientas dentro de un proyecto MicroSDD; `Explore` queda limitado a lectura.
+
+Cómo proceder: lanza la sesión con `claude --agent lider`; delega el trabajo en los cuatro agentes (autor, implementador, revisor, lider); o, si necesitas trabajar sin MicroSDD, desactiva el hook editando `.claude/settings.json` **fuera de Claude Code** y reinicia la sesión.
+
 ## 2. Instalación por proyecto con `uvx`
 
 Desde la raíz de un repositorio Git existente (se recomienda una rama nueva con working tree limpio; si hay cambios sin confirmar solo se muestra una advertencia):
@@ -329,7 +344,7 @@ Las tareas en `pendiente` o `proceso` fallarán `check` hasta actualizar su `spe
 | Control | Capa | Alcance real |
 |---|---|---|
 | Agente líder predeterminado | Claude Code `agent` | Efectivo salvo override explícito de sesión/usuario |
-| Acceso por rol | Frontmatter + hook | Bloquea herramientas de edición habituales según agente; `Bash`/`PowerShell` y herramientas externas no son sandbox universal |
+| Acceso por rol | Frontmatter + hook | Bloquea herramientas de edición habituales según agente; deniega `Write`/`Edit`/`MultiEdit`/`NotebookEdit`/`Bash`/`PowerShell` a agentes no reconocidos (ver [Sesiones y subagentes sin rol MicroSDD](#sesiones-y-subagentes-sin-rol-microsdd)); `Bash`/`PowerShell` y herramientas externas no son sandbox universal |
 | AC, contrato y tres estados | `sdd.py check` | Validación estructural y estados; no demuestra que el requisito esté bien interpretado |
 | Huella de especificación | SHA-256 en `memory.json` | Invalida cambios posteriores a aprobación; no evita manipulación deliberada de la memoria |
 | Scope de cambios | Git diff en `check` | Evita cerrar con modificaciones fuera de patrones; empieza con working tree limpio |

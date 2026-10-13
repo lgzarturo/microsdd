@@ -11,6 +11,9 @@ def run(event: dict) -> str | None:
     tool = event.get('tool_name') or ''
     inputs = event.get('tool_input') or {}
     if agent not in ('autor', 'implementador', 'revisor', 'lider'):
+        if tool in ('Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'Bash', 'PowerShell'):
+            return ('Agente no reconocido por MicroSDD: inicia la sesión con `claude --agent lider` '
+                    'o usa uno de los agentes autor, implementador, revisor o lider.')
         return None
     if tool in ('Write', 'Edit', 'MultiEdit', 'NotebookEdit'):
         if agent == 'revisor':

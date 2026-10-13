@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "id": "hook-fail-closed",
+  "title": "Hook fail-closed: sin agent_type reconocido se deniegan Write/Edit/MultiEdit/NotebookEdit/Bash/PowerShell con aviso de claude --agent lider",
+  "state": "terminado",
+  "model": "claude-opus-5-5",
+  "effort": "medium",
+  "max_iterations": 3,
+  "method": {
+    "primary": "SDD",
+    "optional": [],
+    "notes": ""
+  },
+  "scope": {
+    "allowed_paths": [
+      ".claude/hooks/pretool.py",
+      "tests/**",
+      "README.md",
+      "docs/**",
+      "spec/hook-fail-closed/**"
+    ],
+    "excluded": [
+      ".claude/settings.json",
+      ".claude/agents/**",
+      ".claude/skills/**",
+      ".microharness/**",
+      "src/**",
+      "scripts/**",
+      "pyproject.toml",
+      "CLAUDE.md"
+    ]
+  },
+  "requirements": {
+    "acceptance_ids": [
+      "AC-01",
+      "AC-02",
+      "AC-03",
+      "AC-04",
+      "AC-05",
+      "AC-06",
+      "AC-07"
+    ],
+    "preconditions": [
+      "Python 3.10+ solo con biblioteca estándar",
+      "La sesión principal con agent: lider envía agent_type (hecho registrado en memoria)",
+      "Se implementa antes de bloquear-autoaprobacion (ambas tocan .claude/hooks/pretool.py)",
+      "El implementador modifica .claude/hooks/pretool.py por Bash y como último cambio de código, tras la fase RED"
+    ]
+  },
+  "testing": {
+    "strategy": "tdd",
+    "commands": [
+      [
+        "python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tests",
+        "-v"
+      ]
+    ],
+    "protected_tests": [
+      "tests/test_hook_fail_closed.py"
+    ],
+    "mutation": {
+      "enabled": false,
+      "command": [],
+      "reason": "No hay herramienta de mutación en el proyecto (solo stdlib). Se sustituye por la fase RED obligatoria (T05), que mata el mutante 'return None', y por subTest por herramienta y por valor de agent_type (incluidos 'Lider' y ' lider') y casos negativos de AC-02/AC-03, que matan la omisión de una herramienta, la comparación laxa y la denegación excesiva."
+    }
+  }
+}
