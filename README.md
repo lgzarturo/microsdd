@@ -56,6 +56,8 @@ sh .microharness/python.sh .microharness/sdd.py --help  # debe listar los comand
 
 Desde la raíz de un repositorio Git existente (se recomienda una rama nueva con working tree limpio; si hay cambios sin confirmar solo se muestra una advertencia):
 
+El instalador copia solo los archivos del arnés listados abajo: `assets/` (material de consulta, ver el [proceso de versionado](https://github.com/lgzarturo/microsdd/blob/main/assets/proceso-versionado.md)), `scripts/` (mantenimiento) e `historial/` (historial del propio arnés) no forman parte de la instalación.
+
 ```bash
 uvx --from git+https://github.com/lgzarturo/microsdd microsdd install --dry-run   # ver el plan
 uvx --from git+https://github.com/lgzarturo/microsdd microsdd install             # instalar

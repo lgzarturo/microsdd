@@ -22,3 +22,4 @@ Solo componentes, interfaces e invariantes observados en el repositorio.
 - **`sdd.py check --run`**: si el primer elemento de un comando es exactamente `python` o `python3`, se sustituye por `sys.executable`.
 - **`sdd.py diff_files()`**: se conservó la variante `git -z` + UTF-8 de `fix-sdd-rutas-unicode`, que cubre lo mismo que `fix-quotepath-diff`.
 - **Limitación observada (MSYS):** al lanzar el `sh` de Git Bash desde un proceso nativo de Windows, los argumentos sin espacios que contienen comillas llegan alterados; desde Git Bash no ocurre.
+- **Versionado:** `sdd.py` declara `__version__` y ofrece `--version` y `release propose` (solo lectura, exige rama `main` y ninguna tarea en `proceso`). `scripts/limpiar_arnes.py <versión>` es el paso posterior que archiva el historial. `assets/` (decisiones de diseño y proceso de versionado) no se instala.

@@ -21,3 +21,6 @@ Cada tarea va en `spec/<slug>/` con exactamente cuatro documentos: `requerimient
 | `eol-hashes-estables` | terminado | `hash_file` y `spec_fingerprint` normalizan CRLF→LF; `.gitattributes` fija `*.sh text eol=lf`. |
 | `deteccion-python-multiplataforma` | terminado | Hook en forma exec con uv y `onFailure: block`; lanzador `.microharness/python.sh` con detección de Python ≥3.10; `check --run` usa `sys.executable`. |
 | `fix-quotepath-diff` | terminado | `diff_files()` devuelve rutas no ASCII literales (`core.quotePath=false` + UTF-8); `check` deja de fallar en falso por `diseño.md`. |
+| `fundamentos-diseno` | terminado | Registro de decisiones de diseño del arnés en `assets/decisiones-diseno.md` (no se instala) |
+| `proceso-versionado` | terminado | Proceso de versionado SemVer del arnés en `assets/proceso-versionado.md`; `assets/` excluido de la instalación |
+| `herramienta-release` | terminado | `sdd.py --version` (`__version__`) y `sdd.py release propose` (solo lectura: propone la versión desde Conventional Commits) |

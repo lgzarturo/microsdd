@@ -18,6 +18,9 @@ TASK_FILES = ('spec.json', 'requerimientos.md', 'diseño.md', 'tareas.md')
 STATES = ('pendiente', 'proceso', 'terminado')
 SLUG_RE = re.compile(r'^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$')
 COMMIT_RE = re.compile(r'^(feat|fix|docs|test|refactor|perf|chore)(\([a-z0-9][a-z0-9-]*\))?(!)?: [^\n]{1,72}$')
+__version__ = '0.1.0'
+SUBJECT_RE = re.compile(r'^([a-z]+)(\([^)]*\))?(!)?: ')
+FINAL_TAG_RE = re.compile(r'^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$')
 
 
 def dump(path: Path, data: dict) -> None:
@@ -335,8 +338,60 @@ def commit_check(message: str) -> None:
     print('Mensaje Conventional Commit válido (validación sintáctica básica).')
 
 
+def git(*args: str) -> str:
+    result = subprocess.run(['git', '-c', 'core.quotePath=false', *args], cwd=ROOT, capture_output=True,
+                            text=True, encoding='utf-8', check=False)
+    if result.returncode != 0:
+        raise ValueError(f'git {" ".join(args)} falló: {result.stderr.strip()}')
+    return result.stdout
+
+
+def release_propose() -> None:
+    if git('branch', '--show-current').strip() != 'main':
+        raise ValueError('release propose exige la rama main.')
+    busy = [p.parent.name for p in sorted((ROOT / 'spec').glob('*/spec.json')) if load(p).get('state') == 'proceso']
+    if busy:
+        raise ValueError(f'Hay tareas en proceso: {", ".join(busy)}.')
+    records, changed = iter(git('status', '--porcelain', '-z', '--untracked-files=all').split('\0')), []
+    for record in records:
+        if record:
+            changed.append(record[3:])
+            if 'R' in record[:2] or 'C' in record[:2]: changed.append(next(records))  # ruta de origen
+    outside = [p for p in changed if not p.startswith('spec/') and p != '.microharness/memory.json']
+    if outside:
+        raise ValueError(f'Árbol con cambios fuera de spec/ y .microharness/memory.json: {", ".join(outside)}')
+    tags = [t for t in git('tag', '--merged', 'HEAD', '--list', 'v*').split() if FINAL_TAG_RE.match(t)]
+    base = max(tags, key=lambda t: tuple(map(int, FINAL_TAG_RE.match(t).groups())), default=None)
+    subjects = git('log', '--reverse', '--format=%s', f'{base}..HEAD' if base else 'HEAD').splitlines()
+    level, lines = 0, []  # 3 incompatible, 2 añadido, 1 corregido, 0 sin incremento
+    for subject in subjects:
+        m = SUBJECT_RE.match(subject)
+        if m and m.group(3): group, rank = 'Incompatible', 3
+        elif m and m.group(1) == 'feat': group, rank = 'Añadido', 2
+        elif m and m.group(1) in ('fix', 'perf'): group, rank = 'Corregido', 1
+        else: group, rank = 'Otros', 0
+        lines.append(f'{group}: {subject}')
+        level = max(level, rank)
+    if not level:
+        raise ValueError('Commits sin incremento; no se publica versión.')
+    if base:
+        x, y, z = map(int, FINAL_TAG_RE.match(base).groups())
+        if x == 0:
+            level = 2 if level == 3 else 1
+        version = {3: f'{x + 1}.0.0', 2: f'{x}.{y + 1}.0', 1: f'{x}.{y}.{z + 1}'}[level]
+    else:
+        m = re.search(r"^__version__ = '([^']*)'", (ROOT / '.microharness' / 'sdd.py').read_text(encoding='utf-8'), re.M)
+        if not m:
+            raise ValueError('No se encontró __version__ en .microharness/sdd.py.')
+        version = re.sub(r'-rc\.[0-9]+$', '', m.group(1))
+    print(f'Último tag: {base or "(ninguno)"}')
+    for line in lines: print(line)
+    print(f'Versión propuesta: {version}')
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description='MicroSDD · validación y memoria, no orquestación LLM')
+    p.add_argument('--version', action='version', version=f'MicroSDD {__version__}')
     sub = p.add_subparsers(dest='command', required=True)
     sub.add_parser('init')
     sub.add_parser('new').add_argument('slug')
@@ -345,6 +400,8 @@ def main() -> int:
     rev = sub.add_parser('review'); rev.add_argument('slug'); rev.add_argument('verdict', choices=('APROBADO', 'RECHAZADO')); rev.add_argument('--evidence', required=True)
     se = sub.add_parser('seal'); se.add_argument('slug'); se.add_argument('--by', required=True)
     sub.add_parser('commit-check').add_argument('message')
+    rel = sub.add_parser('release')
+    rel.add_subparsers(dest='action', required=True).add_parser('propose')
     args = p.parse_args()
     try:
         if args.command == 'init': ensure_init()
@@ -359,6 +416,7 @@ def main() -> int:
         elif args.command == 'review': review(args.slug, args.verdict, args.evidence)
         elif args.command == 'seal': seal(args.slug, args.by)
         elif args.command == 'commit-check': commit_check(args.message)
+        elif args.command == 'release': release_propose()
         return 0
     except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as e:
         print('ERROR:', e, file=sys.stderr)
