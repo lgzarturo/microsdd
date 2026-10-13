@@ -4,7 +4,7 @@ Material de consulta. El [README](../README.md) resume instalación y uso; este 
 
 Ver también: [proceso de versionado](proceso-versionado.md), [decisiones de diseño](decisiones-diseno.md), [eval de esfuerzo](eval-esfuerzo.md).
 
-**CI:** este repositorio no define workflows de GitHub Actions para ejecutar la suite; Dependabot solo mantiene el grafo de dependencias. La verificación es local: `python -m unittest discover -s tests` y, en el flujo de tarea, `sdd.py check --run`.
+**CI:** `.github/workflows/tests.yml` ejecuta la suite en push a `main` y en pull requests (Python 3.12). En local: `python -m unittest discover -s tests` y, en el flujo de tarea, `sdd.py check --run`.
 
 ### Lanzador `.microharness/python.sh`
 

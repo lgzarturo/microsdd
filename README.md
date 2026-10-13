@@ -44,7 +44,7 @@ Conviene fijar un tag revisado: `uvx --from git+https://github.com/lgzarturo/mic
 | `--dry-run` | Plan sin escribir. |
 | `--force` | Actualiza solo archivos propios del arnés en conflicto. |
 
-**Fusión de `.claude/settings.json`:** si no existe, se crea desde el payload. Si existe, se hace respaldo `.bak.<UTC>` y se fusionan `agent`, `model`, `effortLevel` y la entrada `PreToolUse` de MicroSDD, conservando el resto; el manifiesto `.microharness/install.json` guarda lo añadido y los valores previos. Ya no se escribe `.claude/settings.microsdd.json` (si queda uno heredado, `uninstall` lo elimina).
+**Fusión de `.claude/settings.json`:** si no existe, se crea desde el payload. Si existe, se hace respaldo `.bak.<UTC>` y se fusionan `agent`, `model`, `effortLevel` y la entrada `PreToolUse` de MicroSDD, conservando el resto; el manifiesto `.microharness/install.json` guarda lo añadido y los valores previos. Ya no se escribe `.claude/settings.microsdd.json` (si queda uno heredado, `uninstall` lo elimina). El instalador también crea o fusiona `.claude/settings.local.json` con `claudeMdExcludes` y `plansDirectory` solo si faltan (archivo local; no falla si no se versiona).
 
 Tras instalar, versiona con `git add` explícito (nunca `git add .`) e inicia sesión:
 

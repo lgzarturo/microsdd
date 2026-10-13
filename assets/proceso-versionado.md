@@ -11,8 +11,8 @@ Se basa en Semantic Versioning 2.0.0 (https://semver.org/lang/es/) y en Conventi
 ## Estado actual
 
 - Tag `v1.0.0` y release GitHub «MicroSDD 1.0.0» publicados (2026-10-13).
-- El árbol de trabajo prepara `1.1.0`: `CHANGELOG.md` incluye `[1.1.0]`; `.microharness/sdd.py` define `__version__ = '1.1.0'`, replicada en `pyproject.toml`.
-- No hay workflows de GitHub Actions para la suite de pruebas (solo Dependabot Dependency Graph). La puerta de calidad es `python -m unittest discover -s tests` en local (y `sdd.py check --run` en el flujo de tarea).
+- Tag `v1.1.0` publicado; el árbol de trabajo prepara `1.1.1`: `CHANGELOG.md` incluye `[1.1.1]`; `.microharness/sdd.py` define `__version__ = '1.1.1'`, replicada en `pyproject.toml`.
+- CI: `.github/workflows/tests.yml` ejecuta `python -m unittest discover -s tests -v` en push a `main` y pull requests.
 
 ## API pública
 
@@ -121,7 +121,7 @@ Generados por `sdd.py init`:
 
 ### Excluido
 
-Todo lo versionado que no figura en «Incluido», en particular: `assets/`, `scripts/`, `historial/` (si existe), `src/`, `tests/`, `pyproject.toml`, `README.md`, `LICENSE`, `.gitignore`, `.gitattributes`, `CHANGELOG.md` y las specs y la memoria del propio arnés. Tampoco se crea `.microharness/config.json` (API-09), ni se copia `.claude/settings.local.json`, que no se versiona.
+Todo lo versionado que no figura en «Incluido», en particular: `assets/`, `scripts/`, `historial/` (si existe), `src/`, `tests/`, `pyproject.toml`, `README.md`, `LICENSE`, `.gitignore`, `.gitattributes`, `CHANGELOG.md` y las specs y la memoria del propio arnés. Tampoco se crea `.microharness/config.json` (API-09), el instalador puede crear o fusionar `.claude/settings.local.json` (claves por defecto; no pisa las existentes); el archivo suele ser local y no versionarse.
 
 Nota: sin `--force`, si una ruta del `MANIFEST` ya existe con contenido distinto (salvo `.claude/settings.json`, que se fusiona), el instalador informa el conflicto y no escribe nada; revisa antes `CLAUDE.md` y `.claude/settings.json` del repositorio destino.
 
