@@ -343,6 +343,18 @@
         "by": "Programador",
         "decision": "La lista blanca de comandos de prueba se valida solo mientras la tarea no esté `terminado`.",
         "evidence": "Respuesta explícita en sesión 2026-10-13 a AskUserQuestion sobre el parche de seguridad externo (microsdd-security.patch, base b19fe30, no aplica sobre HEAD 61bd1ee)"
+      },
+      {
+        "at": "2026-10-13T06:41:32+00:00",
+        "by": "Programador",
+        "decision": "Posponer bloquear-autoaprobacion (queda pendiente) y hacer antes las tareas que modifican sdd.py: revisor (--textconv/-O), memoria atómica con lock, mínimo de pruebas y lista blanca de runners; el bloqueo cierra la serie.",
+        "evidence": "Respuesta explícita en sesión 2026-10-13 (AskUserQuestion tras la spec de bloquear-autoaprobacion)"
+      },
+      {
+        "at": "2026-10-13T06:41:33+00:00",
+        "by": "Programador",
+        "decision": "Spec de bloquear-autoaprobacion aprobada en contenido, con excepciones git add/diff/status/log/show y del lanzador (-m unittest, --version), sin sellar tests/test_sdd.py (quitar protected_tests), aceptando R-02 a R-04; el approve formal se registra al retomarla. Implementación por Bash del implementador en pretool.py, lider.md y sdd.py, con pretool.py al final.",
+        "evidence": "Respuesta explícita en sesión 2026-10-13 (AskUserQuestion tras la spec de bloquear-autoaprobacion)"
       }
     ]
   },
@@ -1218,6 +1230,63 @@
         },
         {
           "at": "2026-10-13T06:34:56+00:00",
+          "event": "aprobación_close",
+          "by": "Programador"
+        }
+      ]
+    },
+    "bloquear-autoaprobacion": {
+      "approvals": {
+        "spec": null,
+        "close": null
+      },
+      "sealed_tests": {},
+      "review": null,
+      "review_fingerprint": null,
+      "iterations": 0,
+      "events": [
+        {
+          "at": "2026-10-13T06:35:04+00:00",
+          "event": "creada"
+        }
+      ]
+    },
+    "revisor-git-opciones-extra": {
+      "approvals": {
+        "spec": {
+          "by": "Programador",
+          "evidence": "Aprobación explícita en sesión 2026-10-13: 'Aprobar tal cual' y 'perfecto se aprueba'",
+          "at": "2026-10-13T06:46:47+00:00",
+          "fingerprint": "29aecc006f9a71d88876674d427a14dca06b2c6943b33db29c14b01e65ae0049"
+        },
+        "close": {
+          "by": "Programador",
+          "evidence": "Aprobación explícita del cierre y del commit en sesión 2026-10-13: 'si apruebo'",
+          "at": "2026-10-13T06:50:43+00:00"
+        }
+      },
+      "sealed_tests": {},
+      "review": "APROBADO",
+      "review_fingerprint": "b402c371c07be8ae7e130566a295678f8720f4ba25538b07f6506d2687c845f4",
+      "iterations": 1,
+      "events": [
+        {
+          "at": "2026-10-13T06:41:27+00:00",
+          "event": "creada"
+        },
+        {
+          "at": "2026-10-13T06:46:47+00:00",
+          "event": "aprobación_spec",
+          "by": "Programador"
+        },
+        {
+          "at": "2026-10-13T06:49:49+00:00",
+          "event": "revisión",
+          "verdict": "APROBADO",
+          "evidence": "Revisor independiente 2026-10-13: AC-01..AC-04 cumplidos; solo cambia la regex Git del revisor (pretool.py:69), conjunto aceptado contenido en el anterior; prueba nueva cubre Bash y PowerShell. check --run del líder: Ran 109 tests OK (skipped=2), 'OK: spec, alcance, hashes y ejecución de pruebas.'"
+        },
+        {
+          "at": "2026-10-13T06:50:43+00:00",
           "event": "aprobación_close",
           "by": "Programador"
         }

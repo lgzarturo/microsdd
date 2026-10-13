@@ -359,6 +359,43 @@ class HookTests(unittest.TestCase):
                     self.assertIsNotNone(hook.run({'agent_type': 'revisor', 'tool_name': tool,
                                                    'tool_input': {'command': command}}))
 
+    def test_reviewer_git_extra_options(self):
+        # AC-01, AC-02: --textconv, -O (también agrupado) y --open-files-in-pager denegados.
+        hook_path = SCRIPT.parents[1] / '.claude' / 'hooks' / 'pretool.py'
+        spec = importlib.util.spec_from_file_location('micro_hook', hook_path)
+        hook = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(hook)
+        denied = [
+            'git diff --textconv',
+            'git diff --stat --textconv',
+            'git diff -O/tmp/o',
+            'git diff -O /tmp/o',
+            'git diff -O',
+            'git diff -pO/tmp/o',
+            'git diff -wO/tmp/o',
+            'git diff -U0 -O/tmp/o',
+            'git diff --open-files-in-pager',
+            'git diff --open-files-in-pager=less',
+        ]
+        allowed = [
+            'git diff',
+            'git diff --stat HEAD~1 -- src/app.py',
+            'git diff --name-only HEAD',
+            'git status --short',
+            'git diff --no-textconv',
+            'git diff -U0 -- README.md',
+            'git diff -- Old.txt',
+        ]
+        for tool in ('Bash', 'PowerShell'):
+            for command in denied:
+                with self.subTest(herramienta=tool, comando=command):
+                    self.assertIsNotNone(hook.run({'agent_type': 'revisor', 'tool_name': tool,
+                                                   'tool_input': {'command': command}}))
+            for command in allowed:
+                with self.subTest(herramienta=tool, comando=command):
+                    self.assertIsNone(hook.run({'agent_type': 'revisor', 'tool_name': tool,
+                                                'tool_input': {'command': command}}))
+
     def test_author_edits_plan_md_not_diseno_md(self):
         # AC-06: el autor escribe plan.md; diseño.md queda denegado.
         hook_path = SCRIPT.parents[1] / '.claude' / 'hooks' / 'pretool.py'

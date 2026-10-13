@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "id": "revisor-git-opciones-extra",
+  "title": "Allowlist del revisor: denegar --textconv, -O (también agrupado) y --open-files-in-pager en git diff/status",
+  "state": "terminado",
+  "model": "claude-opus-5-5",
+  "effort": "medium",
+  "max_iterations": 3,
+  "method": {
+    "primary": "SDD",
+    "optional": [],
+    "notes": ""
+  },
+  "scope": {
+    "allowed_paths": [
+      ".claude/hooks/pretool.py",
+      "tests/test_sdd.py",
+      "spec/revisor-git-opciones-extra/**"
+    ],
+    "excluded": [
+      ".claude/settings.json",
+      ".microharness/sdd.py",
+      ".microharness/memory.json",
+      "docs/**",
+      "README.md"
+    ]
+  },
+  "requirements": {
+    "acceptance_ids": [
+      "AC-01",
+      "AC-02",
+      "AC-03",
+      "AC-04"
+    ],
+    "preconditions": [
+      "PRE-01: decisión humana previa: el implementador modifica .claude/hooks/pretool.py mediante Bash (la guardia le niega .claude/ con Edit/Write); solo la expresión Git del bloque del revisor"
+    ]
+  },
+  "testing": {
+    "strategy": "tdd",
+    "commands": [
+      [
+        "python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tests",
+        "-v"
+      ]
+    ],
+    "protected_tests": [],
+    "mutation": {
+      "enabled": false,
+      "command": [],
+      "reason": "No existe herramienta de mutación en el repositorio (stdlib-first); el cambio es una regex cubierta por casos positivos y negativos explícitos en Bash y PowerShell (AC-01, AC-02)."
+    }
+  }
+}

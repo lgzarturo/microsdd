@@ -66,7 +66,7 @@ def run(event: dict) -> str | None:
     if tool in ('Bash', 'PowerShell') and agent == 'revisor':
         cmd = inputs.get('command', '').strip()
         if not (re.fullmatch(r'(?:python3?|py -3|sh \.microharness/python\.sh|uv run --no-project(?: --quiet)?(?: --python (?:\'>=3\.[0-9]+\'|">=3\.[0-9]+"|3\.[0-9]+))?) \.microharness/sdd\.py check [a-z][a-z0-9-]* --run', cmd)
-                or re.fullmatch(r'git (diff|status)(?: (?!--output(?:[= ]|$)|--ext-diff(?: |$))[\w./:^~=+,-]+)*', cmd)):
+                or re.fullmatch(r'git (diff|status)(?: (?!--output(?:[= ]|$)|--ext-diff(?: |$)|--textconv(?:[= ]|$)|--open-files-in-pager(?:[= ]|$)|-[^ -]*O)[\w./:^~=+,-]+)*', cmd)):
             return 'El revisor solo puede ejecutar el checker o inspecciones Git permitidas.'
     return None
 

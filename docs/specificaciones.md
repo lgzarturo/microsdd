@@ -27,3 +27,4 @@ Cada tarea va en `spec/<slug>/` con exactamente cuatro documentos: `requerimient
 | `instalador-sin-python3` | terminado | El instalador exige `uv` real (en Windows `uv.exe`) en lugar de `python3` y ejecuta `init` y el smoke test con `sys.executable`; README con `uvx --no-cache` para pruebas locales |
 | `spec-plan-md` | terminado | `diseño.md` pasa a `plan.md` en el arnés y en las 15 tareas; huellas `spec` migradas con `scripts/migrar_plan_md.py` (evento `migración_plan_md`); `check` exige nombres ASCII en `spec/<slug>/`. |
 | `sdd-note` | terminado | `sdd.py note --fact/--decision … --evidence …` registra observaciones y decisiones en `memory.json` sin edición manual; valida antes de escribir (código 1). |
+| `revisor-git-opciones-extra` | terminado | La allowlist Git del revisor deniega además `--textconv`, `-O` (también agrupado, p. ej. `-pO<f>`) y `--open-files-in-pager`. |
