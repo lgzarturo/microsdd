@@ -201,6 +201,12 @@ sh .microharness/python.sh .microharness/sdd.py review corregir-sesion APROBADO 
 sh .microharness/python.sh .microharness/sdd.py approve corregir-sesion close \
   --by 'Programador' --evidence 'Confirmación explícita: aprobar cierre'
 
+# Líder: registrar hechos comprobados y decisiones sin editar memory.json a mano
+sh .microharness/python.sh .microharness/sdd.py note \
+  --fact 'Las pruebas usan unittest de la biblioteca estándar' --evidence 'tests/test_sdd.py'
+sh .microharness/python.sh .microharness/sdd.py note \
+  --decision 'Solo dependencias de la biblioteca estándar' --by 'Programador' --evidence 'Confirmación explícita en la sesión'
+
 # Validación sintáctica del mensaje
 sh .microharness/python.sh .microharness/sdd.py commit-check 'fix(auth): corrige expiración de sesión'
 
@@ -210,6 +216,8 @@ sh .microharness/python.sh .microharness/sdd.py commit-check 'fix(auth): corrige
 ```
 
 El comando `seal` requiere que `testing.protected_tests` contenga rutas de tests ya existentes. No es obligatorio si la tarea no necesita congelar un baseline. Con TDD, redacta los tests, confirma RED, solicita revisión humana y *después* sella los tests antes de implementar. Rebaseline requiere una nueva decisión humana; el sellado en este MVP sobrescribe hashes y **no sustituye** protección del repositorio. Commitear el baseline antes de implementación aporta trazabilidad.
+
+El comando `note` añade una observación (`--fact`) a `project.observations` o una decisión (`--decision` con `--by`) a `project.decisions` de `memory.json`. Registrar una decisión es una declaración, no autenticación: `--by` es texto libre y no autentica a nadie.
 
 Para rechazar:
 

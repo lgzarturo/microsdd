@@ -315,6 +315,29 @@ def review(slug: str, verdict: str, evidence: str) -> None:
     print('Revisión registrada.', 'Escalada al humano.' if spec['state'] == 'pendiente' else '')
 
 
+def note(fact: str | None, decision: str | None, by: str | None, evidence: str) -> None:
+    # Se registra una declaración, no una identidad autenticada.
+    if (fact is None) == (decision is None):
+        raise ValueError('Indica exactamente uno de --fact o --decision.')
+    if decision is not None and by is None:
+        raise ValueError('--decision requiere --by.')
+    if fact is not None and by is not None:
+        raise ValueError('--by solo se admite con --decision.')
+    if any(not text.strip() for text in (fact, decision, by, evidence) if text is not None):
+        raise ValueError('Los textos de la nota no pueden estar vacíos.')
+    if not MEMORY.exists():
+        ensure_init()
+    memory = load(MEMORY)
+    project = memory.setdefault('project', {})
+    if fact is not None:
+        project.setdefault('observations', []).append({'at': now(), 'fact': fact, 'evidence': evidence})
+    else:
+        project.setdefault('decisions', []).append({'at': now(), 'by': by, 'decision': decision, 'evidence': evidence})
+    dump(MEMORY, memory)
+    print('Nota registrada en memory.json.' if fact is not None
+          else 'Decisión declarada registrada. No es una firma ni autentica al usuario.')
+
+
 def seal(slug: str, by: str) -> None:
     _, spec, memory = task_files(slug)
     tests = spec['testing']['protected_tests']
@@ -402,6 +425,7 @@ def main() -> int:
     ap = sub.add_parser('approve'); ap.add_argument('slug'); ap.add_argument('phase', choices=('spec', 'close')); ap.add_argument('--by', required=True); ap.add_argument('--evidence', required=True)
     rev = sub.add_parser('review'); rev.add_argument('slug'); rev.add_argument('verdict', choices=('APROBADO', 'RECHAZADO')); rev.add_argument('--evidence', required=True)
     se = sub.add_parser('seal'); se.add_argument('slug'); se.add_argument('--by', required=True)
+    no = sub.add_parser('note'); no.add_argument('--fact'); no.add_argument('--decision'); no.add_argument('--by'); no.add_argument('--evidence', required=True)
     sub.add_parser('commit-check').add_argument('message')
     rel = sub.add_parser('release')
     rel.add_subparsers(dest='action', required=True).add_parser('propose')
@@ -418,6 +442,7 @@ def main() -> int:
         elif args.command == 'approve': approve(args.slug, args.phase, args.by, args.evidence)
         elif args.command == 'review': review(args.slug, args.verdict, args.evidence)
         elif args.command == 'seal': seal(args.slug, args.by)
+        elif args.command == 'note': note(args.fact, args.decision, args.by, args.evidence)
         elif args.command == 'commit-check': commit_check(args.message)
         elif args.command == 'release': release_propose()
         return 0

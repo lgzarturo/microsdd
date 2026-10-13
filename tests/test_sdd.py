@@ -736,5 +736,116 @@ class ReleaseProposeTests(unittest.TestCase):
         self.assertIn('propose', err)
 
 
+class NoteTests(unittest.TestCase):
+    FIXED = '2026-01-02T03:04:05+00:00'
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.old_root, self.old_memory = sdd.ROOT, sdd.MEMORY
+        self.addCleanup(self.restore)
+        sdd.ROOT = Path(temporary.name)
+        sdd.MEMORY = sdd.ROOT / '.microharness' / 'memory.json'
+        self.initial = {
+            'schema_version': 1,
+            'project': {
+                'observations': [{'at': '2025-01-01T00:00:00+00:00', 'fact': 'previo', 'evidence': 'x'}],
+                'decisions': [{'at': '2025-01-01T00:00:00+00:00', 'by': 'H', 'decision': 'previa', 'evidence': 'y'}],
+            },
+            'tasks': {'demo': {'review': None, 'events': []}},
+        }
+        sdd.dump(sdd.MEMORY, self.initial)
+        patcher = mock.patch.object(sdd, 'now', return_value=self.FIXED)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def restore(self):
+        sdd.ROOT, sdd.MEMORY = self.old_root, self.old_memory
+
+    def run_main(self, *argv):
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.object(sys, 'argv', ['sdd.py', 'note', *argv]), \
+                contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            try:
+                code = sdd.main()
+            except SystemExit as e:
+                code = e.code
+        return code, out.getvalue(), err.getvalue()
+
+    # AC-01, AC-03, AC-04.
+    def test_fact_appends_observation(self):
+        code, out, err = self.run_main('--fact', 'F', '--evidence', 'E')
+        self.assertEqual(code, 0, err)
+        self.assertTrue(out.strip())
+        data = sdd.load(sdd.MEMORY)
+        self.assertEqual(data['project']['observations'][-1], {'at': self.FIXED, 'fact': 'F', 'evidence': 'E'})
+        self.assertRegex(data['project']['observations'][-1]['at'], r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+00:00$')
+        self.assertEqual(data['project']['observations'][:-1], self.initial['project']['observations'])
+        self.assertEqual(data['project']['decisions'], self.initial['project']['decisions'])
+        self.assertEqual((data['tasks'], data['schema_version']), (self.initial['tasks'], 1))
+
+    # AC-02, AC-03, AC-04.
+    def test_decision_appends_decision(self):
+        code, out, err = self.run_main('--decision', 'D', '--by', 'Programador', '--evidence', 'E')
+        self.assertEqual(code, 0, err)
+        self.assertTrue(out.strip())
+        data = sdd.load(sdd.MEMORY)
+        self.assertEqual(data['project']['decisions'][-1],
+                         {'at': self.FIXED, 'by': 'Programador', 'decision': 'D', 'evidence': 'E'})
+        self.assertEqual(data['project']['decisions'][:-1], self.initial['project']['decisions'])
+        self.assertEqual(data['project']['observations'], self.initial['project']['observations'])
+        self.assertEqual((data['tasks'], data['schema_version']), (self.initial['tasks'], 1))
+
+    def assert_rejected(self, *argv):
+        before = sdd.MEMORY.read_bytes()
+        code, out, err = self.run_main(*argv)
+        self.assertEqual(code, 1, (argv, out, err))
+        self.assertIn('ERROR:', err)
+        self.assertEqual(sdd.MEMORY.read_bytes(), before)
+
+    # AC-05.
+    def test_rejects_both_or_neither(self):
+        self.assert_rejected('--fact', 'F', '--decision', 'D', '--by', 'P', '--evidence', 'E')
+        self.assert_rejected('--evidence', 'E')
+
+    # AC-06.
+    def test_rejects_blank_texts(self):
+        self.assert_rejected('--fact', '  ', '--evidence', 'E')
+        self.assert_rejected('--decision', '', '--by', 'P', '--evidence', 'E')
+        self.assert_rejected('--decision', 'D', '--by', '  ', '--evidence', 'E')
+        self.assert_rejected('--fact', 'F', '--evidence', ' ')
+
+    # AC-07.
+    def test_rejects_missing_or_extra_by(self):
+        self.assert_rejected('--decision', 'D', '--evidence', 'E')
+        self.assert_rejected('--fact', 'F', '--by', 'X', '--evidence', 'E')
+
+    # AC-08.
+    def test_creates_memory_when_missing(self):
+        sdd.MEMORY.unlink()
+        code, out, err = self.run_main('--fact', 'F', '--evidence', 'E')
+        self.assertEqual(code, 0, err)
+        data = sdd.load(sdd.MEMORY)
+        self.assertEqual(data['tasks'], {})
+        self.assertEqual(data['project']['decisions'], [])
+        self.assertEqual(data['project']['observations'], [{'at': self.FIXED, 'fact': 'F', 'evidence': 'E'}])
+
+    # AC-08.
+    def test_creates_missing_project_structure(self):
+        for broken in ({'schema_version': 1, 'project': {'observations': []}, 'tasks': self.initial['tasks']},
+                       {'schema_version': 1, 'tasks': self.initial['tasks']}):
+            sdd.dump(sdd.MEMORY, broken)
+            code, out, err = self.run_main('--decision', 'D', '--by', 'P', '--evidence', 'E')
+            self.assertEqual(code, 0, err)
+            data = sdd.load(sdd.MEMORY)
+            self.assertEqual(data['project']['decisions'], [{'at': self.FIXED, 'by': 'P', 'decision': 'D', 'evidence': 'E'}])
+            self.assertEqual(data['tasks'], self.initial['tasks'])
+
+    # AC-09.
+    def test_invalid_json_unchanged(self):
+        sdd.MEMORY.write_text('no es json {', encoding='utf-8')
+        self.assert_rejected('--fact', 'F', '--evidence', 'E')
+
+
 if __name__ == '__main__':
     unittest.main()
