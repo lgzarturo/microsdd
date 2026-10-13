@@ -127,7 +127,7 @@ def memory_lock():
             except OSError:
                 if time.monotonic() >= deadline:
                     raise ValueError(f'No se pudo obtener {lock} en {LOCK_TIMEOUT:g} s: otro proceso de sdd.py '
-                                     'está modificando la memoria; reintena.')
+                                     'está modificando la memoria; reintenta.')
                 time.sleep(0.05)
         _LOCK_DEPTH = 1
         try:
