@@ -1,6 +1,6 @@
 # MicroSDD: contexto mínimo
 
-El agente principal es `lider` (configurado en `.claude/settings.json`). Toda solicitud pasa por él.
+El agente principal es `lider` (configurado en `.claude/settings.json` mientras el arnés está activo; compruébalo con `microsdd status`). Toda solicitud pasa por él.
 
 Reglas: especificar antes de modificar; aprobar antes de implementar y antes de cerrar; cambios pequeños; pruebas verificables; un solo agente escribe código; revisor independiente; no inventar evidencia. Español neutro. KISS, YAGNI, DRY y SOLID según necesidad real.
 

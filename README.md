@@ -63,7 +63,7 @@ Si un formato aparece varias veces se usa la última coincidencia; si coinciden 
 
 ### Bloqueo si falta uv
 
-El hook usa `"onFailure": "block"`: si uv no está en `PATH` o el hook falla, Claude Code bloquea toda llamada `Write|Edit|MultiEdit|NotebookEdit|Bash`, también en la sesión principal. Para salir, instala uv o edita `.claude/settings.json` **fuera de Claude Code** (editor o terminal) y reinicia la sesión.
+El hook usa `"onFailure": "block"`: si uv no está en `PATH` o el hook falla, Claude Code bloquea toda llamada `Write|Edit|MultiEdit|NotebookEdit|Bash`, también en la sesión principal. Para salir, instala uv o edita `.claude/settings.json` **fuera de Claude Code** (editor o terminal) y reinicia la sesión; con uv disponible, `microsdd off` en tu terminal retira el hook de forma reversible (ver [Activar, desactivar y consultar](#activar-desactivar-y-consultar)).
 
 Comprobación rápida:
 
@@ -83,10 +83,10 @@ El hook deniega por defecto (fail-closed) cuando el evento no trae un `agent_typ
 
 Impacto:
 
-- Una sesión iniciada sin `--agent` y sin `agent: lider` efectivo (por ejemplo, por un override de usuario o un `settings.json` fusionado solo con el hook) queda sin escritura ni shell.
+- Una sesión iniciada sin `--agent` y sin `agent: lider` efectivo (por ejemplo, por un override de usuario o si `microsdd status` informa `parcial`) queda sin escritura ni shell.
 - Los subagentes ajenos a MicroSDD, como `Explore` o `general-purpose`, pierden esas seis herramientas dentro de un proyecto MicroSDD; `Explore` queda limitado a lectura.
 
-Cómo proceder: lanza la sesión con `claude --agent lider`; delega el trabajo en los cuatro agentes (autor, implementador, revisor, lider); o, si necesitas trabajar sin MicroSDD, desactiva el hook editando `.claude/settings.json` **fuera de Claude Code** y reinicia la sesión.
+Cómo proceder: lanza la sesión con `claude --agent lider`; delega el trabajo en los cuatro agentes (autor, implementador, revisor, lider); o, si necesitas trabajar sin MicroSDD, ejecuta `microsdd off` en tu terminal **fuera de Claude Code** (o edita allí `.claude/settings.json`) y reinicia la sesión; `microsdd on` lo reactiva.
 
 ## 2. Instalación por proyecto con `uvx`
 
@@ -117,7 +117,7 @@ Política de conflictos:
 |---|---|---|---|
 | Propios: `.claude/agents/{lider,autor,implementador,revisor}.md`, `.claude/hooks/pretool.py`, `.claude/skills/sdd/SKILL.md`, `.microharness/sdd.py`, `CLAUDE.microsdd.md` | crear | sin cambios | conflicto: código 1 sin escribir nada; `--force` lo actualiza |
 | `CLAUDE.md` (compartido) | crear con el bloque de registro (antepone `@AGENTS.md` si existe `AGENTS.md`) | sin cambios si ya tiene `<!-- microsdd:begin -->` | anexar el bloque una sola vez, respetando LF/CRLF; nunca se sobrescribe |
-| `.claude/settings.json` (compartido) | crear | sin cambios | se conserva intacto y se escribe `.claude/settings.microsdd.json` (alterno); `agent: lider` y el hook no están activos hasta fusionarlo manualmente |
+| `.claude/settings.json` (compartido) | crear | sin cambios | fusionar: copia el original a `.claude/settings.json.bak.<marca UTC>` y añade o reemplaza `agent`, `model`, `effortLevel` y la entrada `PreToolUse` del hook, conservando toda otra clave y hook; lo añadido y los valores previos quedan en `.microharness/install.json`. Si no es JSON válido o su forma no lo admite, código 1 sin escribir. `--force` no lo afecta; los `.bak` no se versionan |
 
 Al terminar, el instalador ejecuta `.microharness/sdd.py init` con el mismo Python que ejecuta el instalador (crea `docs/`, `spec/` y `.microharness/memory.json` sin sobrescribir), comprueba, también con ese Python, que el hook deniega `Edit` al revisor por la regla de «solo lectura» (un `deny` por otro motivo, como «Guardia inválida», cuenta como fallo) e imprime la lista exacta de archivos para versionar. Usa siempre un `git add` explícito, nunca `git add .`:
 
@@ -125,7 +125,7 @@ Al terminar, el instalador ejecuta `.microharness/sdd.py init` con el mismo Pyth
 git add CLAUDE.md CLAUDE.microsdd.md .claude/agents/lider.md .claude/agents/autor.md \
   .claude/agents/implementador.md .claude/agents/revisor.md .claude/hooks/pretool.py \
   .claude/skills/sdd/SKILL.md .claude/settings.json .microharness/sdd.py .microharness/python.sh .microharness/memory.json \
-  docs/AGENT.md docs/arquitectura.md docs/convenciones.md docs/especificaciones.md
+  .microharness/install.json docs/AGENT.md docs/arquitectura.md docs/convenciones.md docs/especificaciones.md
 claude --agent lider --model claude-opus-5-5 --effort medium
 ```
 
@@ -133,7 +133,7 @@ claude --agent lider --model claude-opus-5-5 --effort medium
 
 **Migración de nombres de `docs/`** (repositorios ya instalados): `docs/convensiones.md` y `docs/specificaciones.md` se llaman ahora `docs/convenciones.md` y `docs/especificaciones.md`. Actualiza el arnés con `--force` y renombra ambos documentos: `git mv docs/convensiones.md docs/convenciones.md` y `git mv docs/specificaciones.md docs/especificaciones.md`. Hasta entonces, `sdd.py init` (y el instalador) imprime un `AVISO:` y no crea el nombre nuevo, para no duplicar documentos; nunca mueve ni borra archivos.
 
-**Eliminación manual** (no hay desinstalador): borra los archivos propios de la tabla, `.microharness/`, `CLAUDE.microsdd.md` y, si aplica, `.claude/settings.microsdd.json`; quita de `CLAUDE.md` el bloque entre `<!-- microsdd:begin -->` y `<!-- microsdd:end -->`; revisa `.claude/settings.json` si fusionaste `agent: lider` y el hook; conserva o elimina `docs/` y `spec/` según te sirvan.
+**Desinstalación**: `uvx --from git+https://github.com/lgzarturo/microsdd microsdd uninstall` (en tu terminal, fuera de Claude Code) lee `.microharness/install.json` y, antes de escribir nada, comprueba que el manifiesto existe, que `.claude/settings.json` es JSON válido y que los archivos propios no cambiaron (si alguno difiere, informa `conflicto` y devuelve 1; `--force` los elimina igualmente). Después retira de `.claude/settings.json` lo que añadió MicroSDD y restaura los valores previos (con respaldo `.bak`), o lo borra si lo creó y queda vacío; elimina los archivos propios, `CLAUDE.microsdd.md`, el bloque de `CLAUDE.md` (o el archivo, si lo creó y no cambió), el manifiesto y, si existe, el alterno heredado `.claude/settings.microsdd.json` que escribían versiones anteriores (ya no se usa; `install` solo avisa). Conserva `docs/`, `spec/`, `.microharness/memory.json` y todo lo ajeno. Sin manifiesto (instalaciones anteriores) devuelve 1 sin escribir: reinstala con `microsdd install` o elimina a mano.
 
 Para desarrollar este repositorio:
 
@@ -144,6 +144,16 @@ python -m unittest discover -s tests -v   # en Windows; python3 en macOS/Linux
 `.claude/settings.json` ya fija `agent: lider`, el modelo y el esfuerzo; el flag es redundante y sirve para comprobar que la sesión corre efectivamente con ese rol. Revisa el encabezado `@lider` en Claude Code. Escribe en la sesión: `Quiero corregir X, con el cambio mínimo y criterios verificables` o invoca `/sdd ...`. **No invoques `autor` o `implementador` como conversación principal:** el líder conserva el contexto de decisiones y aprobaciones.
 
 > No está publicado en PyPI ni es un sistema de agentes remoto. No se ha ejecutado Claude Code en este entorno; las comprobaciones realizadas son las pruebas locales del script y del instalador.
+
+### Activar, desactivar y consultar
+
+| Comando | Efecto |
+|---|---|
+| `microsdd status` | Solo lectura: informa `activo` (`agent: lider` y el hook presentes en `.claude/settings.json`), `inactivo` (ninguno) o `parcial` (solo uno), además de `model` y `effortLevel`. Funciona dentro de Claude Code (el líder lo usa con `/sdd status`). |
+| `microsdd off` | Retira de `.claude/settings.json` lo registrado en `.microharness/install.json` y restaura los valores previos, con respaldo `.bak`. Idempotente. |
+| `microsdd on` | Vuelve a aplicar la fusión de la instalación. Idempotente. |
+
+Todos aceptan `--target RUTA` (y `uninstall`, `--force`). `on`, `off` y `uninstall` solo los ejecuta el humano en una terminal interactiva: devuelven 1 con `ERROR:`, sin escribir, si falta el manifiesto, si la variable `CLAUDECODE` está definida (aunque esté vacía) o si stdin no es una TTY; además, el hook deniega a los agentes ejecutarlos o modificar `.claude/settings.json` desde `Bash`/`PowerShell` (guardia de mejor esfuerzo, no sandbox). `/sdd on` y `/sdd off` solo te entregan el comando. Tras cambiar el estado, reinicia la sesión de Claude Code.
 
 ## 3. Archivos y responsabilidades
 
@@ -175,7 +185,7 @@ tests/test_sdd.py            # Pruebas unitarias del controlador
 pyproject.toml               # Paquete microsdd (solo para este repositorio; no se instala en el destino)
 src/microsdd/
   __init__.py
-  installer.py               # Instalador `microsdd install` (stdlib; manifiesto único)
+  installer.py               # `microsdd install|uninstall|on|off|status` (stdlib; manifiesto único)
 tests/test_installer.py      # Pruebas del instalador
 ```
 

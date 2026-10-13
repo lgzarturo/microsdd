@@ -11,6 +11,9 @@ PROTECTED_RE = re.compile(r'microharness|memory\.json|sdd\.py', re.I)
 SDD_ALLOWED = ('init', 'new', 'check', 'review', 'commit-check', 'note', 'release', '--version', '--help')
 LAUNCHERS = (['sh', '.microharness/python.sh'], ['python'], ['python3'], ['py', '-3'])
 HARNESS_EDITABLE = ('.microharness/sdd.py', '.microharness/python.sh')
+TOGGLE_RE = re.compile(r'(?:microsdd|installer\.py).*\b(?:on|off|uninstall)\b', re.I | re.S)
+SETTINGS_RE = re.compile(r'settings(?:\.local)?\.json', re.I)
+SETTINGS_GIT = ('add', 'diff', 'status', 'log', 'show', 'commit')
 
 
 def tokens(cmd: str) -> list[str] | None:
@@ -73,6 +76,19 @@ def protected_bash(cmd: str) -> str | None:
             'release, --version o --help; sh .microharness/python.sh --version o -m unittest; '
             'git add|diff|status|log|show), sin $, comilla invertida, \\, saltos de línea ni operadores '
             'de shell. approve y seal los ejecuta el humano en su terminal; lee la memoria con Read.')
+
+
+def guard_bash(cmd: str) -> str | None:
+    if not (TOGGLE_RE.search(cmd) or SETTINGS_RE.search(cmd)):
+        return None
+    toks = tokens(cmd)
+    if toks is not None and (
+            (toks[:1] == ['git'] and toks[1:2] and toks[1] in SETTINGS_GIT
+             and not any(t.startswith('--output') for t in toks))
+            or (len(toks) == 4 and toks[0] in ('python', 'python3') and toks[1:3] == ['-m', 'json.tool'])):
+        return None
+    return ('Comando denegado: on, off y uninstall de microsdd, y los cambios a .claude/settings.json, '
+            'los ejecuta el humano en su terminal, fuera de Claude Code.')
 
 
 def run(event: dict) -> str | None:
@@ -144,7 +160,8 @@ def run(event: dict) -> str | None:
             if not rel.startswith(('docs/', 'spec/')):
                 return 'El líder no modifica código; delega al implementador.'
     if tool in ('Bash', 'PowerShell') and agent in ('lider', 'autor', 'implementador'):
-        return protected_bash(inputs.get('command') or '')
+        cmd = inputs.get('command') or ''
+        return guard_bash(cmd) or protected_bash(cmd)
     if tool in ('Bash', 'PowerShell') and agent == 'revisor':
         cmd = inputs.get('command', '').strip()
         if not (re.fullmatch(r'(?:python3?|py -3|sh \.microharness/python\.sh|uv run --no-project(?: --quiet)?(?: --python (?:\'>=3\.[0-9]+\'|">=3\.[0-9]+"|3\.[0-9]+))?) \.microharness/sdd\.py check [a-z][a-z0-9-]* --run', cmd)
