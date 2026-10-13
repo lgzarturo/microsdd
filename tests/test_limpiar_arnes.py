@@ -30,7 +30,7 @@ def git(args, cwd):
 
 def task(state):
     return {'spec.json': json.dumps({'id': 'x', 'state': state}),
-            'diseño.md': '# CÓMO\nDiseño ficticio.\n', 'tareas.md': '# PASOS\n- [x] T01\n'}
+            'plan.md': '# CÓMO\nDiseño ficticio.\n', 'tareas.md': '# PASOS\n- [x] T01\n'}
 
 
 def snapshot(root: Path) -> dict:
@@ -129,7 +129,7 @@ class LimpiarArnesTests(unittest.TestCase):
         self.assertEqual(code, 0, out + err)
         archived = {k: v for k, v in before.items()
                     if k == '.microharness/memory.json' or k.startswith(('docs/', 'spec/')) and k != 'spec/.gitkeep'}
-        self.assertIn('spec/tarea-uno/diseño.md', archived)
+        self.assertIn('spec/tarea-uno/plan.md', archived)
         hist = self.root / 'historial' / '1.2.0'
         for name, content in archived.items():
             target = hist / ('memory.json' if name == '.microharness/memory.json' else name)

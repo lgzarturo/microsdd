@@ -14,7 +14,7 @@ from pathlib import Path, PurePosixPath
 ROOT = Path(__file__).resolve().parent.parent
 MEMORY = ROOT / '.microharness' / 'memory.json'
 DOCS = ('AGENT.md', 'arquitectura.md', 'convensiones.md', 'specificaciones.md')
-TASK_FILES = ('spec.json', 'requerimientos.md', 'diseño.md', 'tareas.md')
+TASK_FILES = ('spec.json', 'requerimientos.md', 'plan.md', 'tareas.md')
 STATES = ('pendiente', 'proceso', 'terminado')
 SLUG_RE = re.compile(r'^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$')
 COMMIT_RE = re.compile(r'^(feat|fix|docs|test|refactor|perf|chore)(\([a-z0-9][a-z0-9-]*\))?(!)?: [^\n]{1,72}$')
@@ -89,8 +89,8 @@ def new(slug: str) -> None:
         '## Requisitos EARS\n- REQ-01: WHEN [evento], THE [sistema] SHALL [conducta observable].\n\n'
         '## Criterios de aceptación\n- AC-01: [entrada, acción y salida esperada verificables].\n\n'
         '## Fuera de alcance\n[PENDIENTE]\n', encoding='utf-8')
-    (path / 'diseño.md').write_text('# CÓMO: diseño mínimo\n\n## Situación comprobada\n[PENDIENTE]\n\n'
-                                    '## Decisión y justificación\n[PENDIENTE]\n\n## Invariantes y riesgos\n[PENDIENTE]\n', encoding='utf-8')
+    (path / 'plan.md').write_text('# CÓMO: diseño mínimo\n\n## Situación comprobada\n[PENDIENTE]\n\n'
+                                  '## Decisión y justificación\n[PENDIENTE]\n\n## Invariantes y riesgos\n[PENDIENTE]\n', encoding='utf-8')
     (path / 'tareas.md').write_text('# PASOS: trabajo verificable\n\n- [ ] T01 (AC-01): [prueba o cambio mínimo concreto].\n'
                                    '- [ ] T02 (AC-01): [ejecutar verificación y comprobar resultado].\n', encoding='utf-8')
     memory = load(MEMORY)
@@ -109,7 +109,7 @@ def spec_fingerprint(path: Path, spec: dict) -> str:
     stable = {k: v for k, v in spec.items() if k != 'state'}
     canonical = json.dumps(stable, sort_keys=True, ensure_ascii=False).encode('utf-8')
     digest = hashlib.sha256(canonical)
-    for name in ('requerimientos.md', 'diseño.md', 'tareas.md'):
+    for name in ('requerimientos.md', 'plan.md', 'tareas.md'):
         digest.update(name.encode('utf-8') + b'\x00')
         digest.update((path / name).read_bytes().replace(b'\r\n', b'\n'))
     return digest.hexdigest()
@@ -160,6 +160,9 @@ def validate(slug: str, run: bool = False, scope: bool = True) -> list[str]:
     for name in TASK_FILES:
         if not (path / name).is_file():
             errors.append(f'Falta spec/{slug}/{name}')
+    for entry in sorted(path.iterdir()):
+        if not entry.name.isascii():
+            errors.append(f'Nombre de archivo no ASCII en spec/{slug}/: {entry.name}')
     if errors:
         return errors
     if s.get('id') != slug or s.get('schema_version') != 1:
@@ -188,14 +191,14 @@ def validate(slug: str, run: bool = False, scope: bool = True) -> list[str]:
                 errors.append(str(e))
     reqs = (path / 'requerimientos.md').read_text(encoding='utf-8')
     tasks = (path / 'tareas.md').read_text(encoding='utf-8')
-    design = (path / 'diseño.md').read_text(encoding='utf-8')
+    design = (path / 'plan.md').read_text(encoding='utf-8')
     ids = s.get('requirements', {}).get('acceptance_ids', [])
     if not ids or len(ids) != len(set(ids)) or not all(re.fullmatch(r'AC-\d{2,}', a) for a in ids):
         errors.append('Se requieren acceptance_ids únicos AC-01, AC-02...')
     for a in ids:
         if a not in reqs or a not in tasks:
             errors.append(f'{a} debe estar presente en requerimientos.md y tareas.md')
-    for doc, content in [('requerimientos.md', reqs), ('diseño.md', design), ('tareas.md', tasks)]:
+    for doc, content in [('requerimientos.md', reqs), ('plan.md', design), ('tareas.md', tasks)]:
         if '[PENDIENTE]' in content or '[evento]' in content or '[entrada' in content or '[prueba o cambio' in content:
             errors.append(f'{doc} conserva marcadores de plantilla')
     if not re.search(r'\b(WHEN|WHILE|IF)\b.+\b(SHALL|THEN)\b', reqs, re.I):

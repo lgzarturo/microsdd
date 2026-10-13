@@ -20,7 +20,7 @@ Se basa en Semantic Versioning 2.0.0 (https://semver.org/lang/es/) y en Conventi
 - **API-01** · CLI de `.microharness/sdd.py`: subcomandos `init`, `new`, `check` (`--run`, `--no-scope`), `approve` (`spec`/`close`, `--by`, `--evidence`), `review` (`APROBADO`/`RECHAZADO`, `--evidence`), `seal` (`--by`) y `commit-check`; código de salida 0 en éxito y 1 en error de ejecución (los errores de uso de argumentos devuelven 2, comportamiento estándar de `argparse`).
 - **API-02** · Esquema de `spec.json` (`schema_version` 1): campos y valores que acepta `validate` (`id`, `state`, `model`, `effort`, `max_iterations`, `method`, `scope`, `requirements`, `testing`).
 - **API-03** · Esquema de `.microharness/memory.json` (`schema_version` 1): `project` y `tasks`, con aprobaciones, sellos, revisión, iteraciones y eventos de cada tarea.
-- **API-04** · Estructura de tarea `spec/<slug>/`: cuatro archivos (`requerimientos.md`, `diseño.md`, `tareas.md`, `spec.json`), formato de slug y los tres estados (`pendiente`, `proceso`, `terminado`).
+- **API-04** · Estructura de tarea `spec/<slug>/`: cuatro archivos (`requerimientos.md`, `plan.md`, `tareas.md`, `spec.json`), formato de slug y los tres estados (`pendiente`, `proceso`, `terminado`).
 - **API-05** · Contratos de agentes en `.claude/agents/`: nombres, responsabilidades, frontmatter (`model`, `effort` y, cuando se declara, `tools`) y restricciones por rol que aplica `.claude/hooks/pretool.py`.
 - **API-06** · `.claude/settings.json` (agente predeterminado, modelo, esfuerzo y registro del hook) y la skill `/sdd`.
 - **API-07** · Formato de mensaje aceptado por `commit-check`.

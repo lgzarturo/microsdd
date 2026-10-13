@@ -93,6 +93,8 @@ git add CLAUDE.md CLAUDE.microsdd.md .claude/agents/lider.md .claude/agents/auto
 claude --agent lider --model claude-opus-5-5 --effort medium
 ```
 
+**Migración de `diseño.md` a `plan.md`** (repositorios ya instalados): el documento de diseño de cada tarea se llama ahora `plan.md` y su nombre forma parte de la huella de aprobación. Actualiza el arnés con `--force`, renombra cada `spec/<slug>/diseño.md` a `spec/<slug>/plan.md` (`git mv`) y ejecuta `python <copia de MicroSDD>/scripts/migrar_plan_md.py <raíz>`: recalcula solo las huellas que coinciden con el esquema antiguo, registra un evento `migración_plan_md` por tarea y aborta sin escribir si alguna especificación fue alterada. Como alternativa, reaprueba con `approve <slug> spec` las tareas no terminadas (las terminadas no admiten reaprobación).
+
 **Eliminación manual** (no hay desinstalador): borra los archivos propios de la tabla, `.microharness/`, `CLAUDE.microsdd.md` y, si aplica, `.claude/settings.microsdd.json`; quita de `CLAUDE.md` el bloque entre `<!-- microsdd:begin -->` y `<!-- microsdd:end -->`; revisa `.claude/settings.json` si fusionaste `agent: lider` y el hook; conserva o elimina `docs/` y `spec/` según te sirvan.
 
 Para desarrollar este repositorio:
@@ -123,7 +125,7 @@ docs/
   specificaciones.md         # Índice y contrato del flujo
 spec/<slug>/                 # Exactamente cuatro archivos por tarea
   requerimientos.md          # QUÉ: EARS, AC y precondiciones
-  diseño.md                  # CÓMO: decisión técnica mínima
+  plan.md                    # CÓMO: decisión técnica mínima
   tareas.md                  # PASOS: checklist con AC
   spec.json                  # Máquina de estado y política de ejecución
 .microharness/
@@ -137,6 +139,8 @@ src/microsdd/
   installer.py               # Instalador `microsdd install` (stdlib; manifiesto único)
 tests/test_installer.py      # Pruebas del instalador
 ```
+
+Los nombres de archivo del arnés y de `spec/<slug>/` son solo ASCII: `check` rechaza cualquier entrada de `spec/<slug>/` con un nombre no ASCII.
 
 En el repositorio destino solo se instalan los archivos del arnés (más `CLAUDE.microsdd.md` y el bloque en `CLAUDE.md`); `pyproject.toml`, `src/` y `tests/` pertenecen a este repositorio.
 
@@ -214,7 +218,7 @@ sh .microharness/python.sh .microharness/sdd.py review corregir-sesion RECHAZADO
   --evidence 'AC-02 falla con entrada límite; repetir corrección mínima'
 ```
 
-El implementador trabaja de nuevo desde el motivo concreto del revisor. Si cambia `requerimientos.md`, `diseño.md`, `tareas.md` o metadata de `spec.json` ya aprobada, el fingerprint invalida la aprobación anterior. Si cambia código después del dictamen `APROBADO`, la huella del diff también exige nueva revisión antes del cierre. Para reaprobar, el humano revisa nuevamente y se ejecuta `approve ... spec`. No deben usarse cambios silenciosos del contrato.
+El implementador trabaja de nuevo desde el motivo concreto del revisor. Si cambia `requerimientos.md`, `plan.md`, `tareas.md` o metadata de `spec.json` ya aprobada, el fingerprint invalida la aprobación anterior. Si cambia código después del dictamen `APROBADO`, la huella del diff también exige nueva revisión antes del cierre. Para reaprobar, el humano revisa nuevamente y se ejecuta `approve ... spec`. No deben usarse cambios silenciosos del contrato.
 
 ## 6. `spec.json`: contrato mínimo
 

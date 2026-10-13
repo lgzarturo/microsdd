@@ -294,6 +294,26 @@
         "task": "instalador-sin-python3",
         "decision": "Smoke test del instalador con sys.executable (no uv run); se aceptan sustituir dos pruebas de instalador-uvx ligadas a python3. Añadir la tarea hook-stdin-utf8 como siguiente, antes de check-tareas-terminadas.",
         "evidence": "Respuesta explícita en sesión: 'apruebo la spec con 1 y 2, añade hook-stdin-utf8'"
+      },
+      {
+        "at": "2026-10-13T05:46:43+00:00",
+        "by": "Programador",
+        "decision": "Renombrar el documento de diseño de cada tarea de `diseño.md` a `plan.md` en una tarea propia (spec-plan-md), primera en la cola. 1) Opción b: renombrar también los diseño.md de todas las tareas existentes (son efímeras; se borrarán en v1.0.0). 2) Se autoriza modificar y resellar tests/test_sdd.py. 3) Para arrancar esta tarea, el autor puede escribir su diseño.md por terminal, con revisión del líder. 4) Regla: evitar caracteres no ASCII en nombres de archivo del arnés y de las specs; mejora importante. hook-stdin-utf8 se retira de la cola por ahora (plantilla sin contenido eliminada).",
+        "evidence": "Respuesta explícita en sesión: '1. b, son efimeras las tareas terminadas ... 2. si lo autorizo. 3. si arranca la propia tarea., si debemos evitar caracteres no ASCII en el nombre de los archivos, esto es una mejora importante.'"
+      },
+      {
+        "at": "2026-10-13T05:55:35+00:00",
+        "by": "Programador",
+        "task": "spec-plan-md",
+        "decision": "Q-01: opción b, recalcular las huellas de aprobación spec en memory.json mediante un script puntual auditable (sin etiqueta histórica 'diseño.md' en el código). Q-02: añadir al README una nota de migración para repositorios instalados. Q-03: se autoriza al implementador editar solo .microharness/sdd.py, .claude/hooks/pretool.py y .claude/agents/autor.md en esta tarea; si el hook lo deniega, el líder entrega el parche al humano; commit marcado como incompatible con '!'. La spec debe ajustarse y reaprobarse.",
+        "evidence": "Respuesta explícita en sesión: '1b, 2 con la nota y 3 te autorizo'"
+      },
+      {
+        "at": "2026-10-13T06:00:31+00:00",
+        "by": "Programador",
+        "task": "spec-plan-md",
+        "decision": "Q-04: borrar scripts/migrar_plan_md.py (y su prueba) en la limpieza de v1.0.0.",
+        "evidence": "Respuesta explícita en sesión: 'si borralos y apruebo la spec'"
       }
     ]
   },
@@ -987,6 +1007,44 @@
           "at": "2026-10-13T05:28:45+00:00",
           "event": "aprobación_close",
           "by": "Programador"
+        }
+      ]
+    },
+    "spec-plan-md": {
+      "approvals": {
+        "spec": {
+          "by": "Programador",
+          "evidence": "Confirmación explícita en chat: \"si borralos y apruebo la spec\" (spec ajustada a Q-01 b, Q-02, Q-03)",
+          "at": "2026-10-13T06:00:31+00:00",
+          "fingerprint": "a2c1999e9cc486c35feaa6855ae7ef67fd003c35a4c9c0fcae841c5a10f7061d"
+        },
+        "close": null
+      },
+      "sealed_tests": {
+        "tests/test_sdd.py": "6509d7cc8772f2d9d3e975d5385bb5d11d57c754e6d9127ef7122322fd7a6bb2",
+        "tests/test_migrar_plan_md.py": "e8010f9472b4e0d998ecd1e09874453e68ff5753f87909a6bd97b052eb0d84ab"
+      },
+      "review": null,
+      "review_fingerprint": null,
+      "iterations": 0,
+      "events": [
+        {
+          "at": "2026-10-13T05:46:44+00:00",
+          "event": "creada"
+        },
+        {
+          "at": "2026-10-13T06:00:31+00:00",
+          "event": "aprobación_spec",
+          "by": "Programador"
+        },
+        {
+          "at": "2026-10-13T06:07:12+00:00",
+          "event": "sellado_tests",
+          "by": "Programador",
+          "files": [
+            "tests/test_sdd.py",
+            "tests/test_migrar_plan_md.py"
+          ]
         }
       ]
     }

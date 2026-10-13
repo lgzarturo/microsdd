@@ -24,7 +24,7 @@ def run(event: dict) -> str | None:
         except ValueError:
             return 'Se prohíbe editar fuera del proyecto.'
         if agent == 'autor':
-            if not re.fullmatch(r'spec/[a-z][a-z0-9-]*/(spec\.json|requerimientos\.md|diseño\.md|tareas\.md)', rel):
+            if not re.fullmatch(r'spec/[a-z][a-z0-9-]*/(spec\.json|requerimientos\.md|plan\.md|tareas\.md)', rel):
                 return 'El autor solo modifica cuatro archivos de la spec.'
         elif agent == 'implementador':
             if rel.startswith(('.claude/', '.microharness/', 'docs/', 'spec/')) or rel == 'CLAUDE.md':

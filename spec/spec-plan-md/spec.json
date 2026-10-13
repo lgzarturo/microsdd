@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "id": "spec-plan-md",
+  "title": "Renombrar diseño.md a plan.md en el arnés y en todas las tareas (con migración auditable de huellas) y exigir nombres de archivo ASCII en spec/<slug>/",
+  "state": "proceso",
+  "model": "claude-opus-5-5",
+  "effort": "medium",
+  "max_iterations": 3,
+  "method": {
+    "primary": "SDD",
+    "optional": [],
+    "notes": ""
+  },
+  "scope": {
+    "allowed_paths": [
+      ".microharness/sdd.py",
+      ".claude/hooks/pretool.py",
+      ".claude/agents/autor.md",
+      "README.md",
+      "assets/proceso-versionado.md",
+      "scripts/migrar_plan_md.py",
+      "tests/test_sdd.py",
+      "tests/test_migrar_plan_md.py",
+      "tests/test_limpiar_arnes.py"
+    ],
+    "excluded": [
+      "docs/**",
+      ".microharness/memory.json",
+      ".claude/settings.json",
+      ".claude/skills/**",
+      ".claude/agents/implementador.md",
+      ".claude/agents/lider.md",
+      ".claude/agents/revisor.md",
+      "CLAUDE.md",
+      "assets/decisiones-diseno.md",
+      "scripts/limpiar_arnes.py",
+      "src/**",
+      "pyproject.toml",
+      "tests/test_installer.py"
+    ]
+  },
+  "requirements": {
+    "acceptance_ids": [
+      "AC-01",
+      "AC-02",
+      "AC-03",
+      "AC-04",
+      "AC-05",
+      "AC-06",
+      "AC-07",
+      "AC-08",
+      "AC-09",
+      "AC-10",
+      "AC-11",
+      "AC-12"
+    ],
+    "preconditions": [
+      "PRE-01: decisiones humanas en memory.json (project.decisions 2026-10-13T05:46:43Z y 2026-10-13T05:55:35Z): renombrar también las tareas existentes, resellar tests/test_sdd.py, nombres solo ASCII, recalcular huellas con script auditable (Q-01 b), nota de migración en README (Q-02), excepción de edición y commit con ! (Q-03)",
+      "PRE-02: por decisión Q-03 (2026-10-13T05:55:35Z), el implementador puede editar solo .microharness/sdd.py, .claude/hooks/pretool.py y .claude/agents/autor.md dentro de .claude/ y .microharness/; si la guardia lo deniega, el líder entrega el parche al humano",
+      "PRE-03: el líder renombra spec/<slug>/diseño.md -> plan.md y ejecuta scripts/migrar_plan_md.py (puede editar spec/ y memory.json); spec/** y memory.json no van en allowed_paths porque validate los excluye de la comprobación de alcance",
+      "PRE-04: línea base: check OK en las 14 tareas terminado",
+      "PRE-05: Python >= 3.10, git y solo biblioteca estándar"
+    ]
+  },
+  "testing": {
+    "strategy": "tdd",
+    "commands": [
+      [
+        "python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tests"
+      ]
+    ],
+    "protected_tests": [
+      "tests/test_sdd.py",
+      "tests/test_migrar_plan_md.py"
+    ],
+    "mutation": {
+      "enabled": false,
+      "command": [],
+      "reason": "No existe herramienta de mutación en el repositorio y añadirla viola stdlib-first. Los puntos críticos tienen pruebas que fallan ante su mutación: omitir la verificación de la huella antigua o escribir antes de terminar la fase de verificación rompe AC-08; añadir eventos en una segunda ejecución rompe AC-09; un esquema nuevo distinto de sdd.spec_fingerprint o un esquema antiguo distinto del de 61bd1ee rompe AC-07; quitar la comprobación isascii rompe AC-03; volver a diseño.md en TASK_FILES o en la regex del autor rompe AC-01/AC-02/AC-06. El revisor lo comprueba manualmente."
+    }
+  }
+}

@@ -37,7 +37,7 @@ class MicroSDDTests(unittest.TestCase):
         (self.folder / 'requerimientos.md').write_text(
             '# QUÉ\nWHEN expire una sesión, THE sistema SHALL rechazar credenciales vencidas.\n'
             'AC-01: token vencido produce 401.\n## Fuera de alcance\nNo renovar tokens.\n', encoding='utf-8')
-        (self.folder / 'diseño.md').write_text('# CÓMO\nComprobar expiración en validador existente.\n', encoding='utf-8')
+        (self.folder / 'plan.md').write_text('# CÓMO\nComprobar expiración en validador existente.\n', encoding='utf-8')
         (self.folder / 'tareas.md').write_text('# PASOS\n- [ ] T01 (AC-01): prueba de expiración.\n', encoding='utf-8')
 
     def restore(self):
@@ -61,16 +61,16 @@ class MicroSDDTests(unittest.TestCase):
         self.git_repo({'src/módulo.py': 'x = 1\n'})
         (sdd.ROOT / 'src' / 'módulo.py').write_text('x = 2\n', encoding='utf-8')
         (sdd.ROOT / 'spec' / 'x').mkdir(parents=True)
-        (sdd.ROOT / 'spec' / 'x' / 'diseño.md').write_text('# CÓMO\n', encoding='utf-8')
+        (sdd.ROOT / 'spec' / 'x' / 'plan.md').write_text('# CÓMO\n', encoding='utf-8')
         files = [f for f in sdd.diff_files() if f.startswith(('spec/x/', 'src/'))]
-        self.assertEqual(files, ['spec/x/diseño.md', 'src/módulo.py'])
+        self.assertEqual(files, ['spec/x/plan.md', 'src/módulo.py'])
         for name in files:
             self.assertTrue((sdd.ROOT / name).is_file(), name)
 
     def test_scope_ignores_uncommitted_task_design(self):
         self.git_repo({'src/app.py': 'x = 1\n'})
         errors = sdd.validate('fix-sesiones')
-        self.assertFalse([e for e in errors if 'fuera de scope' in e and 'fix-sesiones/dise' in e], errors)
+        self.assertFalse([e for e in errors if 'fuera de scope' in e and 'fix-sesiones/' in e], errors)
 
     def test_fingerprint_reads_non_ascii_file(self):
         self.git_repo({'src/módulo.py': 'x = 1\n'})
@@ -90,6 +90,34 @@ class MicroSDDTests(unittest.TestCase):
         self.assertEqual({x.name for x in self.folder.iterdir()}, set(sdd.TASK_FILES))
         self.assertEqual(sdd.validate('fix-sesiones'), [])
 
+    def test_new_creates_exactly_four_ascii_files(self):
+        # AC-01: conjunto literal, sin derivarlo de TASK_FILES.
+        with contextlib.redirect_stdout(io.StringIO()):
+            sdd.new('otra-tarea')
+        names = {x.name for x in (sdd.ROOT / 'spec' / 'otra-tarea').iterdir()}
+        self.assertEqual(names, {'spec.json', 'requerimientos.md', 'plan.md', 'tareas.md'})
+
+    def test_check_requires_plan_md(self):
+        # AC-02: un diseño.md en lugar de plan.md no satisface la tarea.
+        (self.folder / 'plan.md').replace(self.folder / 'diseño.md')
+        self.assertIn('Falta spec/fix-sesiones/plan.md', sdd.validate('fix-sesiones'))
+
+    def test_check_detects_template_markers_in_plan_md(self):
+        # AC-02: el marcador que escribe new se detecta en plan.md.
+        (self.folder / 'plan.md').write_text('# CÓMO\n[PENDIENTE]\n', encoding='utf-8')
+        self.assertIn('plan.md conserva marcadores de plantilla', sdd.validate('fix-sesiones'))
+
+    def test_check_rejects_non_ascii_file_name(self):
+        # AC-03: el error nombra la entrada no ASCII.
+        (self.folder / 'notas-año.md').write_text('nota\n', encoding='utf-8')
+        errors = sdd.validate('fix-sesiones')
+        self.assertTrue([x for x in errors if 'notas-año.md' in x and 'ASCII' in x], errors)
+
+    def test_check_tolerates_extra_ascii_file(self):
+        # AC-03: los archivos extra con nombre ASCII se siguen tolerando.
+        (self.folder / 'notas.md').write_text('nota\n', encoding='utf-8')
+        self.assertEqual(sdd.validate('fix-sesiones'), [])
+
     def test_slug_traversal_rejected(self):
         with self.assertRaises(ValueError):
             sdd.task_dir('../secret')
@@ -97,7 +125,7 @@ class MicroSDDTests(unittest.TestCase):
     def test_spec_approval_and_fingerprint(self):
         sdd.approve('fix-sesiones', 'spec', 'Humano', 'Aprobado textualmente en la sesión')
         self.assertEqual(sdd.validate('fix-sesiones'), [])
-        (self.folder / 'diseño.md').write_text('CAMBIO SIN APROBACIÓN', encoding='utf-8')
+        (self.folder / 'plan.md').write_text('CAMBIO SIN APROBACIÓN', encoding='utf-8')
         self.assertTrue(any('alterada' in x for x in sdd.validate('fix-sesiones')))
 
     def test_lifecycle_review_close(self):
@@ -182,8 +210,8 @@ class MicroSDDTests(unittest.TestCase):
         self.assertTrue(any('sellado' in x for x in sdd.validate('fix-sesiones')))
 
     def test_spec_fingerprint_ignores_crlf_conversion(self):
-        # AC-03: la huella aprobada sobrevive a LF->CRLF; un cambio real en diseño.md no.
-        names = ('requerimientos.md', 'diseño.md', 'tareas.md')
+        # AC-03: la huella aprobada sobrevive a LF->CRLF; un cambio real en plan.md no.
+        names = ('requerimientos.md', 'plan.md', 'tareas.md')
         for name in names:  # Partir de LF explícito: write_text en Windows ya escribe CRLF.
             p = self.folder / name
             p.write_bytes(p.read_bytes().replace(b'\r\n', b'\n'))
@@ -192,7 +220,7 @@ class MicroSDDTests(unittest.TestCase):
             p = self.folder / name
             p.write_bytes(p.read_bytes().replace(b'\n', b'\r\n'))
         self.assertFalse([x for x in sdd.validate('fix-sesiones') if 'alterada' in x])
-        (self.folder / 'diseño.md').write_bytes('# CÓMO\r\nOtro diseño.\r\n'.encode('utf-8'))
+        (self.folder / 'plan.md').write_bytes('# CÓMO\r\nOtro diseño.\r\n'.encode('utf-8'))
         self.assertTrue(any('alterada' in x for x in sdd.validate('fix-sesiones')))
 
     def test_hash_file_unchanged_for_lf_content(self):
@@ -218,9 +246,9 @@ class MicroSDDTests(unittest.TestCase):
             subprocess.run(command, cwd=sdd.ROOT, check=True, capture_output=True)
         (sdd.ROOT / 'fuera').mkdir()
         (sdd.ROOT / 'fuera' / 'configuración.txt').write_text('x', encoding='utf-8')
-        self.assertIn('spec/fix-sesiones/diseño.md', sdd.diff_files())
+        self.assertIn('spec/fix-sesiones/plan.md', sdd.diff_files())
         errors = sdd.validate('fix-sesiones')
-        self.assertFalse([x for x in errors if 'diseño.md' in x])
+        self.assertFalse([x for x in errors if 'plan.md' in x])
         self.assertIn('Archivo modificado fuera de scope: fuera/configuración.txt', errors)
 
     def test_run_replaces_python_alias_with_current_interpreter(self):
@@ -310,7 +338,7 @@ class HookTests(unittest.TestCase):
             'git diff -w -- .microharness/sdd.py',
             'git diff -U0 -- README.md',
             'git diff HEAD~1 -- .claude/hooks/pretool.py',
-            'git diff -- spec/x/diseño.md',
+            'git diff -- spec/x/plan.md',
         ]
         denied = [
             'git diff $(rm -rf src)',
@@ -330,6 +358,21 @@ class HookTests(unittest.TestCase):
                 with self.subTest(herramienta=tool, comando=command):
                     self.assertIsNotNone(hook.run({'agent_type': 'revisor', 'tool_name': tool,
                                                    'tool_input': {'command': command}}))
+
+    def test_author_edits_plan_md_not_diseno_md(self):
+        # AC-06: el autor escribe plan.md; diseño.md queda denegado.
+        hook_path = SCRIPT.parents[1] / '.claude' / 'hooks' / 'pretool.py'
+        spec = importlib.util.spec_from_file_location('micro_hook', hook_path)
+        hook = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(hook)
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+
+            def write(name):
+                return hook.run({'agent_type': 'autor', 'tool_name': 'Write', 'cwd': str(base),
+                                 'tool_input': {'file_path': str(base / 'spec' / 'x' / name)}})
+            self.assertIsNone(write('plan.md'))
+            self.assertIsNotNone(write('diseño.md'))
 
     def test_reviewer_checker_ascii_digits(self):
         # AC-03: la versión de Python del checker solo admite dígitos ASCII.
@@ -658,13 +701,13 @@ class ReleaseProposeTests(unittest.TestCase):
         self.new_task('release-v0-1-1')
         self.git('add', '-A')
         self.git('commit', '-m', 'chore: specs')
-        (sdd.ROOT / 'spec' / 'release-v0-1-1' / 'diseño.md').write_text('# CÓMO\nSin commit.\n', encoding='utf-8')
+        (sdd.ROOT / 'spec' / 'release-v0-1-1' / 'plan.md').write_text('# CÓMO\nSin commit.\n', encoding='utf-8')
         (sdd.ROOT / 'spec' / 'release-v0-1-1' / 'notas-año.md').write_text('nuevo\n', encoding='utf-8')
         memory = sdd.load(sdd.MEMORY)
         memory['project']['observations'].append('cambio sin commit')
         sdd.dump(sdd.MEMORY, memory)
         status = self.git('status', '--porcelain', '--untracked-files=all')
-        self.assertIn(' M spec/release-v0-1-1/diseño.md', status)
+        self.assertIn(' M spec/release-v0-1-1/plan.md', status)
         self.assertIn(' M .microharness/memory.json', status)
         self.assertIn('?? spec/release-v0-1-1/notas-año.md', status)
         self.assert_proposed('0.1.1')
