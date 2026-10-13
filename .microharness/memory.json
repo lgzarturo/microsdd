@@ -49,6 +49,16 @@
         "at": "2026-10-13T04:03:05+00:00",
         "fact": "pretool.py: el revisor puede ejecutar cualquier comando vía la herramienta PowerShell (no se inspecciona), y la regex 'git (diff|status)(?: [^;&|\\n]+)?' permite $(...), comillas invertidas, redirecciones < > y --output=, que ejecutan comandos o escriben archivos.",
         "evidence": "pretool.run con agent_type revisor: 'git diff $(rm -rf src)', 'git diff `rm -rf src`', 'git diff > README.md', 'git status < x', 'git diff --output=README.md' -> PERMITIDO en Bash y PowerShell."
+      },
+      {
+        "at": "2026-10-13T05:07:10+00:00",
+        "fact": "`sdd.py check proceso-versionado --run` falla en AC-02: espera la sección 'Herramienta de release (futura)', renombrada por herramienta-release. El instalador (src/microsdd/installer.py) aún exige python3(.exe) y ejecuta 'python3 .microharness/sdd.py init', aunque el hook ya usa uv.",
+        "evidence": "Salida de check --run (AssertionError AC-02 secciones); grep python3 en installer.py líneas 69-105 y 216"
+      },
+      {
+        "at": "2026-10-13T05:11:16+00:00",
+        "fact": "`.claude/hooks/pretool.py` lee stdin con json.load(sys.stdin) usando la codificación del sistema (cp1252 en Windows): un Write del autor a spec/<slug>/diseño.md se deniega ('El autor solo modifica cuatro archivos de la spec') salvo con PYTHONUTF8=1; tareas.md se permite en ambos casos. Falla cerrada. Además, durante instalador-sin-python3 el autor escribió diseño.md con un heredoc por Bash: el hook no impide al autor escribir archivos vía Bash.",
+        "evidence": "Reproducción local del líder: mismo evento deny con PYTHONUTF8=0 y allow con PYTHONUTF8=1; reporte del autor (agente a5baa1304d2c0c5d5)"
       }
     ],
     "decisions": [
@@ -265,6 +275,25 @@
         "at": "2026-10-13T04:22:40+00:00",
         "by": "Programador",
         "decision": "herramienta-release O-1/O-2: corregir ahora; se autoriza añadir pruebas de renombrado y rutas con espacios a tests/test_sdd.py y resellarlo tras revisión humana; requiere ajuste y reaprobación de la spec."
+      },
+      {
+        "at": "2026-10-13T05:07:10+00:00",
+        "by": "Programador",
+        "decision": "Plan de correcciones aprobado en este orden: 1) instalador-sin-python3 (incluye --no-cache para uvx local), 2) check-tareas-terminadas, 3) test-propose-tag-otra-rama, 4) release-prepare-tag, 5) docs-comandos-python, 6) documentar el proceso del primer release.",
+        "evidence": "Respuesta explícita en sesión: 'aprobado ... Confirmo el orden indicado.'"
+      },
+      {
+        "at": "2026-10-13T05:07:10+00:00",
+        "by": "Programador",
+        "decision": "No ejecutar ningún release todavía. El primer release será v1.0.0 (no v0.1.0); la tarea 6 solo documenta el proceso, sin crear tag, CHANGELOG ni release.",
+        "evidence": "Respuesta explícita en sesión: 'no hagas el primer release aun no, ademas que el primer release debe ser v1.0.0 solo documenta el proceso pero no hagas el release'"
+      },
+      {
+        "at": "2026-10-13T05:12:57+00:00",
+        "by": "Programador",
+        "task": "instalador-sin-python3",
+        "decision": "Smoke test del instalador con sys.executable (no uv run); se aceptan sustituir dos pruebas de instalador-uvx ligadas a python3. Añadir la tarea hook-stdin-utf8 como siguiente, antes de check-tareas-terminadas.",
+        "evidence": "Respuesta explícita en sesión: 'apruebo la spec con 1 y 2, añade hook-stdin-utf8'"
       }
     ]
   },
@@ -904,6 +933,58 @@
         },
         {
           "at": "2026-10-13T04:39:41+00:00",
+          "event": "aprobación_close",
+          "by": "Programador"
+        }
+      ]
+    },
+    "instalador-sin-python3": {
+      "approvals": {
+        "spec": {
+          "by": "Programador",
+          "evidence": "Confirmación explícita en chat: \"apruebo el cambio de la spec\" (AC-06 excluye argv[0]==sys.executable de la prohibición python3*; T12 limitado a la sección 2 del README; T06 alineado)",
+          "at": "2026-10-13T05:23:01+00:00",
+          "fingerprint": "16df0254ea2e06a3129c0095895b189a98bdbd0fb16851c3121bef31160d02a8"
+        },
+        "close": {
+          "by": "Programador",
+          "evidence": "Confirmación explícita en chat: \"aprobado\" a cerrar la tarea y hacer el commit propuesto",
+          "at": "2026-10-13T05:28:45+00:00"
+        }
+      },
+      "sealed_tests": {},
+      "review": "APROBADO",
+      "review_fingerprint": "67b5e56d0371e272afda6b31d516f5782dbdd9c1498d88553f45ae670259b711",
+      "iterations": 1,
+      "events": [
+        {
+          "at": "2026-10-13T05:07:10+00:00",
+          "event": "creada"
+        },
+        {
+          "at": "2026-10-13T05:12:57+00:00",
+          "event": "aprobación_spec",
+          "by": "Programador"
+        },
+        {
+          "at": "2026-10-13T05:20:20+00:00",
+          "event": "revisión",
+          "verdict": "RECHAZADO",
+          "evidence": "Revisor independiente (abb968d1979d5e06f): bloqueante — test_init_and_smoke_run_with_installer_interpreter (AC-06) falla siempre que sys.executable tenga nombre base python3* (p. ej. /usr/bin/python3 en macOS/Linux), por contradicción entre AC-06 y REQ-04. No bloqueantes: T12 grep coincide en README.md:28 (nota del lanzador; AC-08 se cumple); aserción .cmd de AC-04 redundante. check --run OK en Windows (91 tests, skipped=1)."
+        },
+        {
+          "at": "2026-10-13T05:23:01+00:00",
+          "event": "aprobación_spec",
+          "by": "Programador"
+        },
+        {
+          "at": "2026-10-13T05:26:16+00:00",
+          "event": "revisión",
+          "verdict": "APROBADO",
+          "evidence": "Revisor independiente nº2 (ac3df4a91290f2aea): bloqueante resuelto (tests/test_installer.py:258-260 aplica AC-06 vigente); REQ-01..07 y AC-01..09 cumplidos; sin cambios fuera de alcance; check --run OK (91 tests, skipped=1). No bloqueantes: AC-06 solo intercepta subprocess.run; docs/ desactualizados (líder)."
+        },
+        {
+          "at": "2026-10-13T05:28:45+00:00",
           "event": "aprobación_close",
           "by": "Programador"
         }

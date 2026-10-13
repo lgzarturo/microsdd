@@ -12,7 +12,7 @@ Solo componentes, interfaces e invariantes observados en el repositorio.
 
 - `sdd.py` obtiene el diff con `git -z` y UTF-8 (`diff_files`); las rutas son relativas a la raíz Git, por eso el arnés debe vivir en la raíz del repositorio.
 - El manifiesto del instalador vive en `installer.py` (`MANIFEST`) y `pyproject.toml` lo replica; `tests/test_installer.py` (AC-10) verifica la coherencia contra el wheel.
-- El instalador no escribe nada antes de validar destino, `python3` y conflictos; nunca sobrescribe `CLAUDE.md` ni `.claude/settings.json` del destino (anexa un bloque marcado con `@CLAUDE.microsdd.md` y usa `.claude/settings.microsdd.json`); `--force` solo afecta archivos propios del arnés.
+- El instalador no escribe nada antes de validar destino, `uv` (ejecutable real; en Windows `uv.exe`) y conflictos; ejecuta `sdd.py init` y el smoke test del hook con `sys.executable`, sin buscar ni ejecutar `python3`; nunca sobrescribe `CLAUDE.md` ni `.claude/settings.json` del destino (anexa un bloque marcado con `@CLAUDE.microsdd.md` y usa `.claude/settings.microsdd.json`); `--force` solo afecta archivos propios del arnés.
 - Los `docs/` del destino los genera `sdd.py init`; los `docs/` de este repositorio describen a MicroSDD y no se distribuyen.
 - `scripts/limpiar_arnes.py` (solo en este repositorio, no se distribuye): antes de un release exige árbol git limpio y todas las tareas en `terminado`; archiva `.microharness/memory.json`, `docs/` y `spec/<slug>/` en `historial/<versión>/` y restaura el estado inicial ejecutando `.microharness/sdd.py init`. No hace commit, tag ni push.
 ## Ejecución de Python (tarea `deteccion-python-multiplataforma`)

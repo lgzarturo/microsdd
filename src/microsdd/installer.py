@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -40,7 +39,6 @@ BLOCK = (BEGIN,
          '',
          '@CLAUDE.microsdd.md',
          END)
-VERSION_CODE = 'import sys; print("%d.%d.%d" % sys.version_info[:3])'
 
 
 def version() -> str:
@@ -65,45 +63,35 @@ def filter_path(value: str, prefix: str, base_prefix: str) -> str:
     return os.pathsep.join(kept)
 
 
-def remediation(problem: str, location: str) -> str:
-    lines = [f'ERROR: {problem}. MicroSDD requiere un python3 real >= 3.10 en el PATH '
-             '(el hook y sdd.py se invocan como python3).', 'Opciones:']
+def remediation(problem: str) -> str:
+    lines = [f'ERROR: {problem}. MicroSDD requiere uv ejecutable en el PATH '
+             '(el hook se ejecuta con "uv run" en forma exec).', 'Opciones:']
     if sys.platform == 'win32':
-        if 'windowsapps' in location.lower():
-            lines.append(f'  - {location} es el alias de ejecución de Microsoft Store: desactívalo en '
-                         'Configuración > Aplicaciones > Configuración avanzada de aplicaciones > '
-                         'Alias de ejecución de aplicaciones.')
-        lines += ['  - Se exige python3.exe: los shims .cmd/.bat no sirven para Git Bash, donde corre el hook.',
-                  '  - uv python install 3.12 --default (provee python3) y agrega su directorio al PATH.',
-                  '  - Instala Python 3.10+ (python.org o winget install Python.Python.3.12) y '
-                  'confirma que "python3 --version" funciona en Git Bash.']
+        lines += ['  - Se exige uv.exe: los shims .cmd/.bat no sirven en forma exec.',
+                  '  - powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"',
+                  '  - winget install astral-sh.uv']
     elif sys.platform == 'darwin':
-        lines += ['  - brew install python@3.12', '  - uv python install 3.12 --default']
+        lines += ['  - brew install uv', '  - curl -LsSf https://astral.sh/uv/install.sh | sh']
     else:
-        lines += ['  - Instala python3 >= 3.10 con el gestor de paquetes (p. ej. sudo apt install python3).',
-                  '  - uv python install 3.12 --default']
+        lines += ['  - curl -LsSf https://astral.sh/uv/install.sh | sh']
     return '\n'.join(lines)
 
 
-def check_python(python: list[str] | None) -> tuple[list[str] | None, str | None]:
-    if python is None:
+def check_uv(uv: list[str] | None) -> str | None:
+    if uv is None:
         search = filter_path(os.environ.get('PATH', ''), sys.prefix, sys.base_prefix)
-        # En Windows solo python3.exe, como lo resuelve Git Bash: se ignoran shims .cmd/.bat.
-        found = shutil.which('python3.exe' if sys.platform == 'win32' else 'python3', path=search)
+        # En Windows solo uv.exe, como lo exige la forma exec: se ignoran shims .cmd/.bat.
+        found = shutil.which('uv.exe' if sys.platform == 'win32' else 'uv', path=search)
         if not found:
-            return None, remediation('no se encontró python3 en el PATH', '')
-        python = [found]
+            return remediation('no se encontró uv en el PATH')
+        uv = [found]
     try:
-        result = subprocess.run([*python, '-c', VERSION_CODE], capture_output=True, text=True,
-                                errors='replace', timeout=60)
+        result = subprocess.run([*uv, '--version'], capture_output=True, timeout=60)
     except (OSError, subprocess.SubprocessError) as err:
-        return None, remediation(f'python3 no se pudo ejecutar ({err})', python[0])
-    found_version = re.search(r'(\d+)\.(\d+)', result.stdout)
-    if result.returncode != 0 or not found_version:
-        return None, remediation(f'python3 falló (código {result.returncode})', python[0])
-    if (int(found_version[1]), int(found_version[2])) < (3, 10):
-        return None, remediation(f'python3 reporta {found_version[0]} (< 3.10)', python[0])
-    return python, None
+        return remediation(f'uv no se pudo ejecutar ({err})')
+    if result.returncode != 0:
+        return remediation(f'uv --version falló (código {result.returncode})')
+    return None
 
 
 def same_path(a: Path, b: Path) -> bool:
@@ -168,7 +156,7 @@ def plan(source: Path, target: Path, force: bool) -> tuple[list[tuple[str, str, 
     return actions, alternate
 
 
-def install(source: Path, target: Path, *, python: list[str] | None, home: Path,
+def install(source: Path, target: Path, *, uv: list[str] | None, home: Path,
             force: bool = False, dry_run: bool = False) -> int:
     reconfigure = getattr(sys.stdout, 'reconfigure', None)
     if reconfigure:
@@ -180,7 +168,7 @@ def install(source: Path, target: Path, *, python: list[str] | None, home: Path,
         print(error)
         return 1
     target = target.resolve()
-    python, error = check_python(python)
+    error = check_uv(uv)
     if error:
         print(error)
         return 1
@@ -211,11 +199,11 @@ def install(source: Path, target: Path, *, python: list[str] | None, home: Path,
             shutil.copyfile(src, path)
         if dst == '.microharness/sdd.py' and os.name != 'nt':
             path.chmod(path.stat().st_mode | 0o111)
-    init = subprocess.run([*python, '.microharness/sdd.py', 'init'], cwd=target, capture_output=True)
+    init = subprocess.run([sys.executable, '.microharness/sdd.py', 'init'], cwd=target, capture_output=True)
     if init.returncode != 0:
-        print(f'ERROR: python3 .microharness/sdd.py init falló (código {init.returncode}).')
+        print(f'ERROR: .microharness/sdd.py init falló (código {init.returncode}).')
         return 1
-    smoke = subprocess.run([*python, '.claude/hooks/pretool.py'], cwd=target, capture_output=True,
+    smoke = subprocess.run([sys.executable, '.claude/hooks/pretool.py'], cwd=target, capture_output=True,
                            input=b'{"agent_type": "revisor", "tool_name": "Edit", "tool_input": {}}')
     if b'deny' not in smoke.stdout or b'solo lectura' not in smoke.stdout:
         print('ERROR: el smoke test del hook no produjo "deny" por "solo lectura"; '
@@ -240,5 +228,5 @@ def main(argv: list[str] | None = None) -> int:
     cmd.add_argument('--dry-run', action='store_true', help='Muestra el plan sin escribir.')
     cmd.add_argument('--force', action='store_true', help='Sobrescribe solo archivos propios del arnés.')
     args = parser.parse_args(argv)
-    return install(PAYLOAD, Path(args.target), python=None, home=Path.home(),
+    return install(PAYLOAD, Path(args.target), uv=None, home=Path.home(),
                    force=args.force, dry_run=args.dry_run)

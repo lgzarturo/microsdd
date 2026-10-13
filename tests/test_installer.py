@@ -19,6 +19,7 @@ installer = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(installer)
 
 BEGIN = b'<!-- microsdd:begin -->'
+FAKE_UV = [sys.executable, '-c', 'print("uv 0.0.0")']
 
 MIT_LICENSE = '''MIT License
 
@@ -68,11 +69,17 @@ class InstallerTests(unittest.TestCase):
         subprocess.run(['git', 'init', '-q', str(path)], check=True)
         return path
 
-    def run_install(self, target: Path, *, python=None, force=False, dry_run=False):
+    def run_install(self, target: Path, *, uv=None, force=False, dry_run=False):
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            code = installer.install(SOURCE, target, python=python or [sys.executable],
+            code = installer.install(SOURCE, target, uv=uv or FAKE_UV,
                                      home=self.home, force=force, dry_run=dry_run)
+        return code, out.getvalue()
+
+    def install_with_path(self, path: str, uv=None):
+        out = io.StringIO()
+        with mock.patch.dict(os.environ, {'PATH': path}), contextlib.redirect_stdout(out):
+            code = installer.install(SOURCE, self.repo, uv=uv, home=self.home)
         return code, out.getvalue()
 
     # AC-01
@@ -191,36 +198,66 @@ class InstallerTests(unittest.TestCase):
                 self.assertEqual(code, 1, output)
                 self.assertEqual(snapshot(self.base), before)
 
-    # AC-08
-    def test_broken_or_old_python3_fails_without_writing(self):
-        scripts = self.base / 'falsos'
-        scripts.mkdir()
-        stub = scripts / 'stub.py'
-        stub.write_text('import sys\nsys.exit(9009)\n', encoding='utf-8')
-        old = scripts / 'viejo.py'
-        old.write_text('print("3.9.18")\n', encoding='utf-8')
-        for fake in (stub, old):
-            with self.subTest(fake.name):
-                before = snapshot(self.repo)
-                code, output = self.run_install(self.repo, python=[sys.executable, str(fake)])
-                self.assertEqual(code, 1, output)
-                self.assertIn('python3', output)
-                self.assertEqual(snapshot(self.repo), before)
+    # AC-02 (instalador-sin-python3)
+    def test_broken_uv_fails_without_writing(self):
+        before = snapshot(self.repo)
+        code, output = self.run_install(self.repo, uv=[sys.executable, '-c', 'import sys; sys.exit(49)'])
+        self.assertEqual(code, 1, output)
+        self.assertIn('uv', output)
+        self.assertEqual(snapshot(self.repo), before)
 
+    # AC-03 (instalador-sin-python3)
+    def test_missing_uv_fails_without_writing(self):
+        git_dir = os.path.dirname(shutil.which('git'))
+        if shutil.which('uv', path=git_dir) or shutil.which('uv.exe', path=git_dir):
+            self.skipTest('el directorio de git contiene uv')
+        before = snapshot(self.repo)
+        code, output = self.install_with_path(git_dir)
+        self.assertEqual(code, 1, output)
+        self.assertIn('uv', output)
+        self.assertEqual(snapshot(self.repo), before)
+
+    # AC-04 (instalador-sin-python3)
     @unittest.skipUnless(sys.platform == 'win32', 'solo Windows')
-    def test_windows_ignores_python3_cmd_shim(self):
+    def test_windows_ignores_uv_cmd_shim(self):
         shims = self.base / 'shims'
         shims.mkdir()
-        (shims / 'python3.cmd').write_text(f'@echo off\r\n"{sys.executable}" %*\r\n', encoding='utf-8')
+        (shims / 'uv.cmd').write_text(f'@echo off\r\n"{sys.executable}" -c "print(1)"\r\n', encoding='utf-8')
         git_dir = os.path.dirname(shutil.which('git'))
         before = snapshot(self.repo)
-        out = io.StringIO()
-        with mock.patch.dict(os.environ, {'PATH': os.pathsep.join([str(shims), git_dir])}), \
-                contextlib.redirect_stdout(out):
-            code = installer.install(SOURCE, self.repo, python=None, home=self.home)
-        self.assertEqual(code, 1, out.getvalue())
-        self.assertIn('.cmd', out.getvalue())
+        code, output = self.install_with_path(os.pathsep.join([str(shims), git_dir]))
+        self.assertEqual(code, 1, output)
+        self.assertIn('.cmd', output)
         self.assertEqual(snapshot(self.repo), before)
+
+    # AC-05 (instalador-sin-python3)
+    def test_install_succeeds_without_python3_in_path(self):
+        git_dir = os.path.dirname(shutil.which('git'))
+        if shutil.which('python3', path=git_dir):
+            self.skipTest('el directorio de git contiene python3')
+        code, output = self.install_with_path(git_dir, uv=FAKE_UV)
+        self.assertEqual(code, 0, output)
+        self.assertNotIn('python3', output)
+
+    # AC-06 (instalador-sin-python3)
+    def test_init_and_smoke_run_with_installer_interpreter(self):
+        calls = []
+        original = subprocess.run
+
+        def record(args, *rest, **kwargs):
+            calls.append([str(a) for a in args])
+            return original(args, *rest, **kwargs)
+
+        with mock.patch.object(installer.subprocess, 'run', side_effect=record):
+            code, output = self.run_install(self.repo)
+        self.assertEqual(code, 0, output)
+        scripts = [c for c in calls if '.microharness/sdd.py' in c or '.claude/hooks/pretool.py' in c]
+        self.assertEqual(len(scripts), 2, calls)
+        for argv in scripts:
+            self.assertEqual(argv[0], sys.executable, argv)
+        for argv in calls:
+            if argv[0] != sys.executable:
+                self.assertFalse(os.path.basename(argv[0]).startswith('python3'), argv)
 
     # AC-13
     def test_smoke_requires_reviewer_read_only_reason(self):
@@ -234,7 +271,7 @@ class InstallerTests(unittest.TestCase):
             encoding='utf-8')
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            code = installer.install(source, self.repo, python=[sys.executable], home=self.home)
+            code = installer.install(source, self.repo, uv=FAKE_UV, home=self.home)
         self.assertEqual(code, 1, out.getvalue())
 
     def test_path_filter_excludes_isolated_environment(self):

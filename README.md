@@ -65,13 +65,15 @@ uvx --from git+https://github.com/lgzarturo/microsdd microsdd install           
 
 Se recomienda **fijar un tag o commit revisado** para no instalar cambios no revisados de la rama principal: `uvx --from git+https://github.com/lgzarturo/microsdd@<tag> microsdd install`.
 
+Para probar el instalador desde una copia local usa `uvx --no-cache --from <ruta o git+url> microsdd install`, para no reutilizar un wheel en caché.
+
 | Flag | Efecto |
 |---|---|
 | `--target RUTA` | Raíz del repositorio destino (por defecto, el directorio actual). Debe ser exactamente `git rev-parse --show-toplevel`. |
 | `--dry-run` | Imprime el plan clasificado y termina sin escribir nada. |
 | `--force` | Sobrescribe solo los archivos propios del arnés que difieren (útil para actualizar de versión). |
 
-El instalador verifica antes de escribir: que el destino no sea el home ni esté bajo `~/.claude`, que sea la raíz de un repositorio Git y que `python3` **se ejecute** y reporte 3.10 o superior. En Windows se exige `python3.exe`, como lo resuelve Git Bash donde corre el hook: los shims `python3.cmd`/`.bat` no cuentan. También detecta el alias de Microsoft Store en `WindowsApps` y muestra remediación. Planifica todo antes de escribir, es idempotente (una segunda ejecución no cambia nada) y termina con código 0 (éxito o nada que hacer), 1 (precondición o conflicto) o 2 (uso incorrecto). El código 1 también se devuelve si `sdd.py init` o el smoke test del hook fallan **después de escribir** los archivos; en ese caso revisa el mensaje y vuelve a ejecutar el instalador.
+El instalador verifica antes de escribir: que el destino no sea el home ni esté bajo `~/.claude`, que sea la raíz de un repositorio Git y que `uv` esté en el `PATH` como ejecutable real y `uv --version` **se ejecute** con éxito, porque el hook se lanza con `uv run` en forma exec. En Windows se exige `uv.exe`: los shims `uv.cmd`/`.bat` no cuentan. No se exige `python3`; si falta `uv`, muestra cómo instalarlo según el sistema operativo. Planifica todo antes de escribir, es idempotente (una segunda ejecución no cambia nada) y termina con código 0 (éxito o nada que hacer), 1 (precondición o conflicto) o 2 (uso incorrecto). El código 1 también se devuelve si `sdd.py init` o el smoke test del hook fallan **después de escribir** los archivos; en ese caso revisa el mensaje y vuelve a ejecutar el instalador.
 
 Política de conflictos:
 
@@ -81,7 +83,7 @@ Política de conflictos:
 | `CLAUDE.md` (compartido) | crear con el bloque de registro (antepone `@AGENTS.md` si existe `AGENTS.md`) | sin cambios si ya tiene `<!-- microsdd:begin -->` | anexar el bloque una sola vez, respetando LF/CRLF; nunca se sobrescribe |
 | `.claude/settings.json` (compartido) | crear | sin cambios | se conserva intacto y se escribe `.claude/settings.microsdd.json` (alterno); `agent: lider` y el hook no están activos hasta fusionarlo manualmente |
 
-Al terminar, el instalador ejecuta `python3 .microharness/sdd.py init` (crea `docs/`, `spec/` y `.microharness/memory.json` sin sobrescribir), comprueba que el hook deniega `Edit` al revisor por la regla de «solo lectura» (un `deny` por otro motivo, como «Guardia inválida», cuenta como fallo) e imprime la lista exacta de archivos para versionar. Usa siempre un `git add` explícito, nunca `git add .`:
+Al terminar, el instalador ejecuta `.microharness/sdd.py init` con el mismo Python que ejecuta el instalador (crea `docs/`, `spec/` y `.microharness/memory.json` sin sobrescribir), comprueba, también con ese Python, que el hook deniega `Edit` al revisor por la regla de «solo lectura» (un `deny` por otro motivo, como «Guardia inválida», cuenta como fallo) e imprime la lista exacta de archivos para versionar. Usa siempre un `git add` explícito, nunca `git add .`:
 
 ```bash
 git add CLAUDE.md CLAUDE.microsdd.md .claude/agents/lider.md .claude/agents/autor.md \

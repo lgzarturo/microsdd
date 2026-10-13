@@ -12,7 +12,7 @@ Cada tarea va en `spec/<slug>/` con exactamente cuatro documentos: `requerimient
 | Tarea | Estado | Resumen |
 |---|---|---|
 | `fix-sdd-rutas-unicode` | terminado | `diff_files()` usa `git -z` y UTF-8: rutas no ASCII (p. ej. `diseño.md`) ya no rompen el alcance ni la huella |
-| `instalador-uvx` | terminado | Instalador por proyecto `uvx ... microsdd install`: idempotente, sin pisar archivos compartidos, exige `python3` real (en Windows `python3.exe`) |
+| `instalador-uvx` | terminado | Instalador por proyecto `uvx ... microsdd install`: idempotente, sin pisar archivos compartidos, exige `python3` real (en Windows `python3.exe`); requisito sustituido por `instalador-sin-python3` |
 | `licencia-mit` | terminado | Licencia MIT (2026, Arturo López) en `LICENSE`, metadatos PEP 639 en `pyproject.toml` y sección 10 del README |
 | `limpieza-historial-release` | terminado | `scripts/limpiar_arnes.py <versión>` archiva memoria, docs y specs en `historial/<versión>/` y restaura el estado de `sdd.py init` antes de un release |
 | `regex-revisor-ascii` | terminado | Allowlist del revisor: versión con `[0-9]`; `git diff/status` solo con tokens seguros, sin `--output` ni `--ext-diff`. |
@@ -24,3 +24,4 @@ Cada tarea va en `spec/<slug>/` con exactamente cuatro documentos: `requerimient
 | `fundamentos-diseno` | terminado | Registro de decisiones de diseño del arnés en `assets/decisiones-diseno.md` (no se instala) |
 | `proceso-versionado` | terminado | Proceso de versionado SemVer del arnés en `assets/proceso-versionado.md`; `assets/` excluido de la instalación |
 | `herramienta-release` | terminado | `sdd.py --version` (`__version__`) y `sdd.py release propose` (solo lectura: propone la versión desde Conventional Commits) |
+| `instalador-sin-python3` | terminado | El instalador exige `uv` real (en Windows `uv.exe`) en lugar de `python3` y ejecuta `init` y el smoke test con `sys.executable`; README con `uvx --no-cache` para pruebas locales |
