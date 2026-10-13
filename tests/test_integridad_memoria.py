@@ -21,9 +21,36 @@ SLUG = 'fix-sesiones'
 CLOSED = 'cerrada'
 
 
+
+class FakeStdin:
+    def __init__(self, tty=True):
+        self.tty = tty
+
+    def isatty(self):
+        return self.tty
+
+
+@contextlib.contextmanager
+def human_tty():
+    old = os.environ.pop("CLAUDECODE", None)
+    prev = sys.stdin
+    sys.stdin = FakeStdin(True)
+    try:
+        yield
+    finally:
+        sys.stdin = prev
+        if old is None:
+            os.environ.pop("CLAUDECODE", None)
+        else:
+            os.environ["CLAUDECODE"] = old
+
+
 @unittest.skipUnless(shutil.which('git'), 'git no disponible')
 class MemoryIntegrityTests(unittest.TestCase):
     def setUp(self):
+        self._human_tty_cm = human_tty()
+        self._human_tty_cm.__enter__()
+        self.addCleanup(self._human_tty_cm.__exit__, None, None, None)
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.old_root, self.old_memory = sdd.ROOT, sdd.MEMORY

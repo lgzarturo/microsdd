@@ -25,7 +25,7 @@ sh .microharness/python.sh --version
 sh .microharness/python.sh .microharness/sdd.py --help
 ```
 
-Detalle del lanzador, lista blanca de runners, `min_tests`, sesiones sin rol y límites del MVP: [assets/arnes-completo.md](assets/arnes-completo.md). **No hay workflows de Actions para tests** en este repo; la suite se ejecuta en local.
+Detalle del lanzador, lista blanca de runners, `min_tests`, sesiones sin rol y límites del MVP: [assets/arnes-completo.md](assets/arnes-completo.md). CI: `.github/workflows/tests.yml` (unittest). Detalle de seguridad 1.1.2 (H1–H5): [CHANGELOG](CHANGELOG.md) y [aprobacion-firmada-futuro.md](assets/aprobacion-firmada-futuro.md).
 
 ## 2. Instalación por proyecto
 
@@ -79,6 +79,7 @@ Flujo completo, archivos, máquina de estados y `spec.json`: [assets/arnes-compl
 | [assets/proceso-versionado.md](assets/proceso-versionado.md) | SemVer, API pública, instalación, releases |
 | [assets/decisiones-diseno.md](assets/decisiones-diseno.md) | Decisiones de diseño y fuentes |
 | [assets/eval-esfuerzo.md](assets/eval-esfuerzo.md) | Protocolo medium vs high (no ejecutado) |
+| [assets/aprobacion-firmada-futuro.md](assets/aprobacion-firmada-futuro.md) | Aprobación firmada (futuro; no implementada en 1.1.2) |
 
 ## 5. Licencia
 

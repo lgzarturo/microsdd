@@ -21,8 +21,35 @@ sdd = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(sdd)
 
 
+class FakeStdin:
+    def __init__(self, tty=True):
+        self.tty = tty
+
+    def isatty(self):
+        return self.tty
+
+
+@contextlib.contextmanager
+def human_tty():
+    """approve/seal requieren TTY y ausencia de CLAUDECODE."""
+    old = os.environ.pop('CLAUDECODE', None)
+    prev = sys.stdin
+    sys.stdin = FakeStdin(True)
+    try:
+        yield
+    finally:
+        sys.stdin = prev
+        if old is None:
+            os.environ.pop('CLAUDECODE', None)
+        else:
+            os.environ['CLAUDECODE'] = old
+
+
 class MicroSDDTests(unittest.TestCase):
     def setUp(self):
+        self._human_tty_cm = human_tty()
+        self._human_tty_cm.__enter__()
+        self.addCleanup(self._human_tty_cm.__exit__, None, None, None)
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.old_root, self.old_memory = sdd.ROOT, sdd.MEMORY
@@ -878,9 +905,9 @@ class VersionTests(unittest.TestCase):
         # AC-01: solo lectura del script real.
         result = subprocess.run([sys.executable, str(SCRIPT), '--version'], capture_output=True, text=True,
                                 encoding='utf-8', check=False)
-        self.assertEqual((result.returncode, result.stdout.strip()), (0, 'MicroSDD 1.1.1'))
+        self.assertEqual((result.returncode, result.stdout.strip()), (0, 'MicroSDD 1.1.2'))
         source = SCRIPT.read_text(encoding='utf-8')
-        self.assertEqual(len(re.findall(r"^__version__ = '1\.1\.1'\r?$", source, flags=re.M)), 1)
+        self.assertEqual(len(re.findall(r"^__version__ = '1\.1\.2'\r?$", source, flags=re.M)), 1)
         # AC-03: pyproject.toml replica __version__ (regex: tomllib no existe en 3.10).
         pyproject = (SCRIPT.parents[1] / 'pyproject.toml').read_text(encoding='utf-8')
         declared = re.search(r'^version = "([^"]+)"\r?$', pyproject, flags=re.M)
@@ -1241,6 +1268,9 @@ class MemoryAtomicLockTests(unittest.TestCase):
     """memoria-atomica-lock: dump atómico y lock de las mutaciones de memoria."""
 
     def setUp(self):
+        self._human_tty_cm = human_tty()
+        self._human_tty_cm.__enter__()
+        self.addCleanup(self._human_tty_cm.__exit__, None, None, None)
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.old_root, self.old_memory = sdd.ROOT, sdd.MEMORY

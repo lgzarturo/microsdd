@@ -25,7 +25,7 @@ TASK_FILES = ('spec.json', 'requerimientos.md', 'plan.md', 'tareas.md')
 STATES = ('pendiente', 'proceso', 'terminado')
 SLUG_RE = re.compile(r'^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$')
 COMMIT_RE = re.compile(r'^(feat|fix|docs|test|refactor|perf|chore)(\([a-z0-9][a-z0-9-]*\))?(!)?: [^\n]{1,72}$')
-__version__ = '1.1.1'
+__version__ = '1.1.2'
 SUBJECT_RE = re.compile(r'^([a-z]+)(\([^)]*\))?(!)?: ')
 FINAL_TAG_RE = re.compile(r'^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$')
 LOCK_TIMEOUT = 10.0
@@ -517,9 +517,32 @@ def validate(slug: str, run: bool = False, scope: bool = True) -> list[str]:
     return errors
 
 
+
+
+def require_human_terminal(action: str) -> None:
+    """approve/seal solo en terminal interactiva fuera de Claude Code."""
+    if 'CLAUDECODE' in os.environ or sys.stdin is None or not sys.stdin.isatty():
+        raise ValueError(f'{action} es una decisión humana: ejecútalo tú en una terminal '
+                         'interactiva, fuera de Claude Code.')
+
+
+def _reject_if_memory_corrupt() -> None:
+    """No mutar memory si la integridad vs HEAD ya falla (H2)."""
+    if not MEMORY.is_file():
+        return
+    try:
+        memory = load(MEMORY)
+    except (OSError, ValueError):
+        return
+    errors = memory_integrity(memory)
+    if errors:
+        raise ValueError('Memoria corrupta o alterada; no se escribe: ' + '; '.join(errors))
+
 @memory_lock()
 def approve(slug: str, phase: str, by: str, evidence: str) -> None:
     # Se registra una declaración, no una identidad autenticada. Requiere decisión humana explícita.
+    require_human_terminal('approve')
+    _reject_if_memory_corrupt()
     path, spec, memory = task_files(slug)
     if not by.strip() or not evidence.strip():
         raise ValueError('Se requiere autor de aprobación y texto de evidencia explícita.')
@@ -560,6 +583,7 @@ def approve(slug: str, phase: str, by: str, evidence: str) -> None:
 
 @memory_lock()
 def review(slug: str, verdict: str, evidence: str) -> None:
+    _reject_if_memory_corrupt()
     path, spec, memory = task_files(slug)
     if spec['state'] != 'proceso' or not memory['tasks'][slug]['approvals']['spec']:
         raise ValueError('La tarea no está en proceso con spec aprobada.')
@@ -583,6 +607,7 @@ def review(slug: str, verdict: str, evidence: str) -> None:
 @memory_lock()
 def note(fact: str | None, decision: str | None, by: str | None, evidence: str) -> None:
     # Se registra una declaración, no una identidad autenticada.
+    _reject_if_memory_corrupt()
     if (fact is None) == (decision is None):
         raise ValueError('Indica exactamente uno de --fact o --decision.')
     if decision is not None and by is None:
@@ -606,6 +631,8 @@ def note(fact: str | None, decision: str | None, by: str | None, evidence: str) 
 
 @memory_lock()
 def seal(slug: str, by: str) -> None:
+    require_human_terminal('seal')
+    _reject_if_memory_corrupt()
     _, spec, memory = task_files(slug)
     tests = spec['testing']['protected_tests']
     if not tests:
@@ -698,10 +725,8 @@ def main() -> int:
     rel.add_subparsers(dest='action', required=True).add_parser('propose')
     args = p.parse_args()
     try:
-        if args.command in ('approve', 'seal') and (
-                'CLAUDECODE' in os.environ or sys.stdin is None or not sys.stdin.isatty()):
-            raise ValueError(f'{args.command} es una decisión humana: ejecútalo tú en una terminal '
-                             'interactiva, fuera de Claude Code.')
+        if args.command in ('approve', 'seal'):
+            require_human_terminal(args.command)
         if args.command == 'init': ensure_init()
         elif args.command == 'new': new(args.slug)
         elif args.command == 'check':
