@@ -11,8 +11,8 @@ Formato y reglas: `assets/proceso-versionado.md` (R-04). Entradas derivadas de l
 - `instalador`: `microsdd worktree sync <ruta>` con puerta humana (TTY, sin `CLAUDECODE`); copia arnés y `docs/`; memoria local al worktree; `--with-memory` copia explícita
 - `.microharness/python.ps1` y `.microharness/python.cmd` (Windows); preferencia documentada `python .microharness/sdd.py`
 - `hook`: lanzadores Windows (`python.exe`, `py -3`, `& python`, `python.ps1`, `python.cmd`, `pwsh`/`powershell -File`); mensajes OS-aware
-- `tests`: `tests/test_windows_1113.py`; CI en `windows-latest`
-- `assets/windows-worktrees.md`
+- `tests`: `tests/test_windows_1113.py`
+- `assets/windows-worktrees.md`; plantilla CI matrix en `assets/ci-matrix-windows.yml` (aplicar a `.github/workflows/tests.yml` con permiso `workflow`)
 
 ### Corregido
 - `sdd`: mensaje de lock (`reintenta`); ejemplos OS-aware en `approve`/`seal`
