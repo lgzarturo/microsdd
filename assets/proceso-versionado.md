@@ -11,8 +11,8 @@ Se basa en Semantic Versioning 2.0.0 (https://semver.org/lang/es/) y en Conventi
 ## Estado actual
 
 - Tag `v1.0.0` y release GitHub «MicroSDD 1.0.0» publicados (2026-10-13).
-- Tag `v1.1.2` publicado; el árbol de trabajo prepara `1.1.3`: `CHANGELOG.md` incluye `[1.1.3]`; `.microharness/sdd.py` define `__version__ = '1.1.3'`, replicada en `pyproject.toml`. Windows, PowerShell y worktrees: [windows-worktrees.md](windows-worktrees.md).
-- CI: `.github/workflows/tests.yml` ejecuta `python -m unittest discover -s tests -v` en push a `main` y pull requests.
+- Tag `v1.1.3` y release GitHub «MicroSDD 1.1.3» publicados (2026-10-14): https://github.com/lgzarturo/microsdd/releases/tag/v1.1.3. Historial archivado en `historial/1.1.3/`. Windows, PowerShell y worktrees: [windows-worktrees.md](windows-worktrees.md).
+- CI: `.github/workflows/tests.yml` ejecuta `python -m unittest discover -s tests -v` en push a `main` y pull requests (matriz Ubuntu + Windows).
 
 ## API pública
 
@@ -80,9 +80,11 @@ Mientras la versión mayor sea 0, la API pública puede cambiar. En esta fase, u
 7. El humano aprueba el cierre, el commit y la creación del tag; el líder registra `approve release-vX-Y-Z close`.
 8. El líder valida el mensaje con `commit-check 'chore(release): vX.Y.Z'` y hace el commit atómico con stage explícito (nunca `git add .`).
 9. El líder crea el tag anotado con `git tag -a vX.Y.Z` sobre ese commit y lo muestra con `git show vX.Y.Z`.
-10. Solo con autorización explícita e independiente del humano: `git push origin main` y `git push origin vX.Y.Z`.
+10. Solo con autorización explícita e independiente del humano: `git push origin main` (si el commit de release aún no está remoto) y `git push origin vX.Y.Z`.
 11. Solo con autorización explícita: release de GitHub desde el tag existente, con las notas de la sección correspondiente de `CHANGELOG.md` y marcado como prerelease si es `-rc.N`; lo crea el humano en la interfaz web o el líder con la CLI `gh`, si está disponible y autorizada.
-12. El líder registra en `memory.json` una observación con el tag y el enlace del release.
+12. El líder puede registrar en `memory.json` una observación **temporal** con el tag y el enlace del release (`sdd.py note --fact … --evidence …`). Esa observación no se integra en `main`.
+13. Antes de subir a `main` el cierre del ciclo, se ejecuta `python scripts/limpiar_arnes.py X.Y.Z`: archiva `.microharness/memory.json`, `docs/` y `spec/` en `historial/X.Y.Z/`, elimina los originales y restaura el estado de `sdd.py init` (más `spec/.gitkeep`). El commit de archivado es el que se abre como PR hacia `main`.
+14. **Regla de `main`:** `.microharness/memory.json`, `docs/` y `spec/` versionados en `main` deben quedar en estado de instalación limpia (el de `sdd.py init` tras el limpiador): `memory.json` con `observations`/`decisions`/`tasks` vacíos; cada `docs/*.md` con «Pendiente de inspección»; `spec/` solo `.gitkeep`. El historial de specs y memoria vive en `historial/<versión>/`, no en la raíz activa.
 
 Mientras no exista la herramienta de release, los pasos 3 y 5 se hacen a mano; cuando exista, la tarea de release la usará sin saltarse aprobaciones.
 
