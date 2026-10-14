@@ -113,6 +113,12 @@ def memory_lock():
     lock = MEMORY.parent / 'memory.lock'
     lock.parent.mkdir(parents=True, exist_ok=True)
     with open(lock, 'a+b') as handle:
+        if os.name == 'nt':
+            # msvcrt.locking bloquea el byte 0: el archivo debe tener al menos un byte.
+            handle.seek(0, os.SEEK_END)
+            if handle.tell() < 1:
+                handle.write(b'\0')
+                handle.flush()
         deadline = time.monotonic() + LOCK_TIMEOUT
         while True:
             try:
