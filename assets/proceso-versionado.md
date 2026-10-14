@@ -11,7 +11,7 @@ Se basa en Semantic Versioning 2.0.0 (https://semver.org/lang/es/) y en Conventi
 ## Estado actual
 
 - Tag `v1.0.0` y release GitHub «MicroSDD 1.0.0» publicados (2026-10-13).
-- Tag `v1.1.1` publicado; el árbol de trabajo prepara `1.1.2`: `CHANGELOG.md` incluye `[1.1.2]`; `.microharness/sdd.py` define `__version__ = '1.1.2'`, replicada en `pyproject.toml`.
+- Tag `v1.1.2` publicado; el árbol de trabajo prepara `1.1.3`: `CHANGELOG.md` incluye `[1.1.3]`; `.microharness/sdd.py` define `__version__ = '1.1.3'`, replicada en `pyproject.toml`. Windows, PowerShell y worktrees: [windows-worktrees.md](windows-worktrees.md).
 - CI: `.github/workflows/tests.yml` ejecuta `python -m unittest discover -s tests -v` en push a `main` y pull requests.
 
 ## API pública
