@@ -137,6 +137,8 @@ Programador -> LÍDER -> AUTOR -> spec/...
 
 Desde 1.1.2 la puerta TTY/`CLAUDECODE` vive dentro de `approve`/`seal` (no solo en `main`), los mutadores rechazan memoria ya corrupta frente a `HEAD`, el líder solo escribe `~/.claude/plans/*.md` en la raíz, y las cadenas Bash que mezclan lectura de settings/protegidos con otro comando se deniegan. Firmas criptográficas: ver [aprobacion-firmada-futuro.md](aprobacion-firmada-futuro.md).
 
+Desde 1.1.3 hay lanzadores para Windows (`.microharness/python.ps1` para PowerShell y `.microharness/python.cmd` para cmd.exe), los mensajes de `approve`/`seal` sugieren el comando según el sistema operativo y `microsdd worktree sync` prepara worktrees sin compartir `memory.json`: ver [windows-worktrees.md](windows-worktrees.md).
+
 Los agentes leen la memoria con la herramienta Read (o Grep/Glob), no con `cat`. El hook es una heurística de texto (best effort): no detecta ofuscación ni scripts cuyo comando no nombra esas rutas; lo complementan la comprobación `CLAUDECODE`/TTY y la integridad de la memoria frente a `HEAD`. Bajo mintty (Git Bash en Windows), Python nativo puede no ver stdin como TTY: usa Windows Terminal, PowerShell o `winpty`.
 
 ## Ciclo operativo por tarea
