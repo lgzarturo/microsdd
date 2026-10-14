@@ -13,6 +13,18 @@ from datetime import datetime, timezone
 from importlib import metadata
 from pathlib import Path
 
+import importlib.util
+
+try:
+    from microsdd.worktree import worktree_sync
+except ImportError:  # carga directa del archivo (p. ej. tests/test_installer.py)
+    _wt = Path(__file__).resolve().parent / 'worktree.py'
+    _spec = importlib.util.spec_from_file_location('_microsdd_worktree', _wt)
+    _mod = importlib.util.module_from_spec(_spec)
+    assert _spec.loader is not None
+    _spec.loader.exec_module(_mod)
+    worktree_sync = _mod.worktree_sync
+
 NAME = 'MicroSDD for Claude Opus 5.5'
 PAYLOAD = Path(__file__).resolve().parent / 'payload'
 # Única fuente del manifiesto: ruta en el payload -> ruta en el destino.
@@ -26,6 +38,8 @@ MANIFEST = {
     '.claude/skills/sdd/SKILL.md': '.claude/skills/sdd/SKILL.md',
     '.microharness/sdd.py': '.microharness/sdd.py',
     '.microharness/python.sh': '.microharness/python.sh',
+    '.microharness/python.ps1': '.microharness/python.ps1',
+    '.microharness/python.cmd': '.microharness/python.cmd',
     'CLAUDE.md': 'CLAUDE.microsdd.md',
     '.claude/settings.json': '.claude/settings.json',
 }
@@ -91,7 +105,6 @@ def remediation(problem: str) -> str:
 def check_uv(uv: list[str] | None) -> str | None:
     if uv is None:
         search = filter_path(os.environ.get('PATH', ''), sys.prefix, sys.base_prefix)
-        # En Windows solo uv.exe, como lo exige la forma exec: se ignoran shims .cmd/.bat.
         found = shutil.which('uv.exe' if sys.platform == 'win32' else 'uv', path=search)
         if not found:
             return remediation('no se encontró uv en el PATH')
@@ -140,7 +153,6 @@ def registry_block(existing: bytes | None, agents: bool) -> bytes:
 
 
 def load_settings(path: Path) -> dict | None:
-    """Contenido validado de settings.json; None si no existe. ValueError si no se puede fusionar."""
     if not path.is_file():
         return None
     try:
@@ -161,9 +173,7 @@ def dump_json(data: dict) -> bytes:
     return (json.dumps(data, indent=2, ensure_ascii=False) + '\n').encode('utf-8')
 
 
-
 def load_settings_local(path: Path) -> dict | None:
-    """JSON de settings.local.json; None si no existe. ValueError si invalido."""
     if not path.is_file():
         return None
     try:
@@ -176,7 +186,6 @@ def load_settings_local(path: Path) -> dict | None:
 
 
 def merge_settings_local(current: dict | None) -> tuple[dict, list[str]]:
-    """Fusiona solo claves faltantes de SETTINGS_LOCAL_DEFAULTS. Devuelve (nuevo, claves_añadidas)."""
     new = {} if current is None else copy.deepcopy(current)
     added = []
     for key, value in SETTINGS_LOCAL_DEFAULTS.items():
@@ -185,16 +194,15 @@ def merge_settings_local(current: dict | None) -> tuple[dict, list[str]]:
             added.append(key)
     return new, added
 
+
 def fingerprint(entry) -> str:
     return hashlib.sha256(json.dumps(entry, sort_keys=True).encode('utf-8')).hexdigest()
 
 
 def merge(current: dict, payload: dict) -> tuple[dict, dict]:
-    """Aplica agent, model, effortLevel y la entrada PreToolUse del payload. Devuelve (nuevo, registro)."""
     new = copy.deepcopy(current)
     keys = {}
     for key in MERGE_KEYS:
-        # agent solo existe por MicroSDD: aunque ya valga lider, off debe quitarlo.
         if key not in new or (key == 'agent' and new[key] == payload[key]):
             keys[key] = {'previous_absent': True}
         elif new[key] != payload[key]:
@@ -208,7 +216,6 @@ def merge(current: dict, payload: dict) -> tuple[dict, dict]:
 
 
 def unmerge(current: dict, record: dict) -> dict:
-    """Quita o restaura lo registrado por merge(); lo ajeno queda igual."""
     new = copy.deepcopy(current)
     for key, info in record.get('keys', {}).items():
         if info.get('previous_absent'):
@@ -290,8 +297,8 @@ def install_record(actions, previous: dict | None, applied: dict, claude_before:
             "settings_local": settings_local,
             "claude_md": claude_md}
 
+
 def plan(source: Path, target: Path, force: bool) -> list[tuple[str, str, Path | None, bytes | None]]:
-    """Clasifica cada entrada sin escribir. ValueError si .claude/settings.json no se puede fusionar."""
     actions = []
     for src, dst in MANIFEST.items():
         data = (source / src).read_bytes()
@@ -414,7 +421,6 @@ def install(source: Path, target: Path, *, uv: list[str] | None, home: Path,
 
 
 def toggle(source: Path, target: Path, enable: bool) -> int:
-    """on/off: aplica o retira de .claude/settings.json lo registrado en el manifiesto."""
     target = Path(target)
     path = target / SETTINGS
     try:
@@ -443,7 +449,6 @@ def toggle(source: Path, target: Path, enable: bool) -> int:
 
 
 def status(source: Path, target: Path) -> int:
-    """Solo lectura: activo, inactivo o parcial según el contenido real de .claude/settings.json."""
     try:
         current = load_settings(Path(target) / SETTINGS) or {}
     except ValueError as err:
@@ -487,7 +492,6 @@ def restore_claude_md(target: Path, info: dict | None) -> None:
 
 
 def uninstall(source: Path, target: Path, force: bool = False) -> int:
-    """Quita lo que instaló MicroSDD según el manifiesto; conserva docs/, spec/, memory.json y lo ajeno."""
     target = Path(target)
     settings = target / SETTINGS
     try:
@@ -575,10 +579,25 @@ def main(argv: list[str] | None = None) -> int:
                        ('off', f'Retira MicroSDD de {SETTINGS} (solo el humano).'),
                        ('status', f'Informa si MicroSDD está activo, inactivo o parcial en {SETTINGS}.')):
         sub.add_parser(name, help=text).add_argument('--target', default='.', help=target_help)
+    wt = sub.add_parser('worktree', help='Sincroniza arnés y docs hacia un git worktree (solo el humano).')
+    wt_sub = wt.add_subparsers(dest='worktree_command', required=True)
+    sync = wt_sub.add_parser('sync', help='Copia lanzadores, sdd.py y docs/ al worktree.')
+    sync.add_argument('ruta', help='Raíz del worktree destino.')
+    sync.add_argument('--source', default='.', help='Checkout origen con .microharness/ y docs/.')
+    sync.add_argument('--with-memory', action='store_true',
+                      help='Copia .microharness/memory.json del origen (copia; nunca symlink).')
     args = parser.parse_args(argv)
     if args.command == 'install':
         return install(PAYLOAD, Path(args.target), uv=None, home=Path.home(),
                        force=args.force, dry_run=args.dry_run)
+    if args.command == 'worktree':
+        if args.worktree_command != 'sync':
+            parser.error('subcomando worktree no reconocido')
+        error = human_gate('worktree sync')
+        if error:
+            print(error)
+            return 1
+        return worktree_sync(Path(args.source), Path(args.ruta), with_memory=args.with_memory)
     if args.command != 'status':
         error = human_gate(args.command)
         if error:

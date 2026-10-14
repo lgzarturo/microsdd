@@ -25,7 +25,7 @@ TASK_FILES = ('spec.json', 'requerimientos.md', 'plan.md', 'tareas.md')
 STATES = ('pendiente', 'proceso', 'terminado')
 SLUG_RE = re.compile(r'^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$')
 COMMIT_RE = re.compile(r'^(feat|fix|docs|test|refactor|perf|chore)(\([a-z0-9][a-z0-9-]*\))?(!)?: [^\n]{1,72}$')
-__version__ = '1.1.2'
+__version__ = '1.1.3'
 SUBJECT_RE = re.compile(r'^([a-z]+)(\([^)]*\))?(!)?: ')
 FINAL_TAG_RE = re.compile(r'^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$')
 LOCK_TIMEOUT = 10.0
@@ -57,6 +57,12 @@ INTEGRITY_FIELDS = (
     (('review_fingerprint',), ('revisión', 'aprobación_spec')),
     (('iterations',), ('revisión', 'aprobación_spec')),
 )
+
+
+def _example_sdd_command(suffix: str) -> str:
+    if os.name == 'nt':
+        return f'python .microharness\\sdd.py {suffix}'
+    return f'sh .microharness/python.sh .microharness/sdd.py {suffix}'
 
 
 def dump(path: Path, data: dict) -> None:
@@ -522,8 +528,15 @@ def validate(slug: str, run: bool = False, scope: bool = True) -> list[str]:
 def require_human_terminal(action: str) -> None:
     """approve/seal solo en terminal interactiva fuera de Claude Code."""
     if 'CLAUDECODE' in os.environ or sys.stdin is None or not sys.stdin.isatty():
+        if action == 'seal':
+            suffix = 'seal <slug> --by <nombre>'
+        elif action == 'approve':
+            suffix = 'approve <slug> spec --by <nombre> --evidence <texto>'
+        else:
+            suffix = '<subcomando>'
+        hint = _example_sdd_command(suffix)
         raise ValueError(f'{action} es una decisión humana: ejecútalo tú en una terminal '
-                         'interactiva, fuera de Claude Code.')
+                         f'interactiva, fuera de Claude Code (p. ej. {hint}).')
 
 
 def _reject_if_memory_corrupt() -> None:

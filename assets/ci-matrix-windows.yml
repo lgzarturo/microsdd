@@ -1,0 +1,22 @@
+# Copiar a .github/workflows/tests.yml (requiere permiso `workflow` en el token).
+# Objetivo 1.1.3: unittest en ubuntu-latest y windows-latest.
+name: tests
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  unittest:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v5
+      - name: Run tests
+        run: python -m unittest discover -s tests -v
