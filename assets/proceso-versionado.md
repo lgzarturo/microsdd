@@ -103,6 +103,8 @@ Copiados desde `MANIFEST`:
 - `.claude/settings.json` (creado o fusionado)
 - `.microharness/sdd.py`
 - `.microharness/python.sh`
+- `.microharness/python.ps1`
+- `.microharness/python.cmd`
 - `CLAUDE.microsdd.md` (copia de `CLAUDE.md` del arnés)
 - `CLAUDE.md` (bloque de registro anexado o archivo nuevo)
 
