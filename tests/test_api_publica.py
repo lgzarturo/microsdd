@@ -1,4 +1,5 @@
 import importlib.util
+import os
 import re
 import subprocess
 import sys
@@ -25,8 +26,10 @@ def between(text, start, end):
 
 
 def help_text(*args):
+    # En Windows la tubería usa la página de códigos ANSI salvo que se pida UTF-8.
+    env = {**os.environ, 'PYTHONIOENCODING': 'utf-8'}
     out = subprocess.run([sys.executable, str(SDD), *args, '--help'],
-                         capture_output=True, text=True, encoding='utf-8', check=True)
+                         capture_output=True, text=True, encoding='utf-8', check=True, env=env)
     return out.stdout
 
 
