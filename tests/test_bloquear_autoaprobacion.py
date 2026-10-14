@@ -28,7 +28,7 @@ UV_VARIANTS = ("uv run --no-project --quiet --python '>=3.10'",
                'uv run --no-project --python ">=3.10"',
                'uv run --no-project --python 3.12')
 APPROVE_ARGS = ('approve x spec --by P --evidence ok', 'approve x close --by P --evidence ok',
-                'seal x --by P')
+                'seal x --by P --evidence ok', 'allow-test-command custom --evidence ok')
 
 
 def load(name, path):
@@ -44,7 +44,7 @@ def shell_event(agent, tool, command):
 
 def bypass_commands():
     commands = []
-    for args in ('approve x spec --by P --evidence ok', 'seal x --by P'):
+    for args in ('approve x spec --by P --evidence ok', 'seal x --by P --evidence ok'):
         commands += [
             f'python3 ./{SDD} {args}',
             f'python3 {REPO / SDD} {args}',
@@ -151,7 +151,7 @@ class ShellPolicyTests(unittest.TestCase):
 
     def test_ac05_reviewer_cannot_approve_seal_review_or_note(self):
         launcher = f'sh .microharness/python.sh {SDD}'
-        for args in ('approve x spec --by P --evidence ok', 'seal x --by P',
+        for args in ('approve x spec --by P --evidence ok', 'seal x --by P --evidence ok',
                      'review x APROBADO --evidence ok', 'note --fact F --evidence E'):
             for tool in SHELLS:
                 with self.subTest(tool=tool, args=args):
@@ -244,7 +244,7 @@ class FakeStdin:
 
 class MainTtyTests(unittest.TestCase):
     CASES = ((['approve', 'x', 'spec', '--by', 'P', '--evidence', 'ok'], 'approve', ('x', 'spec', 'P', 'ok')),
-             (['seal', 'x', '--by', 'P'], 'seal', ('x', 'P')))
+             (['seal', 'x', '--by', 'P', '--evidence', 'ok'], 'seal', ('x', 'P', 'ok')))
 
     def setUp(self):
         self.sdd = load('micro_sdd_autoaprobacion', SCRIPT)
@@ -299,7 +299,7 @@ class MainTtyTests(unittest.TestCase):
         with mock.patch.object(self.sdd, 'note') as fn:
             code, err = self.run_main(['note', '--fact', 'F', '--evidence', 'E'], env, stdin)
             self.assertEqual(code, 0, err)
-            fn.assert_called_once_with('F', None, None, 'E')
+            fn.assert_called_once_with('F', None, None, 'E', None, None)
         with mock.patch.object(self.sdd, 'validate', return_value=[]) as fn:
             code, err = self.run_main(['check', 'x'], env, stdin)
             self.assertEqual(code, 0, err)

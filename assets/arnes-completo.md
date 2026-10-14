@@ -137,6 +137,9 @@ Programador -> LÍDER -> AUTOR -> spec/...
 
 Desde 1.1.2 la puerta TTY/`CLAUDECODE` vive dentro de `approve`/`seal` (no solo en `main`), los mutadores rechazan memoria ya corrupta frente a `HEAD`, el líder solo escribe `~/.claude/plans/*.md` en la raíz, y las cadenas Bash que mezclan lectura de settings/protegidos con otro comando se deniegan. Firmas criptográficas: ver [aprobacion-firmada-futuro.md](aprobacion-firmada-futuro.md).
 
+
+**agent_may_approve (1.2.0):** clave booleana en `.microharness/config.json` (default **true** si falta). Con `true`, el líder registra la cita humana `note --fact … --evidence '<cita>' --for-task <slug> --for-phase spec|close|seal|allow-test` y consume con `approve`/`seal`/`allow-test-command … --evidence @note:<id>` sin TTY (nota sin usar, misma tarea/fase, edad ≤ 30 min / `NOTE_EVIDENCE_MAX_AGE_S = 1800`). El hook solo permite esos subcomandos si el comando incluye `--evidence @note:<id>`. Con `false`, modo estricto (TTY + hook deniega). MicroSDD no verifica que un humano escribió la frase.
+
 Desde 1.1.3 hay lanzadores para Windows (`.microharness/python.ps1` para PowerShell y `.microharness/python.cmd` para cmd.exe), los mensajes de `approve`/`seal` sugieren el comando según el sistema operativo y `microsdd worktree sync` prepara worktrees sin compartir `memory.json`: ver [windows-worktrees.md](windows-worktrees.md).
 
 Los agentes leen la memoria con la herramienta Read (o Grep/Glob), no con `cat`. El hook es una heurística de texto (best effort): no detecta ofuscación ni scripts cuyo comando no nombra esas rutas; lo complementan la comprobación `CLAUDECODE`/TTY y la integridad de la memoria frente a `HEAD`. Bajo mintty (Git Bash en Windows), Python nativo puede no ver stdin como TTY: usa Windows Terminal, PowerShell o `winpty`.
@@ -158,7 +161,7 @@ sh .microharness/python.sh .microharness/sdd.py approve corregir-sesion spec \
 
 # El implementador escribe y ejecuta pruebas y código.
 # Opcional, HUMANO en su terminal: tras revisar las pruebas base, fija su SHA-256.
-sh .microharness/python.sh .microharness/sdd.py seal corregir-sesion --by 'Programador'
+sh .microharness/python.sh .microharness/sdd.py seal corregir-sesion --by 'Programador' --evidence 'Tests revisados'
 
 # El revisor comprueba límites, integridad, comandos y criterios
 sh .microharness/python.sh .microharness/sdd.py check corregir-sesion --run

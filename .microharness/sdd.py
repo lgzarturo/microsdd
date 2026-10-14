@@ -25,13 +25,17 @@ TASK_FILES = ('spec.json', 'requerimientos.md', 'plan.md', 'tareas.md')
 STATES = ('pendiente', 'proceso', 'terminado')
 SLUG_RE = re.compile(r'^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$')
 COMMIT_RE = re.compile(r'^(feat|fix|docs|test|refactor|perf|chore)(\([a-z0-9][a-z0-9-]*\))?(!)?: [^\n]{1,72}$')
-__version__ = '1.1.3'
+__version__ = '1.2.0'
 SUBJECT_RE = re.compile(r'^([a-z]+)(\([^)]*\))?(!)?: ')
 FINAL_TAG_RE = re.compile(r'^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$')
 LOCK_TIMEOUT = 10.0
 DEFAULT_MODEL = 'claude-opus-5-5'
 DEFAULT_EFFORT = 'medium'
 EFFORTS = ('low', 'medium', 'high', 'xhigh', 'max')
+NOTE_EVIDENCE_MAX_AGE_S = 1800
+NOTE_REF_RE = re.compile(r'^@note:([a-zA-Z0-9_-]+)$')
+NOTE_IN_CMD_RE = re.compile(r'@note:[a-zA-Z0-9_-]+')
+NOTE_PHASES = ('spec', 'close', 'seal', 'allow-test')
 _LOCK_DEPTH = 0
 # Resúmenes de runners: unittest, pytest, bun y Maven (se usa la última coincidencia de cada uno).
 TEST_COUNT_RES = (
@@ -165,7 +169,7 @@ def task_files(slug: str) -> tuple[Path, dict, dict]:
 def config() -> dict:
     # Configuración humana opcional junto a memory.json; solo lectura.
     path = MEMORY.parent / 'config.json'
-    cfg = {'model': DEFAULT_MODEL, 'effort': DEFAULT_EFFORT}
+    cfg = {'model': DEFAULT_MODEL, 'effort': DEFAULT_EFFORT, 'agent_may_approve': True}
     if not path.exists():
         return cfg
     try:
@@ -181,6 +185,8 @@ def config() -> dict:
         raise ValueError('.microharness/config.json: model debe ser una cadena no vacía')
     if 'effort' in data and data['effort'] not in EFFORTS:
         raise ValueError(f'.microharness/config.json: effort debe ser uno de: {", ".join(EFFORTS)}')
+    if 'agent_may_approve' in data and not isinstance(data['agent_may_approve'], bool):
+        raise ValueError('.microharness/config.json: agent_may_approve debe ser un booleano')
     cfg.update(data)
     return cfg
 
@@ -532,17 +538,76 @@ def validate(slug: str, run: bool = False, scope: bool = True) -> list[str]:
 
 
 def require_human_terminal(action: str) -> None:
-    """approve/seal solo en terminal interactiva fuera de Claude Code."""
+    """approve/seal/allow-test-command solo en terminal interactiva fuera de Claude Code."""
     if 'CLAUDECODE' in os.environ or sys.stdin is None or not sys.stdin.isatty():
         if action == 'seal':
-            suffix = 'seal <slug> --by <nombre>'
+            suffix = 'seal <slug> --by <nombre> --evidence <texto|@note:id>'
         elif action == 'approve':
-            suffix = 'approve <slug> spec --by <nombre> --evidence <texto>'
+            suffix = 'approve <slug> spec --by <nombre> --evidence <texto|@note:id>'
+        elif action == 'allow-test-command':
+            suffix = 'allow-test-command <token>... --evidence @note:<id>'
         else:
             suffix = '<subcomando>'
         hint = _example_sdd_command(suffix)
         raise ValueError(f'{action} es una decisión humana: ejecútalo tú en una terminal '
                          f'interactiva, fuera de Claude Code (p. ej. {hint}).')
+
+
+def note_ref_id(evidence: str) -> str | None:
+    m = NOTE_REF_RE.fullmatch((evidence or '').strip())
+    return m.group(1) if m else None
+
+
+def agent_may_approve_enabled() -> bool:
+    return bool(config().get('agent_may_approve', True))
+
+
+def maybe_require_human_terminal(action: str, evidence: str) -> None:
+    if agent_may_approve_enabled() and note_ref_id(evidence):
+        return
+    require_human_terminal(action)
+
+
+def next_note_id(observations: list) -> str:
+    max_n = 0
+    for obs in observations:
+        if not isinstance(obs, dict):
+            continue
+        oid = obs.get('id')
+        if isinstance(oid, str) and re.fullmatch(r'n[1-9][0-9]*', oid):
+            max_n = max(max_n, int(oid[1:]))
+    return f'n{max_n + 1}'
+
+
+def consume_note(memory: dict, note_id: str, for_phase: str, for_task: str | None = None) -> dict:
+    project = memory.get('project', {})
+    observations = project.get('observations', []) if isinstance(project, dict) else []
+    if not isinstance(observations, list):
+        raise ValueError(f'Nota {note_id} no existe.')
+    target = None
+    for obs in observations:
+        if isinstance(obs, dict) and obs.get('id') == note_id:
+            target = obs
+            break
+    if target is None:
+        raise ValueError(f'Nota {note_id} no existe.')
+    if target.get('used_at') is not None:
+        raise ValueError(f'Nota {note_id} ya fue consumida.')
+    if target.get('for_phase') != for_phase:
+        raise ValueError(f'Nota {note_id} no corresponde a la fase {for_phase}.')
+    if for_task is not None and target.get('for_task') != for_task:
+        raise ValueError(f'Nota {note_id} no corresponde a la tarea {for_task}.')
+    try:
+        created = datetime.fromisoformat(target['at'])
+    except (KeyError, TypeError, ValueError):
+        raise ValueError(f'Nota {note_id} sin marca de tiempo válida.') from None
+    if created.tzinfo is None:
+        created = created.replace(tzinfo=timezone.utc)
+    age = (datetime.now(timezone.utc) - created).total_seconds()
+    if age > NOTE_EVIDENCE_MAX_AGE_S:
+        raise ValueError(f'Nota {note_id} expirada (máx. {NOTE_EVIDENCE_MAX_AGE_S} s).')
+    target['used_at'] = now()
+    return target
 
 
 def _reject_if_memory_corrupt() -> None:
@@ -557,10 +622,11 @@ def _reject_if_memory_corrupt() -> None:
     if errors:
         raise ValueError('Memoria corrupta o alterada; no se escribe: ' + '; '.join(errors))
 
+
 @memory_lock()
 def approve(slug: str, phase: str, by: str, evidence: str) -> None:
     # Se registra una declaración, no una identidad autenticada. Requiere decisión humana explícita.
-    require_human_terminal('approve')
+    maybe_require_human_terminal('approve', evidence)
     _reject_if_memory_corrupt()
     path, spec, memory = task_files(slug)
     if not by.strip() or not evidence.strip():
@@ -583,6 +649,9 @@ def approve(slug: str, phase: str, by: str, evidence: str) -> None:
         failures = validate(slug, run=True)
         if failures:
             raise ValueError('Puerta de calidad fallida: ' + '; '.join(failures))
+    note_id = note_ref_id(evidence)
+    if note_id and agent_may_approve_enabled():
+        consume_note(memory, note_id, for_phase=phase, for_task=slug)
     memory['tasks'][slug]['approvals'][phase] = {'by': by, 'evidence': evidence, 'at': now()}
     if phase == 'spec':
         memory['tasks'][slug]['approvals'][phase]['fingerprint'] = spec_fingerprint(path, spec)
@@ -624,7 +693,8 @@ def review(slug: str, verdict: str, evidence: str) -> None:
 
 
 @memory_lock()
-def note(fact: str | None, decision: str | None, by: str | None, evidence: str) -> None:
+def note(fact: str | None, decision: str | None, by: str | None, evidence: str,
+         for_task: str | None = None, for_phase: str | None = None) -> None:
     # Se registra una declaración, no una identidad autenticada.
     _reject_if_memory_corrupt()
     if (fact is None) == (decision is None):
@@ -633,6 +703,15 @@ def note(fact: str | None, decision: str | None, by: str | None, evidence: str) 
         raise ValueError('--decision requiere --by.')
     if fact is not None and by is not None:
         raise ValueError('--by solo se admite con --decision.')
+    if (for_task is None) != (for_phase is None):
+        raise ValueError('Indica --for-task y --for-phase juntos, o ninguno.')
+    if for_phase is not None and for_phase not in NOTE_PHASES:
+        raise ValueError(f'for_phase debe ser uno de: {", ".join(NOTE_PHASES)}')
+    if for_task is not None:
+        if fact is None:
+            raise ValueError('--for-task/--for-phase solo se admiten con --fact.')
+        if not SLUG_RE.fullmatch(for_task):
+            raise ValueError('Slug inválido: usa minúsculas, números y guiones; empieza con letra.')
     if any(not text.strip() for text in (fact, decision, by, evidence) if text is not None):
         raise ValueError('Los textos de la nota no pueden estar vacíos.')
     if not MEMORY.exists():
@@ -640,7 +719,16 @@ def note(fact: str | None, decision: str | None, by: str | None, evidence: str) 
     memory = load(MEMORY)
     project = memory.setdefault('project', {})
     if fact is not None:
-        project.setdefault('observations', []).append({'at': now(), 'fact': fact, 'evidence': evidence})
+        observations = project.setdefault('observations', [])
+        entry = {'at': now(), 'fact': fact, 'evidence': evidence}
+        if for_task is not None:
+            note_id = next_note_id(observations)
+            entry.update({'id': note_id, 'for_task': for_task, 'for_phase': for_phase, 'used_at': None})
+            observations.append(entry)
+            dump(MEMORY, memory)
+            print(f'Nota registrada: {note_id}')
+            return
+        observations.append(entry)
     else:
         project.setdefault('decisions', []).append({'at': now(), 'by': by, 'decision': decision, 'evidence': evidence})
     dump(MEMORY, memory)
@@ -649,15 +737,18 @@ def note(fact: str | None, decision: str | None, by: str | None, evidence: str) 
 
 
 @memory_lock()
-def seal(slug: str, by: str) -> None:
-    require_human_terminal('seal')
+def seal(slug: str, by: str, evidence: str) -> None:
+    maybe_require_human_terminal('seal', evidence)
     _reject_if_memory_corrupt()
     _, spec, memory = task_files(slug)
     tests = spec['testing']['protected_tests']
     if not tests:
         raise ValueError('No hay testing.protected_tests; selecciona pruebas concretas.')
-    if not by.strip():
-        raise ValueError('Se requiere identificación declarada del humano que revisó las pruebas.')
+    if not by.strip() or not evidence.strip():
+        raise ValueError('Se requiere identificación declarada y texto de evidencia explícita.')
+    note_id = note_ref_id(evidence)
+    if note_id and agent_may_approve_enabled():
+        consume_note(memory, note_id, for_phase='seal', for_task=slug)
     hashes: dict[str, str] = {}
     for test in tests:
         relative = normalized_rel(test)
@@ -666,9 +757,31 @@ def seal(slug: str, by: str) -> None:
             raise ValueError(f'No existe test seguro: {relative}')
         hashes[relative] = hash_file(target)
     memory['tasks'][slug]['sealed_tests'] = hashes
-    memory['tasks'][slug]['events'].append({'at': now(), 'event': 'sellado_tests', 'by': by, 'files': list(hashes)})
+    memory['tasks'][slug]['events'].append(
+        {'at': now(), 'event': 'sellado_tests', 'by': by, 'evidence': evidence, 'files': list(hashes)})
     dump(MEMORY, memory)
     print(f'{len(hashes)} pruebas selladas. Versiona memory.json y conserva baseline Git protegido.')
+
+
+@memory_lock()
+def allow_test_command(tokens: list[str], evidence: str) -> None:
+    maybe_require_human_terminal('allow-test-command', evidence)
+    _reject_if_memory_corrupt()
+    if not tokens or any(not isinstance(t, str) or not t.strip() for t in tokens):
+        raise ValueError('Se requiere al menos un token no vacío.')
+    if not MEMORY.exists():
+        ensure_init()
+    memory = load(MEMORY)
+    note_id = note_ref_id(evidence)
+    if note_id and agent_may_approve_enabled():
+        consume_note(memory, note_id, for_phase='allow-test', for_task=None)
+    project = memory.setdefault('project', {})
+    allowed = project.setdefault('allowed_test_commands', [])
+    if not isinstance(allowed, list):
+        raise ValueError('project.allowed_test_commands inválido')
+    allowed.append([t.strip() for t in tokens])
+    dump(MEMORY, memory)
+    print(f'Prefijo autorizado en allowed_test_commands: {[t.strip() for t in tokens]}')
 
 
 def commit_check(message: str) -> None:
@@ -737,15 +850,16 @@ def main() -> int:
     check = sub.add_parser('check'); check.add_argument('slug'); check.add_argument('--run', action='store_true'); check.add_argument('--no-scope', action='store_true')
     ap = sub.add_parser('approve'); ap.add_argument('slug'); ap.add_argument('phase', choices=('spec', 'close')); ap.add_argument('--by', required=True); ap.add_argument('--evidence', required=True)
     rev = sub.add_parser('review'); rev.add_argument('slug'); rev.add_argument('verdict', choices=('APROBADO', 'RECHAZADO')); rev.add_argument('--evidence', required=True)
-    se = sub.add_parser('seal'); se.add_argument('slug'); se.add_argument('--by', required=True)
-    no = sub.add_parser('note'); no.add_argument('--fact'); no.add_argument('--decision'); no.add_argument('--by'); no.add_argument('--evidence', required=True)
+    se = sub.add_parser('seal'); se.add_argument('slug'); se.add_argument('--by', required=True); se.add_argument('--evidence', required=True)
+    no = sub.add_parser('note'); no.add_argument('--fact'); no.add_argument('--decision'); no.add_argument('--by'); no.add_argument('--evidence', required=True); no.add_argument('--for-task'); no.add_argument('--for-phase', choices=NOTE_PHASES)
+    atc = sub.add_parser('allow-test-command'); atc.add_argument('tokens', nargs='+'); atc.add_argument('--evidence', required=True)
     sub.add_parser('commit-check').add_argument('message')
     rel = sub.add_parser('release')
     rel.add_subparsers(dest='action', required=True).add_parser('propose')
     args = p.parse_args()
     try:
-        if args.command in ('approve', 'seal'):
-            require_human_terminal(args.command)
+        if args.command in ('approve', 'seal', 'allow-test-command'):
+            maybe_require_human_terminal(args.command, getattr(args, 'evidence', '') or '')
         if args.command == 'init': ensure_init()
         elif args.command == 'new': new(args.slug)
         elif args.command == 'check':
@@ -756,8 +870,9 @@ def main() -> int:
             print('OK: spec, alcance, hashes y' + (' ejecución de pruebas.' if args.run else ' estructura.'))
         elif args.command == 'approve': approve(args.slug, args.phase, args.by, args.evidence)
         elif args.command == 'review': review(args.slug, args.verdict, args.evidence)
-        elif args.command == 'seal': seal(args.slug, args.by)
-        elif args.command == 'note': note(args.fact, args.decision, args.by, args.evidence)
+        elif args.command == 'seal': seal(args.slug, args.by, args.evidence)
+        elif args.command == 'note': note(args.fact, args.decision, args.by, args.evidence, args.for_task, args.for_phase)
+        elif args.command == 'allow-test-command': allow_test_command(args.tokens, args.evidence)
         elif args.command == 'commit-check': commit_check(args.message)
         elif args.command == 'release': release_propose()
         return 0

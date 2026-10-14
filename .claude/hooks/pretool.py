@@ -9,6 +9,8 @@ from pathlib import Path, PurePosixPath
 
 
 PROTECTED_RE = re.compile(r'microharness|memory\.json|sdd\.py', re.I)
+NOTE_EVIDENCE_CMD_RE = re.compile(r'--evidence\s+@note:[a-zA-Z0-9_-]+')
+GATED_SUBCOMMANDS = ('approve', 'seal', 'allow-test-command')
 SDD_ALLOWED = ('init', 'new', 'check', 'review', 'commit-check', 'note', 'release', '--version', '--help')
 LAUNCHERS = (
     ['sh', '.microharness/python.sh'],
@@ -75,6 +77,30 @@ def msg_chain() -> str:
 def msg_unparseable() -> str:
     return ('Comando no analizable con seguridad (comillas desbalanceadas, operadores, $, '
             'backticks o escapes). Reformúlalo sin sustituciones ni operadores; ' + msg_approve())
+
+
+def agent_may_approve(cwd: str | None) -> bool:
+    path = Path(cwd or '.').resolve() / '.microharness' / 'config.json'
+    if not path.is_file():
+        return True
+    try:
+        data = json.loads(path.read_text(encoding='utf-8'))
+    except (OSError, ValueError, TypeError):
+        return True
+    if not isinstance(data, dict):
+        return True
+    val = data.get('agent_may_approve', True)
+    return val if isinstance(val, bool) else True
+
+
+def gated_with_note_evidence(cmd: str) -> bool:
+    return bool(NOTE_EVIDENCE_CMD_RE.search(cmd))
+
+
+def deny_or_allow_gated(cmd: str, cwd: str | None) -> str | None:
+    if agent_may_approve(cwd) and gated_with_note_evidence(cmd):
+        return None
+    return msg_approve()
 
 
 MSG_TOGGLE = ('microsdd on|off|uninstall solo lo ejecuta el humano en su terminal fuera de Claude Code.')
@@ -329,7 +355,7 @@ def docs_or_spec_py_execution(toks: list[str]) -> bool:
     return False
 
 
-def guard_segment(cmd: str) -> str | None:
+def guard_segment(cmd: str, cwd: str | None = None) -> str | None:
     cmd = normalize_shell_cmd(cmd)
     toks = tokens(cmd)
     if toks is not None and docs_or_spec_py_execution(toks):
@@ -349,12 +375,12 @@ def guard_segment(cmd: str) -> str | None:
     if PROTECTED_RE.search(cmd):
         if toks is not None:
             sub = find_sdd_subcommand(toks)
-            if sub in ('approve', 'seal'):
-                return msg_approve()
+            if sub in GATED_SUBCOMMANDS:
+                return deny_or_allow_gated(cmd, cwd)
             args = sdd_args(toks)
             if args is not None:
-                if args and args[0] in ('approve', 'seal'):
-                    return msg_approve()
+                if args and args[0] in GATED_SUBCOMMANDS:
+                    return deny_or_allow_gated(cmd, cwd)
                 if args and args[0] in SDD_ALLOWED:
                     return None
                 return msg_protected()
@@ -365,7 +391,7 @@ def guard_segment(cmd: str) -> str | None:
     return None
 
 
-def check_shell(cmd: str) -> str | None:
+def check_shell(cmd: str, cwd: str | None = None) -> str | None:
     cmd = normalize_shell_cmd(cmd)
     segments = split_segments(cmd)
     if segments is None:
@@ -374,7 +400,7 @@ def check_shell(cmd: str) -> str | None:
         return None
     reasons = []
     for seg in segments:
-        reason = guard_segment(seg)
+        reason = guard_segment(seg, cwd)
         if reason:
             reasons.append(reason)
     if reasons:
@@ -384,16 +410,16 @@ def check_shell(cmd: str) -> str | None:
     return None
 
 
-def guard_bash(cmd: str) -> str | None:
+def guard_bash(cmd: str, cwd: str | None = None) -> str | None:
     if not (TOGGLE_RE.search(cmd) or SETTINGS_RE.search(cmd) or PROTECTED_RE.search(cmd)):
         return None
-    return check_shell(cmd)
+    return check_shell(cmd, cwd)
 
 
-def protected_bash(cmd: str) -> str | None:
+def protected_bash(cmd: str, cwd: str | None = None) -> str | None:
     if not PROTECTED_RE.search(cmd):
         return None
-    return check_shell(cmd)
+    return check_shell(cmd, cwd)
 
 
 def reviewer_command_ok(cmd: str) -> bool:
@@ -494,7 +520,7 @@ def run(event: dict) -> str | None:
             if not rel.startswith(('docs/', 'spec/')):
                 return 'El líder no modifica código; delega al implementador.'
     if tool in ('Bash', 'PowerShell') and agent in ('lider', 'autor', 'implementador'):
-        return check_shell(inputs.get('command') or '')
+        return check_shell(inputs.get('command') or '', event.get('cwd'))
     if tool in ('Bash', 'PowerShell') and agent == 'revisor':
         cmd = inputs.get('command', '').strip()
         if not reviewer_command_ok(cmd):

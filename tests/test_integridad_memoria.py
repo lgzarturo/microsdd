@@ -252,7 +252,7 @@ class MemoryIntegrityTests(unittest.TestCase):
         (folder / 'plan.md').write_text('# CÓMO\nComprobar expiración y proteger la prueba.\n', encoding='utf-8')
         self.quiet(sdd.approve, SLUG, 'spec', 'Humano', 'Aprobé la nueva spec')
         no_errors('reaprobación approve spec')
-        self.quiet(sdd.seal, SLUG, 'Humano')
+        self.quiet(sdd.seal, SLUG, 'Humano', 'evidencia sellado')
         no_errors('seal')
         self.quiet(sdd.review, SLUG, 'RECHAZADO', 'Falta AC-01')
         no_errors('review RECHAZADO')
