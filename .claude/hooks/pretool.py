@@ -448,8 +448,10 @@ def run(event: dict) -> str | None:
             blob = (inputs.get('content') or inputs.get('new_string') or inputs.get('old_string') or '')
             if isinstance(blob, str) and blob.lstrip().startswith('#!'):
                 return MSG_EXECUTABLES
+        # En Windows resolve() normaliza mayúsculas: la excepción exige la grafía exacta pedida.
         if (low == '.microharness' or low.startswith('.microharness/')) and not (
-                agent == 'implementador' and rel in HARNESS_EDITABLE):
+                agent == 'implementador' and rel in HARNESS_EDITABLE
+                and Path(filename).as_posix().endswith(rel)):
             return ('Ningún agente edita .microharness/ (memoria y configuración); '
                     'la memoria solo cambia con sdd.py.')
         if agent == 'autor':
@@ -502,6 +504,10 @@ def run(event: dict) -> str | None:
 
 if __name__ == '__main__':
     try:
+        # Claude Code intercambia JSON en UTF-8; en Windows las tuberías usan la página de códigos ANSI.
+        for stream in (sys.stdin, sys.stdout):
+            if hasattr(stream, 'reconfigure'):
+                stream.reconfigure(encoding='utf-8')
         reason = run(json.load(sys.stdin))
         if reason:
             print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PreToolUse',
