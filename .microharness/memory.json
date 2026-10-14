@@ -1,13 +1,7 @@
 {
   "schema_version": 1,
   "project": {
-    "observations": [
-      {
-        "at": "2026-10-14T14:06:00+00:00",
-        "fact": "Tag anotado v1.1.3 y release GitHub «MicroSDD 1.1.3» publicados sobre a051e1f06b3f4b50bd7127f4441142b9d664c85f; historial archivado en historial/1.1.3/ (merge 6309ab541e4e535462437a358a37352adb1d081a).",
-        "evidence": "https://github.com/lgzarturo/microsdd/releases/tag/v1.1.3"
-      }
-    ],
+    "observations": [],
     "decisions": []
   },
   "tasks": {}
