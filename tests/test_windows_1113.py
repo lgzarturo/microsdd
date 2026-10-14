@@ -55,6 +55,10 @@ class WindowsHookTests(unittest.TestCase):
         cmd = f'.microharness/python.ps1 {SDD_REL} check x'
         self.assertIsNone(self.shell_deny(cmd))
 
+    def test_call_operator_allows_check_denies_approve(self):
+        self.assertIsNone(self.shell_deny(f'& python {SDD_REL} check x'))
+        self.assertIsNotNone(self.shell_deny(f'& python {SDD_REL} approve x spec --by P --evidence ok'))
+
     @mock.patch('os.name', 'nt')
     def test_msg_approve_mentions_windows_launcher(self):
         self.assertIn('python.ps1', self.hook.msg_approve())

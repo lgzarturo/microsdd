@@ -102,6 +102,16 @@ def strip_call_operator(toks: list[str]) -> list[str]:
     return toks
 
 
+def normalize_shell_cmd(cmd: str) -> str:
+    """Quita el call operator de PowerShell al inicio (& python …), no &&."""
+    s = cmd.lstrip()
+    if s.startswith('&') and not s.startswith('&&'):
+        rest = s[1:].lstrip()
+        if rest and rest[0] not in '&|':
+            return rest
+    return cmd
+
+
 def is_sdd_script_token(t: str) -> bool:
     return norm_path_token(t).endswith('microharness/sdd.py')
 
@@ -320,6 +330,7 @@ def docs_or_spec_py_execution(toks: list[str]) -> bool:
 
 
 def guard_segment(cmd: str) -> str | None:
+    cmd = normalize_shell_cmd(cmd)
     toks = tokens(cmd)
     if toks is not None and docs_or_spec_py_execution(toks):
         return MSG_DOCS_PY
@@ -355,6 +366,7 @@ def guard_segment(cmd: str) -> str | None:
 
 
 def check_shell(cmd: str) -> str | None:
+    cmd = normalize_shell_cmd(cmd)
     segments = split_segments(cmd)
     if segments is None:
         if PROTECTED_RE.search(cmd) or TOGGLE_RE.search(cmd) or SETTINGS_RE.search(cmd):
