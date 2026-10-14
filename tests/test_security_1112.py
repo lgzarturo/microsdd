@@ -79,7 +79,7 @@ class Security1112Tests(unittest.TestCase):
         with mock.patch.dict(os.environ, {'CLAUDECODE': '1'}), \
                 mock.patch.object(sys, 'stdin', FakeStdin(True)), \
                 self.assertRaises(ValueError):
-            self.sdd.seal('tarea', 'P')
+            self.sdd.seal('tarea', 'P', 'ok')
         self.assertEqual(self.sdd.MEMORY.read_bytes(), before)
 
     def test_h1_approve_seal_denied_without_tty(self):

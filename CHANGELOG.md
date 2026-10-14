@@ -2,6 +2,17 @@
 
 Formato y reglas: `assets/proceso-versionado.md` (R-04). Entradas derivadas de los asuntos de commit; se omiten los commits de merge, que no aportan cambios propios (su contenido figura en los commits integrados).
 
+## [1.2.0] - 2026-10-14
+
+### Incompatible
+- `sdd`: `seal` exige `--evidence`; con `agent_may_approve` el hook puede permitir approve/seal/allow-test-command con `@note`
+
+### Añadido
+- `sdd`: `agent_may_approve` en `config.json` (default true); notas con id y `--for-task`/`--for-phase`; consumo `@note:<id>` (máx. 30 min)
+- `sdd`: subcomando `allow-test-command`
+- `hook`: permite approve/seal/allow-test-command solo con `--evidence @note:<id>` si el modo está activo
+- `tests`: `tests/test_agent_may_approve.py`
+
 ## [1.1.3] - 2026-10-13
 
 ### Incompatible

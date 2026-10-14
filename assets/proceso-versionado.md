@@ -10,13 +10,12 @@ Se basa en Semantic Versioning 2.0.0 (https://semver.org/lang/es/) y en Conventi
 
 ## Estado actual
 
-- Tag `v1.0.0` y release GitHub «MicroSDD 1.0.0» publicados (2026-10-13).
-- Tag `v1.1.3` y release GitHub «MicroSDD 1.1.3» publicados (2026-10-14): https://github.com/lgzarturo/microsdd/releases/tag/v1.1.3. Historial archivado en `historial/1.1.3/`. Windows, PowerShell y worktrees: [windows-worktrees.md](windows-worktrees.md).
-- CI: `.github/workflows/tests.yml` ejecuta `python -m unittest discover -s tests -v` en push a `main` y pull requests (matriz Ubuntu + Windows).
+- El árbol de trabajo prepara `1.2.0`: `CHANGELOG.md` incluye `[1.2.0]`; `.microharness/sdd.py` define `__version__ = '1.2.0'`, replicada en `pyproject.toml`. Feature `agent_may_approve` con evidencia `@note`.
+
 
 ## API pública
 
-- **API-01** · CLI de `.microharness/sdd.py`: subcomandos `init`, `new`, `check` (`--run`, `--no-scope`), `approve` (`spec`/`close`, `--by`, `--evidence`), `review` (`APROBADO`/`RECHAZADO`, `--evidence`), `seal` (`--by`), `note` (`--fact`, `--decision`, `--by`, `--evidence`), `commit-check` y `release` (acción `propose`), más la opción global `--version`; código de salida 0 en éxito y 1 en error de ejecución, incluidos el tiempo de espera del lock y los fallos de integridad (los errores de uso de argumentos devuelven 2, comportamiento estándar de `argparse`). `approve` y `seal` solo los ejecuta el humano: devuelven 1 con `ERROR:`, sin escribir, si la variable de entorno `CLAUDECODE` está definida (aunque esté vacía) o si stdin no es una terminal interactiva (TTY). El lanzador `.microharness/python.sh` ejecuta sus argumentos con el primer Python ≥ 3.10 válido (respeta `MICROSDD_PYTHON`) y devuelve 2 si no encuentra un intérprete válido.
+- **API-01** · CLI de `.microharness/sdd.py`: subcomandos `init`, `new`, `check` (`--run`, `--no-scope`), `approve` (`spec`/`close`, `--by`, `--evidence`), `review` (`APROBADO`/`RECHAZADO`, `--evidence`), `seal` (`--by`, `--evidence`), `note` (`--fact`, `--decision`, `--by`, `--evidence`, `--for-task`, `--for-phase`), `allow-test-command` (`--evidence`), `commit-check` y `release` (acción `propose`), más la opción global `--version`; código de salida 0 en éxito y 1 en error de ejecución, incluidos el tiempo de espera del lock y los fallos de integridad (los errores de uso de argumentos devuelven 2, comportamiento estándar de `argparse`). `approve`, `seal` y `allow-test-command` exigen TTY fuera de Claude Code salvo `agent_may_approve` true con `--evidence @note:<id>` (nota ≤ 30 min). El lanzador `.microharness/python.sh` ejecuta sus argumentos con el primer Python ≥ 3.10 válido (respeta `MICROSDD_PYTHON`) y devuelve 2 si no encuentra un intérprete válido.
 - **API-02** · Esquema de `spec.json` (`schema_version` 1): campos y valores que acepta `validate` (`id`, `state`, `model`, `effort`, `max_iterations`, `method`, `scope`, `requirements`, `testing`), incluido `testing.min_tests` (entero ≥ 1, opcional, 1 por defecto); salvo en `terminado`, `testing.commands` (y `mutation.command` si `mutation.enabled` es verdadero) deben empezar por un runner de la lista blanca de `sdd.py`, ampliable con `project.allowed_test_commands`.
 - **API-03** · Esquema de `.microharness/memory.json` (`schema_version` 1): `project` (incluido el opcional `project.allowed_test_commands`) y `tasks`, con aprobaciones, sellos, revisión, iteraciones y eventos de cada tarea. `check` compara la memoria con `HEAD:.microharness/memory.json`: los eventos confirmados son inmutables y los campos vigilados solo cambian con un evento nuevo que lo justifique. El archivo de lock `.microharness/memory.lock` no se versiona y su contenido no es API.
 - **API-04** · Estructura de tarea `spec/<slug>/`: cuatro archivos (`requerimientos.md`, `plan.md`, `tareas.md`, `spec.json`), formato de slug y los tres estados (`pendiente`, `proceso`, `terminado`).
@@ -80,11 +79,9 @@ Mientras la versión mayor sea 0, la API pública puede cambiar. En esta fase, u
 7. El humano aprueba el cierre, el commit y la creación del tag; el líder registra `approve release-vX-Y-Z close`.
 8. El líder valida el mensaje con `commit-check 'chore(release): vX.Y.Z'` y hace el commit atómico con stage explícito (nunca `git add .`).
 9. El líder crea el tag anotado con `git tag -a vX.Y.Z` sobre ese commit y lo muestra con `git show vX.Y.Z`.
-10. Solo con autorización explícita e independiente del humano: `git push origin main` (si el commit de release aún no está remoto) y `git push origin vX.Y.Z`.
+10. Solo con autorización explícita e independiente del humano: `git push origin main` y `git push origin vX.Y.Z`.
 11. Solo con autorización explícita: release de GitHub desde el tag existente, con las notas de la sección correspondiente de `CHANGELOG.md` y marcado como prerelease si es `-rc.N`; lo crea el humano en la interfaz web o el líder con la CLI `gh`, si está disponible y autorizada.
-12. El líder puede registrar en `memory.json` una observación **temporal** con el tag y el enlace del release (`sdd.py note --fact … --evidence …`). Esa observación no se integra en `main`.
-13. Antes de subir a `main` el cierre del ciclo, se ejecuta `python scripts/limpiar_arnes.py X.Y.Z`: archiva `.microharness/memory.json`, `docs/` y `spec/` en `historial/X.Y.Z/`, elimina los originales y restaura el estado de `sdd.py init` (más `spec/.gitkeep`). El commit de archivado es el que se abre como PR hacia `main`.
-14. **Regla de `main`:** `.microharness/memory.json`, `docs/` y `spec/` versionados en `main` deben quedar en estado de instalación limpia (el de `sdd.py init` tras el limpiador): `memory.json` con `observations`/`decisions`/`tasks` vacíos; cada `docs/*.md` con «Pendiente de inspección»; `spec/` solo `.gitkeep`. El historial de specs y memoria vive en `historial/<versión>/`, no en la raíz activa.
+12. El líder registra en `memory.json` una observación con el tag y el enlace del release.
 
 Mientras no exista la herramienta de release, los pasos 3 y 5 se hacen a mano; cuando exista, la tarea de release la usará sin saltarse aprobaciones.
 

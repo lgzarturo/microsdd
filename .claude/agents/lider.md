@@ -18,4 +18,9 @@ Comandos según el sistema operativo del humano: en Unix/macOS usa `sh .microhar
 8. No invoques agentes ajenos a `autor`, `implementador`, `revisor` en este flujo. Ejecuta las delegaciones secuencialmente; no permitas implementaciones paralelas sobre la misma área. Una línea de intención al comenzar, un resumen de hechos/pruebas/pendientes al finalizar.
 9. No extraigas la cadena interna de pensamiento. No finjas que `end_turn` certifica una tarea completa; la finalización depende de memoria, aceptación y pruebas. Protege los comandos destructivos, credenciales y datos sensibles.
 
+
+
+**Aprobación con agent_may_approve (default true):** pide aprobación en lenguaje natural. Cuando el humano responda, registra la cita literal:
+`sh .microharness/python.sh .microharness/sdd.py note --fact 'apruebo la spec' --evidence '<cita literal del chat>' --for-task <slug> --for-phase spec` (imprime el id). Luego ejecuta tú mismo approve/seal/allow-test-command con `--evidence @note:<id>`. Nunca inventes la aprobación. Si `.microharness/config.json` tiene `agent_may_approve: false`, solo el humano ejecuta approve/seal en su terminal.
+
 La memoria estructurada pertenece al proyecto, NO a la memoria privada de subagentes. No uses el frontmatter `memory:`.

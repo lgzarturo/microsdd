@@ -189,7 +189,7 @@ class MicroSDDTests(unittest.TestCase):
         sdd.dump(self.folder / 'spec.json', data)
         # Proteger tests y pasar por nueva aprobación del contrato.
         sdd.approve('fix-sesiones', 'spec', 'Humano', 'Aprobé la nueva spec')
-        sdd.seal('fix-sesiones', 'Humano')
+        sdd.seal('fix-sesiones', 'Humano', 'evidencia sellado')
         self.assertEqual(sdd.validate('fix-sesiones'), [])
         path.write_text('assert 2 == 2\n', encoding='utf-8')
         self.assertTrue(any('sellado' in x for x in sdd.validate('fix-sesiones')))
@@ -204,7 +204,7 @@ class MicroSDDTests(unittest.TestCase):
         data['testing']['protected_tests'] = ['tests/test_auth.py']
         sdd.dump(self.folder / 'spec.json', data)
         sdd.approve('fix-sesiones', 'spec', 'Humano', 'Aprobé la nueva spec')
-        sdd.seal('fix-sesiones', 'Humano')
+        sdd.seal('fix-sesiones', 'Humano', 'evidencia sellado')
         path.write_bytes(path.read_bytes().replace(b'\n', b'\r\n'))
         self.assertFalse([x for x in sdd.validate('fix-sesiones') if 'sellado' in x])
         path.write_bytes(b'import os\r\nassert 2 == 2\r\n')
@@ -219,7 +219,7 @@ class MicroSDDTests(unittest.TestCase):
         data['testing']['protected_tests'] = ['tests/test_auth.py']
         sdd.dump(self.folder / 'spec.json', data)
         sdd.approve('fix-sesiones', 'spec', 'Humano', 'Aprobé la nueva spec')
-        sdd.seal('fix-sesiones', 'Humano')
+        sdd.seal('fix-sesiones', 'Humano', 'evidencia sellado')
         return path
 
     def test_sealed_tests_ignored_after_close(self):
@@ -905,9 +905,9 @@ class VersionTests(unittest.TestCase):
         # AC-01: solo lectura del script real.
         result = subprocess.run([sys.executable, str(SCRIPT), '--version'], capture_output=True, text=True,
                                 encoding='utf-8', check=False)
-        self.assertEqual((result.returncode, result.stdout.strip()), (0, 'MicroSDD 1.1.3'))
+        self.assertEqual((result.returncode, result.stdout.strip()), (0, 'MicroSDD 1.2.0'))
         source = SCRIPT.read_text(encoding='utf-8')
-        self.assertEqual(len(re.findall(r"^__version__ = '1\.1\.3'\r?$", source, flags=re.M)), 1)
+        self.assertEqual(len(re.findall(r"^__version__ = '1\.2\.0'\r?$", source, flags=re.M)), 1)
         # AC-03: pyproject.toml replica __version__ (regex: tomllib no existe en 3.10).
         pyproject = (SCRIPT.parents[1] / 'pyproject.toml').read_text(encoding='utf-8')
         declared = re.search(r'^version = "([^"]+)"\r?$', pyproject, flags=re.M)
@@ -1436,7 +1436,7 @@ class MemoryAtomicLockTests(unittest.TestCase):
             'new': lambda: sdd.new('otra'),
             'approve': lambda: sdd.approve('tarea', 'spec', 'P', 'ok'),
             'review': lambda: sdd.review('tarea', 'RECHAZADO', 'ev'),
-            'seal': lambda: sdd.seal('tarea', 'P'),
+            'seal': lambda: sdd.seal('tarea', 'P', 'evidencia sellado'),
             'note': lambda: sdd.note('f', None, None, 'e'),
         }
         for name, operation in operations.items():
