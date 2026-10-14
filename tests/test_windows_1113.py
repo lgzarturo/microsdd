@@ -85,8 +85,8 @@ class WorktreeSyncTests(unittest.TestCase):
                          'tasks': {'principal-only': {'mark': True}}}
         (self.source / '.microharness' / 'memory.json').write_text(
             json.dumps(principal_mem, indent=2) + '\n', encoding='utf-8')
-        self.wt = self._git_repo(self.base / 'wt')
-        subprocess.run(['git', '-C', str(self.source), 'worktree', 'add', str(self.wt), '-b', 'wt-1113'],
+        self.wt = (self.base / 'wt').resolve()
+        subprocess.run(['git', '-C', str(self.source), 'worktree', 'add', '-b', 'wt-1113', str(self.wt)],
                        check=True, capture_output=True)
 
     def _git_repo(self, path: Path) -> Path:
