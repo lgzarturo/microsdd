@@ -254,17 +254,18 @@ Cambiar de modelo o esfuerzo es manual y debe hacerse en todas las fuentes, que 
 1. `.microharness/config.json` (`model`, `effort`).
 2. `.claude/settings.json` (`model`, `effortLevel`).
 3. El frontmatter `model`/`effort` de los cuatro agentes en `.claude/agents/*.md`.
-4. La línea 14 de `.claude/agents/autor.md`, que nombra el modelo y el esfuerzo de la plantilla.
+4. El cuerpo de `.claude/agents/autor.md` (y el resto de agentes): modelo y esfuerzo desde `.microharness/config.json` o defaults del proyecto; el frontmatter puede fijar valores para Claude Code.
 
 Las tareas en `pendiente` o `proceso` fallarán `check` hasta actualizar su `spec.model`; ese cambio altera la huella de la especificación y exige reaprobarla.
 
 ### EARS, SDD, RDD, ODD
 
 - **EARS:** en `requerimientos.md`, declarar comportamiento del tipo `WHEN <evento>, THE <sistema> SHALL <respuesta>` y AC con datos de entrada y salida verificables. No sustituye discusiones de dominio difíciles.
-- **SDD:** obligatorio: ningún código sin spec, revisión humana y cambios acotados.
+- **SDD** (primario, siempre): el humano es arquitecto; la spec (reglas de negocio, arquitectura, bordes) es la única fuente de verdad; el agente implementa de forma autónoma tras la aprobación. Ningún código sin spec, revisión humana y cambios acotados.
 - **TDD** es estrategia de pruebas: `tdd` o `after`. No asumas TDD como dogma cuando la prueba anticipada no aporte.
-- **RDD:** sigla no definida inequívocamente por el documento fuente: `optional: ["RDD"]` solo con definición operativa explícita en `notes`.
-- **ODD:** interpretado como *Organic Driven Development* según el contexto del proyecto; es una clasificación opcional de granularidad/crecimiento incremental, no otro ciclo obligatorio. Si se activa, `notes` debe explicar cómo cambia las decisiones.
+- **ODD** (Outcomes-Driven / over-the-shoulder, opcional): iteración rápida desde un pedido directo con resultado esperado; si el humano autoriza, construir de inmediato en un ciclo corto de pair-programming sin fases rígidas de propuesta/diseño. Siguen los cuatro archivos (`plan.md` más ligero) y las puertas approve/note vigentes.
+- **RDD** (Receive-Driven, opcional): recepción/auditoría antes del merge con cuatro lentes — legibilidad, resiliencia, robustez, riesgo/seguridad —. Con el microsdd actual: `method.optional: ["RDD"]` y `method.notes` breve; el revisor aplica las lentes en `review`; el humano cierra con approve.
+- Si `method.optional` no está vacío, `method.notes` debe ser no vacío (`sdd.py` lo exige): una línea de cómo aplica RDD/ODD en esa tarea.
 
 ### Mutation testing y hashing de pruebas
 
