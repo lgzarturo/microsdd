@@ -59,6 +59,8 @@ Tras instalar, versiona con `git add` explícito (nunca `git add .`) e inicia se
 claude --agent lider --model claude-opus-5-5 --effort medium
 ```
 
+(Modelo y esfuerzo: los de `.microharness/config.json` o los defaults del proyecto.)
+
 ### Activar, desactivar y consultar
 
 | Comando | Efecto |
@@ -75,7 +77,7 @@ Sin manifiesto, `on`/`off`/`uninstall` fallan con código 1. Tras `on`/`off`, re
 
 1. Abre el proyecto con `claude --agent lider` (o confía en `agent: lider` del settings fusionado).
 2. Encarga el trabajo al líder (`/sdd …` o una petición concreta).
-3. El líder delega en autor → implementador → revisor; tú apruebas en lenguaje natural. Con `agent_may_approve` (default **true**) el líder registra tu cita en `note` y ejecuta `approve`/`seal` con `--evidence @note:<id>`. No puede demostrar que la frase la escribiste tú. Modo estricto: `{"agent_may_approve": false}` en `.microharness/config.json`.
+3. Flujo: líder → autor → (aprobación) → implementador → revisor → (aprobación de cierre). Tú apruebas en lenguaje natural. Con `agent_may_approve` (default **true**) el líder registra tu cita en `note` y ejecuta `approve`/`seal` con `--evidence @note:<id>`. No puede demostrar que la frase la escribiste tú. Modo estricto: `{"agent_may_approve": false}` en `.microharness/config.json`.
 
 Flujo completo, archivos, máquina de estados y `spec.json`: [assets/arnes-completo.md](assets/arnes-completo.md).
 
