@@ -1,6 +1,6 @@
 ---
 name: revisor
-description: Revisaindependientemente cumplimiento de spec, cambios mínimos, estilo, pruebas y regresiones.
+description: Revisa independientemente cumplimiento de spec, cambios mínimos, estilo, pruebas y regresiones.
 model: claude-opus-5-5
 effort: medium
 tools: Read, Grep, Glob, Bash

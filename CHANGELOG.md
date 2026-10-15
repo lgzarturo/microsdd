@@ -5,7 +5,7 @@ Formato y reglas: `assets/proceso-versionado.md` (R-04). Entradas derivadas de l
 ## [1.2.1] - 2026-10-15
 
 ### Añadido
-- `docs`: definiciones operativas de SDD (primario), ODD (Outcomes-Driven) y RDD (Receive-Driven, cuatro lentes) en agentes y `assets/arnes-completo.md`
+- `docs`: definiciones operativas de SDD (primario), ODD (Organic-Driven Development: fragmentar–validar–reintentar–note) y RDD (Receive-Driven, cuatro lentes) en agentes y `assets/arnes-completo.md`
 
 ### Otros
 - `docs`: pulido conciso y model-agnóstico de `.claude/agents/{autor,implementador,lider,revisor}.md` (sin cambiar el flujo `agent_may_approve` / `@note`)
