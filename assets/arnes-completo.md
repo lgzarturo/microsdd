@@ -254,17 +254,18 @@ Cambiar de modelo o esfuerzo es manual y debe hacerse en todas las fuentes, que 
 1. `.microharness/config.json` (`model`, `effort`).
 2. `.claude/settings.json` (`model`, `effortLevel`).
 3. El frontmatter `model`/`effort` de los cuatro agentes en `.claude/agents/*.md`.
-4. La línea 14 de `.claude/agents/autor.md`, que nombra el modelo y el esfuerzo de la plantilla.
+4. El cuerpo de `.claude/agents/autor.md` (y el resto de agentes): modelo y esfuerzo desde `.microharness/config.json` o defaults del proyecto; el frontmatter puede fijar valores para Claude Code.
 
 Las tareas en `pendiente` o `proceso` fallarán `check` hasta actualizar su `spec.model`; ese cambio altera la huella de la especificación y exige reaprobarla.
 
 ### EARS, SDD, RDD, ODD
 
 - **EARS:** en `requerimientos.md`, declarar comportamiento del tipo `WHEN <evento>, THE <sistema> SHALL <respuesta>` y AC con datos de entrada y salida verificables. No sustituye discusiones de dominio difíciles.
-- **SDD:** obligatorio: ningún código sin spec, revisión humana y cambios acotados.
+- **SDD** (primario, siempre): el humano es arquitecto; la spec (reglas de negocio, arquitectura, bordes) es la única fuente de verdad; el agente implementa de forma autónoma tras la aprobación. Ningún código sin spec, revisión humana y cambios acotados.
 - **TDD** es estrategia de pruebas: `tdd` o `after`. No asumas TDD como dogma cuando la prueba anticipada no aporte.
-- **RDD:** sigla no definida inequívocamente por el documento fuente: `optional: ["RDD"]` solo con definición operativa explícita en `notes`.
-- **ODD:** interpretado como *Organic Driven Development* según el contexto del proyecto; es una clasificación opcional de granularidad/crecimiento incremental, no otro ciclo obligatorio. Si se activa, `notes` debe explicar cómo cambia las decisiones.
+- **ODD** (Organic-Driven Development, opcional): los agentes resuelven tareas quirúrgicas sin saturar la ventana de contexto. El arnés obliga a fragmentar el problema y validar cada paso con evidencia (pruebas y análisis estático permitidos) antes de continuar. Si fallan, el agente lee el stacktrace y reintenta solo (guía: 3–5). Si pasan, se asimila el cambio y se registra con `sdd.py note` para la siguiente subtarea. Meta: autonomía real con fragmentos mínimos, prompts cortos, respuestas rápidas y menor coste. Siguen los cuatro archivos (`plan.md` más ligero) y las puertas approve/note vigentes.
+- **RDD** (Receive-Driven, opcional): recepción/auditoría antes del merge con cuatro lentes — legibilidad, resiliencia, robustez, riesgo/seguridad —. Con el microsdd actual: `method.optional: ["RDD"]` y `method.notes` breve; el revisor aplica las lentes en `review`; el humano cierra con approve.
+- Si `method.optional` no está vacío, `method.notes` debe ser no vacío (`sdd.py` lo exige): una línea de cómo aplica RDD/ODD en esa tarea.
 
 ### Mutation testing y hashing de pruebas
 
@@ -309,4 +310,3 @@ No agregues más agentes, estado ni pasos hasta observar fallas repetibles.
 **Limitaciones conocidas:** sin autenticación de aprobaciones, sin sandbox obligatorio, sin validación semántica automática de AC, sin control de costos/tokens por agente, sin comparador histórico de benchmarks. Son límites intencionales del MVP, no características implementadas.
 
 **Integridad de `memory.json`:** la comprobación detecta, no impide. Su base es el último commit (`HEAD`): quien confirma `memory.json` fija la nueva base, de modo que una manipulación confirmada (o un `HEAD` reescrito) se acepta, y un agente puede añadir al final el evento que justifica un cambio fabricado. La protección efectiva depende de que el humano revise el diff de `.microharness/memory.json` antes de cada commit. Ante un error `Integridad de memoria`, recupera la memoria versionada con `git restore --source=HEAD -- .microharness/memory.json` o, si el cambio es legítimo (p. ej. una corrección manual), confírmalo tras revisar el diff. Un error en cualquier tarea bloquea `check` y `approve` de todas. Cualquier fallo de `git show` (incluido uno forzado por el entorno, p. ej. `GIT_DIR`) deja la comprobación en «no aplica»; solo una memoria presente en `HEAD` pero ilegible (no UTF-8, no JSON o `tasks` no objeto) es error.
-

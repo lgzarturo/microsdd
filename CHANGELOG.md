@@ -2,6 +2,14 @@
 
 Formato y reglas: `assets/proceso-versionado.md` (R-04). Entradas derivadas de los asuntos de commit; se omiten los commits de merge, que no aportan cambios propios (su contenido figura en los commits integrados).
 
+## [1.2.1] - 2026-10-15
+
+### Añadido
+- `docs`: definiciones operativas de SDD (primario), ODD (Organic-Driven Development: fragmentar–validar–reintentar–note) y RDD (Receive-Driven, cuatro lentes) en agentes y `assets/arnes-completo.md`
+
+### Otros
+- `docs`: pulido conciso y model-agnóstico de `.claude/agents/{autor,implementador,lider,revisor}.md` (sin cambiar el flujo `agent_may_approve` / `@note`)
+
 ## [1.2.0] - 2026-10-14
 
 ### Incompatible
