@@ -184,15 +184,46 @@ class AgentMayApproveTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.sdd.allow_test_command(['  '], '@note:n1')
 
-    def test_hook_allows_with_note_when_on(self):
+    def _hook_gated(self, agent, subcmd, may_approve=True, tool='Bash'):
         cfg = self.root / '.microharness' / 'config.json'
-        cfg.write_text(json.dumps({'agent_may_approve': True}), encoding='utf-8')
-        cmd = 'python3 .microharness/sdd.py approve x spec --by P --evidence @note:n1'
-        reason = self.hook.run({
-            'agent_type': 'lider', 'tool_name': 'Bash', 'cwd': str(self.root),
+        cfg.write_text(json.dumps({'agent_may_approve': may_approve}), encoding='utf-8')
+        if subcmd == 'approve':
+            cmd = 'python3 .microharness/sdd.py approve x spec --by P --evidence @note:n1'
+        elif subcmd == 'seal':
+            cmd = 'python3 .microharness/sdd.py seal x --by P --evidence @note:n1'
+        elif subcmd == 'allow-test-command':
+            cmd = 'python3 .microharness/sdd.py allow-test-command custom --evidence @note:n1'
+        else:
+            raise AssertionError(subcmd)
+        event = {
+            'tool_name': tool, 'cwd': str(self.root),
             'tool_input': {'command': cmd},
-        })
+        }
+        if agent is not None:
+            event['agent_type'] = agent
+        return self.hook.run(event)
+
+    def test_hook_allows_with_note_when_on(self):
+        reason = self._hook_gated('lider', 'approve', may_approve=True)
         self.assertIsNone(reason)
+
+    def test_hook_lider_allowed_seal_and_allow_test(self):
+        self.assertIsNone(self._hook_gated('lider', 'seal'))
+        self.assertIsNone(self._hook_gated('lider', 'allow-test-command'))
+
+    def test_hook_denies_autor_and_implementador_gated(self):
+        for agent in ('autor', 'implementador'):
+            for sub in ('approve', 'seal', 'allow-test-command'):
+                with self.subTest(agent=agent, sub=sub):
+                    reason = self._hook_gated(agent, sub)
+                    self.assertIsNotNone(reason)
+                    self.assertIn('Solo el líder', reason)
+
+    def test_hook_denies_absent_or_unknown_role(self):
+        for agent in (None, '', 'desconocido'):
+            with self.subTest(agent=agent):
+                reason = self._hook_gated(agent, 'approve')
+                self.assertIsNotNone(reason)
 
     def test_hook_denies_without_note_when_on(self):
         cfg = self.root / '.microharness' / 'config.json'
@@ -205,14 +236,10 @@ class AgentMayApproveTests(unittest.TestCase):
         self.assertIsNotNone(reason)
 
     def test_hook_denies_when_off(self):
-        cfg = self.root / '.microharness' / 'config.json'
-        cfg.write_text(json.dumps({'agent_may_approve': False}), encoding='utf-8')
-        cmd = 'python3 .microharness/sdd.py approve x spec --by P --evidence @note:n1'
-        reason = self.hook.run({
-            'agent_type': 'lider', 'tool_name': 'Bash', 'cwd': str(self.root),
-            'tool_input': {'command': cmd},
-        })
+        reason = self._hook_gated('lider', 'approve', may_approve=False)
         self.assertIsNotNone(reason)
+        # Modo estricto: mensaje de TTY/humano, no el de solo-líder.
+        self.assertNotIn('Solo el líder', reason or '')
 
     def test_note_prints_id(self):
         with contextlib.redirect_stdout(io.StringIO()) as out:

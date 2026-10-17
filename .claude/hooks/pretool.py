@@ -59,6 +59,11 @@ def msg_approve() -> str:
             'no uses Bash/PowerShell del agente para eso.')
 
 
+def msg_gated_lider_only() -> str:
+    return ('Solo el líder puede ejecutar approve, seal o allow-test-command con '
+            '--evidence @note:<id> (agent_may_approve). Autor, implementador y otros roles: denegado.')
+
+
 def msg_protected() -> str:
     if os.name == 'nt':
         version_hint = '.\\.microharness\\python.ps1 --version o -m unittest'
@@ -323,9 +328,11 @@ def gated_with_note_evidence(cmd: str) -> bool:
     return bool(NOTE_EVIDENCE_CMD_RE.search(cmd))
 
 
-def deny_or_allow_gated(cmd: str, cwd: str | None) -> str | None:
+def deny_or_allow_gated(cmd: str, cwd: str | None, agent: str = '') -> str | None:
     if agent_may_approve(cwd) and gated_with_note_evidence(cmd):
-        return None
+        if agent == 'lider':
+            return None
+        return msg_gated_lider_only()
     return msg_approve()
 
 
@@ -587,7 +594,7 @@ def docs_or_spec_py_execution(toks: list[str]) -> bool:
     return False
 
 
-def guard_segment(cmd: str, cwd: str | None = None) -> str | None:
+def guard_segment(cmd: str, cwd: str | None = None, agent: str = '') -> str | None:
     cmd = normalize_shell_cmd(cmd)
     toks = tokens(cmd)
     if toks is not None and docs_or_spec_py_execution(toks):
@@ -608,11 +615,11 @@ def guard_segment(cmd: str, cwd: str | None = None) -> str | None:
         if toks is not None:
             sub = find_sdd_subcommand(toks)
             if sub in GATED_SUBCOMMANDS:
-                return deny_or_allow_gated(cmd, cwd)
+                return deny_or_allow_gated(cmd, cwd, agent)
             args = sdd_args(toks)
             if args is not None:
                 if args and args[0] in GATED_SUBCOMMANDS:
-                    return deny_or_allow_gated(cmd, cwd)
+                    return deny_or_allow_gated(cmd, cwd, agent)
                 if args and args[0] in SDD_ALLOWED:
                     return None
                 return msg_protected()
@@ -623,7 +630,7 @@ def guard_segment(cmd: str, cwd: str | None = None) -> str | None:
     return None
 
 
-def check_shell(cmd: str, cwd: str | None = None) -> str | None:
+def check_shell(cmd: str, cwd: str | None = None, agent: str = '') -> str | None:
     cmd = normalize_shell_cmd(cmd)
     segments = split_segments(cmd)
     if segments is None:
@@ -632,7 +639,7 @@ def check_shell(cmd: str, cwd: str | None = None) -> str | None:
         return None
     reasons = []
     for seg in segments:
-        reason = guard_segment(seg, cwd)
+        reason = guard_segment(seg, cwd, agent)
         if reason:
             reasons.append(reason)
     if reasons:
@@ -642,16 +649,16 @@ def check_shell(cmd: str, cwd: str | None = None) -> str | None:
     return None
 
 
-def guard_bash(cmd: str, cwd: str | None = None) -> str | None:
+def guard_bash(cmd: str, cwd: str | None = None, agent: str = '') -> str | None:
     if not (TOGGLE_RE.search(cmd) or SETTINGS_RE.search(cmd) or PROTECTED_RE.search(cmd)):
         return None
-    return check_shell(cmd, cwd)
+    return check_shell(cmd, cwd, agent)
 
 
-def protected_bash(cmd: str, cwd: str | None = None) -> str | None:
+def protected_bash(cmd: str, cwd: str | None = None, agent: str = '') -> str | None:
     if not PROTECTED_RE.search(cmd):
         return None
-    return check_shell(cmd, cwd)
+    return check_shell(cmd, cwd, agent)
 
 
 def reviewer_command_ok(cmd: str) -> bool:
@@ -788,7 +795,7 @@ def run(event: dict) -> str | None:
             if not rel.startswith(('docs/', 'spec/')):
                 return 'El líder no modifica código; delega al implementador.'
     if tool in ('Bash', 'PowerShell') and agent in ('lider', 'autor', 'implementador'):
-        return check_shell(inputs.get('command') or '', event.get('cwd'))
+        return check_shell(inputs.get('command') or '', event.get('cwd'), agent)
     if tool in ('Bash', 'PowerShell') and agent == 'revisor':
         cmd = inputs.get('command', '').strip()
         if not reviewer_command_ok(cmd):

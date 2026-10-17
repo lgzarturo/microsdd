@@ -1,3 +1,3 @@
 # convenciones
 
-Pendiente de inspección.
+Español neutro. KISS. Un solo agente escribe código. Tests verificables en Ubuntu y Windows.
