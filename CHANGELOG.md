@@ -2,6 +2,30 @@
 
 Formato y reglas: `assets/proceso-versionado.md` (R-04). Entradas derivadas de los asuntos de commit; se omiten los commits de merge, que no aportan cambios propios (su contenido figura en los commits integrados).
 
+## [1.4.0] - 2026-10-17
+
+### Añadido
+- `sdd` / modelo: `config.json` es la fuente de verdad de `model`/`effort`; perfiles con `status` `probado`|`experimental` (default built-in `opus-5-5-medium` = `claude-opus-5-5` + `medium`, **probado**; el resto experimental salvo evidencia en el repo)
+- `sdd` / `check`: valida alineación de `.claude/settings.json` (`model`, `effortLevel`) y del frontmatter de los cuatro agentes con la config; reporta diferencias
+- `instalador`: aplica modelo/esfuerzo efectivos del `config.json` del destino (o defaults) a settings y frontmatter al instalar/fusionar
+- `sdd` / `new`: copia `profile_status: "experimental"` en `spec.json` cuando el runtime no es un perfil probado
+- `tests`: `tests/test_model_profiles.py`
+
+### Corregido
+- Incluye el cambio de [PR #12](https://github.com/lgzarturo/microsdd/pull/12) (sin bump propio): con `agent_may_approve` true, solo el rol `lider` puede `approve`/`seal`/`allow-test-command` con `--evidence @note:<id>`
+
+### Documentación / SemVer
+- Estado real antes de este PR: último tag `v1.2.1`; código y CHANGELOG en `1.3.0` (ODD/RDD, sin tag); existe `historial/1.3.1/` sin entrada `[1.3.1]` ni bump de paquete.
+- **Orden de merge:** 1) mergear [#12](https://github.com/lgzarturo/microsdd/pull/12) (solo-líder, **sin** tocar versión ni `historial/`); 2) mergear este PR → `main` queda en **`1.4.0`**.
+- Conservar `historial/1.3.1/` (archivo prematuro). No crear `historial/1.3.2/`.
+- Tags pendientes tras ambos merges (no ejecutar aquí): `v1.3.0` (ODD/RDD), `v1.3.1` (opcional, sobre el fix ODD / archivo), `v1.4.0` (este release).
+
+## [1.3.1] - 2026-10-17
+
+### Corregido
+- `hook` / ODD: reescritura vía Edit/MultiEdit, líneas acumuladas del kill switch y recibo RDD (casefold / symlinks)
+- Nota: `historial/1.3.1/` archivó el arnés tras ese fix, pero el paquete no se subió a `1.3.1` en su momento; esta entrada cierra el hueco en el CHANGELOG. Tag `v1.3.1` opcional a posteriori.
+
 ## [1.3.0] - 2026-10-17
 
 ### Añadido

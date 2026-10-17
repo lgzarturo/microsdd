@@ -41,12 +41,12 @@ Ninguna fuente se reproduce aquí; la redacción es propia y las citas se limita
 - **Evidencia:** `validate` (rango de `max_iterations`) y `review` (escalado al agotar intentos) en `.microharness/sdd.py`; `.claude/agents/lider.md` puntos 5 y 9.
 - **Fuente:** [GUÍA «Ejecuciones agénticas desatendidas»]; [PROYECTO]: la guía limita continuaciones automáticas en agentes sin humano, mientras que MicroSDD limita revisiones completas en un flujo interactivo, por lo que no incorpora un párrafo para que el agente siga sin detenerse.
 
-### D-04 · Esfuerzo `medium` explícito y modelo único
+### D-04 · Esfuerzo `medium` explícito y perfiles de modelo
 
-- **Decisión:** el modelo y el esfuerzo por defecto se declaran de forma explícita en `.microharness/config.json`, archivo opcional de configuración humana; si falta, valen `claude-opus-5-5` y `medium`. Se admite un único modelo a la vez: el configurado, que debe coincidir con la configuración, el frontmatter de cada agente y `spec.json`.
-- **Motivo:** declarar el esfuerzo evita heredar valores de modelos anteriores; fijar un solo modelo hace comparables las tareas del MVP; sacarlo del código permite cambiarlo sin editar `sdd.py`.
-- **Evidencia:** `.claude/settings.json` (`model` y `effortLevel`); frontmatter `effort: medium` en `.claude/agents/*.md`; en `.microharness/sdd.py`, `config()` lee `config.json` junto a `memory.json`, `new` copia sus valores y `validate` rechaza un `spec.model` distinto del configurado salvo en tareas `terminado` y admite cinco niveles de `effort`; protocolo de medición no ejecutado en `assets/eval-esfuerzo.md`.
-- **Fuente:** [GUÍA «Calibra el esfuerzo»]; [PROYECTO]: el artículo recomienda fijar el esfuerzo y medir; restringir el arnés a un único modelo es decisión propia, y el `effort` de `spec.json` es solo una preferencia registrada, ya que el runtime lo toma de la configuración y del frontmatter.
+- **Decisión:** el modelo y el esfuerzo por defecto se declaran en `.microharness/config.json` (fuente de verdad); si falta, valen el perfil built-in **probado** `opus-5-5-medium` (`claude-opus-5-5` + `medium`). Los perfiles llevan `status` `probado`|`experimental`. `check` exige que `.claude/settings.json` y el frontmatter de los cuatro agentes coincidan con la config; el instalador los genera/aplica desde ella. `spec.json` debe coincidir en `model` (salvo `terminado`); si el runtime no es probado, `new` añade `profile_status: "experimental"`.
+- **Motivo:** evitar la falsa configuración (etiqueta en config distinta del runtime); permitir cambio de modelo de forma explícita y trazable sin fingir evidencia de perfiles no medidos.
+- **Evidencia:** `config()`, `runtime_alignment_errors`, `new` y `validate` en `.microharness/sdd.py`; aplicación en `src/microsdd/installer.py`; único perfil `probado` built-in; protocolo de medición no ejecutado en `assets/eval-esfuerzo.md`.
+- **Fuente:** [GUÍA «Calibra el esfuerzo»]; [PROYECTO]: agnóstico en el mecanismo, opinado en el default.
 
 ### D-05 · Solo biblioteca estándar de Python
 

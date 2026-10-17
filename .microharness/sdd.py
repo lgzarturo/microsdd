@@ -25,17 +25,29 @@ TASK_FILES = ('spec.json', 'requerimientos.md', 'plan.md', 'tareas.md')
 STATES = ('pendiente', 'proceso', 'terminado')
 SLUG_RE = re.compile(r'^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$')
 COMMIT_RE = re.compile(r'^(feat|fix|docs|test|refactor|perf|chore)(\([a-z0-9][a-z0-9-]*\))?(!)?: [^\n]{1,72}$')
-__version__ = '1.3.0'
+__version__ = '1.4.0'
 SUBJECT_RE = re.compile(r'^([a-z]+)(\([^)]*\))?(!)?: ')
 FINAL_TAG_RE = re.compile(r'^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$')
 LOCK_TIMEOUT = 10.0
-DEFAULT_MODEL = 'claude-opus-5-5'
+DEFAULT_MODEL = 'claude-opus-5-5'  # único id confirmado en el repo; no inventar otros
 DEFAULT_EFFORT = 'medium'
+DEFAULT_PROFILE_ID = 'opus-5-5-medium'
 DEFAULT_ODD_MAX_RETRIES = 3
 DEFAULT_ODD_REWRITE_PERCENT = 80
 DEFAULT_RDD_MAX_FILES = 20
 DEFAULT_RDD_MAX_LINES = 500
 EFFORTS = ('low', 'medium', 'high', 'xhigh', 'max')
+PROFILE_STATUSES = ('probado', 'experimental')
+# Solo el default está verificado en la práctica (eval-esfuerzo.md no ejecutado).
+BUILTIN_PROFILES = {
+    DEFAULT_PROFILE_ID: {
+        'status': 'probado',
+        'model': DEFAULT_MODEL,
+        'effort': DEFAULT_EFFORT,
+    },
+}
+AGENT_NAMES = ('lider', 'autor', 'implementador', 'revisor')
+FRONTMATTER_RE = re.compile(r'\A---\r?\n(.*?)\r?\n---(?:\r?\n|$)', re.DOTALL)
 NOTE_EVIDENCE_MAX_AGE_S = 1800
 NOTE_REF_RE = re.compile(r'^@note:([a-zA-Z0-9_-]+)$')
 NOTE_IN_CMD_RE = re.compile(r'@note:[a-zA-Z0-9_-]+')
@@ -185,41 +197,195 @@ def _positive_int(data: dict, key: str, lo: int, hi: int) -> None:
         raise ValueError(f'.microharness/config.json: {key} debe ser un entero entre {lo} y {hi}')
 
 
+def _validate_profile_entry(name: str, prof: object) -> dict:
+    tag = f'.microharness/config.json: profiles.{name}'
+    if not isinstance(prof, dict):
+        raise ValueError(f'{tag} debe ser un objeto')
+    unknown = sorted(set(prof) - {'status', 'model', 'effort'})
+    if unknown:
+        raise ValueError(f'{tag}: claves no admitidas: {", ".join(unknown)}')
+    status = prof.get('status')
+    if status not in PROFILE_STATUSES:
+        raise ValueError(f'{tag}: status debe ser uno de: {", ".join(PROFILE_STATUSES)}')
+    model = prof.get('model')
+    if not (isinstance(model, str) and model.strip()):
+        raise ValueError(f'{tag}: model debe ser una cadena no vacía')
+    effort = prof.get('effort')
+    if effort not in EFFORTS:
+        raise ValueError(f'{tag}: effort debe ser uno de: {", ".join(EFFORTS)}')
+    return {'status': status, 'model': model.strip(), 'effort': effort}
+
+
+def parse_frontmatter(text: str) -> dict[str, str]:
+    match = FRONTMATTER_RE.match(text)
+    if not match:
+        return {}
+    fields: dict[str, str] = {}
+    for line in match.group(1).splitlines():
+        if ':' not in line:
+            continue
+        key, _, value = line.partition(':')
+        fields[key.strip()] = value.strip()
+    return fields
+
+
+def apply_frontmatter_fields(text: str, updates: dict[str, str]) -> str:
+    """Actualiza o inserta claves de frontmatter YAML mínimo (una línea por clave)."""
+    match = FRONTMATTER_RE.match(text)
+    if match:
+        body = text[match.end():]
+        lines = match.group(1).splitlines()
+    else:
+        body = text
+        lines = []
+    seen: set[str] = set()
+    new_lines: list[str] = []
+    for line in lines:
+        if ':' in line:
+            key = line.partition(':')[0].strip()
+            if key in updates:
+                new_lines.append(f'{key}: {updates[key]}')
+                seen.add(key)
+                continue
+        new_lines.append(line)
+    for key, value in updates.items():
+        if key not in seen:
+            new_lines.append(f'{key}: {value}')
+    return '---\n' + '\n'.join(new_lines) + '\n---\n' + body
+
+
+def profile_status_for(model: str, effort: str, profiles: dict) -> str:
+    for prof in profiles.values():
+        if prof.get('model') == model and prof.get('effort') == effort and prof.get('status') == 'probado':
+            return 'probado'
+    return 'experimental'
+
+
 def config() -> dict:
-    # Configuración humana opcional junto a memory.json; solo lectura.
+    # Configuración humana opcional junto a memory.json; fuente de verdad de model/effort.
     path = MEMORY.parent / 'config.json'
     cfg = {
         'model': DEFAULT_MODEL,
         'effort': DEFAULT_EFFORT,
+        'profile': DEFAULT_PROFILE_ID,
+        'profiles': {k: dict(v) for k, v in BUILTIN_PROFILES.items()},
+        'profile_status': 'probado',
         'agent_may_approve': True,
         'odd_max_retries': DEFAULT_ODD_MAX_RETRIES,
         'odd_rewrite_percent': DEFAULT_ODD_REWRITE_PERCENT,
         'rdd_max_files': DEFAULT_RDD_MAX_FILES,
         'rdd_max_lines': DEFAULT_RDD_MAX_LINES,
     }
-    if not path.exists():
-        return cfg
-    try:
-        data = json.loads(path.read_text(encoding='utf-8'))
-    except json.JSONDecodeError as e:
-        raise ValueError(f'.microharness/config.json: JSON inválido ({e})') from None
-    if not isinstance(data, dict):
-        raise ValueError('.microharness/config.json: debe ser un objeto JSON')
-    unknown = sorted(set(data) - set(cfg))
-    if unknown:
-        raise ValueError(f'.microharness/config.json: claves no admitidas: {", ".join(unknown)}')
-    if 'model' in data and not (isinstance(data['model'], str) and data['model'].strip()):
-        raise ValueError('.microharness/config.json: model debe ser una cadena no vacía')
-    if 'effort' in data and data['effort'] not in EFFORTS:
-        raise ValueError(f'.microharness/config.json: effort debe ser uno de: {", ".join(EFFORTS)}')
-    if 'agent_may_approve' in data and not isinstance(data['agent_may_approve'], bool):
-        raise ValueError('.microharness/config.json: agent_may_approve debe ser un booleano')
-    _positive_int(data, 'odd_max_retries', 1, 10)
-    _positive_int(data, 'odd_rewrite_percent', 50, 100)
-    _positive_int(data, 'rdd_max_files', 1, 200)
-    _positive_int(data, 'rdd_max_lines', 1, 10000)
-    cfg.update(data)
+    data: dict = {}
+    if path.exists():
+        try:
+            data = json.loads(path.read_text(encoding='utf-8'))
+        except json.JSONDecodeError as e:
+            raise ValueError(f'.microharness/config.json: JSON inválido ({e})') from None
+        if not isinstance(data, dict):
+            raise ValueError('.microharness/config.json: debe ser un objeto JSON')
+        allowed = {
+            'model', 'effort', 'profile', 'profiles', 'agent_may_approve',
+            'odd_max_retries', 'odd_rewrite_percent', 'rdd_max_files', 'rdd_max_lines',
+        }
+        unknown = sorted(set(data) - allowed)
+        if unknown:
+            raise ValueError(f'.microharness/config.json: claves no admitidas: {", ".join(unknown)}')
+        if 'model' in data and not (isinstance(data['model'], str) and data['model'].strip()):
+            raise ValueError('.microharness/config.json: model debe ser una cadena no vacía')
+        if 'effort' in data and data['effort'] not in EFFORTS:
+            raise ValueError(f'.microharness/config.json: effort debe ser uno de: {", ".join(EFFORTS)}')
+        if 'profile' in data and not (isinstance(data['profile'], str) and data['profile'].strip()):
+            raise ValueError('.microharness/config.json: profile debe ser una cadena no vacía')
+        if 'agent_may_approve' in data and not isinstance(data['agent_may_approve'], bool):
+            raise ValueError('.microharness/config.json: agent_may_approve debe ser un booleano')
+        _positive_int(data, 'odd_max_retries', 1, 10)
+        _positive_int(data, 'odd_rewrite_percent', 50, 100)
+        _positive_int(data, 'rdd_max_files', 1, 200)
+        _positive_int(data, 'rdd_max_lines', 1, 10000)
+        if 'profiles' in data:
+            if not isinstance(data['profiles'], dict) or not data['profiles']:
+                raise ValueError('.microharness/config.json: profiles debe ser un objeto no vacío')
+            merged = {k: dict(v) for k, v in BUILTIN_PROFILES.items()}
+            for name, prof in data['profiles'].items():
+                if not (isinstance(name, str) and name.strip()):
+                    raise ValueError('.microharness/config.json: nombre de profile inválido')
+                merged[name.strip()] = _validate_profile_entry(name.strip(), prof)
+            cfg['profiles'] = merged
+        for key in ('agent_may_approve', 'odd_max_retries', 'odd_rewrite_percent',
+                    'rdd_max_files', 'rdd_max_lines'):
+            if key in data:
+                cfg[key] = data[key]
+    profiles = cfg['profiles']
+    pid = data['profile'].strip() if 'profile' in data else DEFAULT_PROFILE_ID
+    if pid not in profiles:
+        raise ValueError(f'.microharness/config.json: profile {pid!r} no existe en profiles '
+                         f'(disponibles: {", ".join(sorted(profiles))})')
+    chosen = profiles[pid]
+    cfg['profile'] = pid
+    if 'model' in data:
+        cfg['model'] = data['model'].strip()
+    else:
+        cfg['model'] = chosen['model']
+    if 'effort' in data:
+        cfg['effort'] = data['effort']
+    else:
+        cfg['effort'] = chosen['effort']
+    cfg['profile_status'] = profile_status_for(cfg['model'], cfg['effort'], profiles)
     return cfg
+
+
+def runtime_alignment_errors(cfg: dict | None = None) -> list[str]:
+    """Compara config (fuente de verdad) con settings.json y frontmatter de agentes.
+
+    Si el árbol no tiene arnés runtime (ni settings ni agentes), no reporta errores:
+    típico en raíces temporales de prueba. Con arnés parcial o completo, exige alineación.
+    """
+    cfg = config() if cfg is None else cfg
+    expected_model = cfg['model']
+    expected_effort = cfg['effort']
+    settings_path = ROOT / '.claude' / 'settings.json'
+    agent_paths = {name: ROOT / '.claude' / 'agents' / f'{name}.md' for name in AGENT_NAMES}
+    if not settings_path.is_file() and not any(p.is_file() for p in agent_paths.values()):
+        return []
+    errors: list[str] = []
+    if settings_path.is_file():
+        try:
+            settings = json.loads(settings_path.read_text(encoding='utf-8'))
+        except (OSError, ValueError) as err:
+            errors.append(f'Alineación runtime: .claude/settings.json ilegible ({err})')
+        else:
+            if not isinstance(settings, dict):
+                errors.append('Alineación runtime: .claude/settings.json debe ser un objeto')
+            else:
+                if settings.get('model') != expected_model:
+                    errors.append(
+                        f"Alineación runtime: .claude/settings.json model={settings.get('model')!r} "
+                        f'(esperado {expected_model!r} desde .microharness/config.json)')
+                if settings.get('effortLevel') != expected_effort:
+                    errors.append(
+                        f"Alineación runtime: .claude/settings.json effortLevel={settings.get('effortLevel')!r} "
+                        f'(esperado {expected_effort!r} desde .microharness/config.json)')
+    else:
+        errors.append('Alineación runtime: falta .claude/settings.json')
+    for name, path in agent_paths.items():
+        if not path.is_file():
+            errors.append(f'Alineación runtime: falta .claude/agents/{name}.md')
+            continue
+        try:
+            fields = parse_frontmatter(path.read_text(encoding='utf-8'))
+        except OSError as err:
+            errors.append(f'Alineación runtime: .claude/agents/{name}.md ilegible ({err})')
+            continue
+        if fields.get('model') != expected_model:
+            errors.append(
+                f"Alineación runtime: .claude/agents/{name}.md model={fields.get('model')!r} "
+                f'(esperado {expected_model!r} desde .microharness/config.json)')
+        if fields.get('effort') != expected_effort:
+            errors.append(
+                f"Alineación runtime: .claude/agents/{name}.md effort={fields.get('effort')!r} "
+                f'(esperado {expected_effort!r} desde .microharness/config.json)')
+    return errors
 
 
 def clear_rdd_runtime(slug: str | None = None) -> None:
@@ -309,6 +475,7 @@ def new(slug: str) -> None:
         'state': 'pendiente',
         'model': cfg['model'],
         'effort': cfg['effort'],
+        **({'profile_status': 'experimental'} if cfg.get('profile_status') == 'experimental' else {}),
         'max_iterations': 3,
         'method': {'primary': 'SDD', 'optional': [], 'notes': ''},
         'scope': {'allowed_paths': [], 'excluded': []},
@@ -539,6 +706,7 @@ def validate(slug: str, run: bool = False, scope: bool = True) -> list[str]:
     if errors:
         return errors
     errors.extend(memory_integrity(memory))
+    errors.extend(runtime_alignment_errors(cfg))
     if s.get('id') != slug or s.get('schema_version') != 1:
         errors.append('ID o versión de spec.json incorrectos')
     if s.get('state') not in STATES:

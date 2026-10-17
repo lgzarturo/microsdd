@@ -59,7 +59,7 @@ Tras instalar, versiona con `git add` explícito (nunca `git add .`) e inicia se
 claude --agent lider --model claude-opus-5-5 --effort medium
 ```
 
-(Modelo y esfuerzo: los de `.microharness/config.json` o los defaults del proyecto.)
+(Modelo y esfuerzo: `.microharness/config.json` es la fuente de verdad; el instalador y `sdd.py check` alinean settings/frontmatter. Default probado: `claude-opus-5-5` + `medium`.)
 
 ### Activar, desactivar y consultar
 
@@ -79,12 +79,11 @@ Sin manifiesto, `on`/`off`/`uninstall` fallan con código 1. Tras `on`/`off`, re
 2. Encarga el trabajo al líder (`/sdd …` o una petición concreta).
 3. Flujo: líder → autor → (aprobación) → implementador → revisor → (aprobación de cierre). Tú apruebas en lenguaje natural. Con `agent_may_approve` (default **true**) el líder registra tu cita en `note` y ejecuta `approve`/`seal` con `--evidence @note:<id>`. No puede demostrar que la frase la escribiste tú. Modo estricto: `{"agent_may_approve": false}` en `.microharness/config.json`.
 
-### ODD y RDD (1.3.0)
-
-En `.microharness/config.json` (opcionales; defaults entre paréntesis):
+### Modelo, ODD y RDD (`config.json`)
 
 | Clave | Default | Efecto |
 |---|---|---|
+| `model` / `effort` / `profile` / `profiles` | `claude-opus-5-5` / `medium` / `opus-5-5-medium` / built-in probado | Fuente de verdad del runtime. `check` valida settings + frontmatter; `install` los aplica. Solo el perfil default está **probado**; otros → `experimental`. |
 | `odd_max_retries` | 3 | Tras fallos de pruebas/análisis, `note --fact … --evidence '<stack>' --for-task <slug> --for-phase odd-retry` cuenta reintentos; al llegar al límite detiene y registra. |
 | `odd_rewrite_percent` | 80 | Si `old_string`(s) de Edit/MultiEdit cubren ≥ N% del archivo en disco, el hook lo deniega igual que un Write de reescritura. |
 | `rdd_max_files` | 20 | Kill switch: deniega más ediciones si se superarían N archivos distintos del recibo. |
