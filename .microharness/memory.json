@@ -2,7 +2,9 @@
   "schema_version": 1,
   "project": {
     "observations": [],
-    "decisions": []
+    "decisions": [],
+    "progress": [],
+    "discoveries": []
   },
   "tasks": {}
 }

@@ -299,7 +299,7 @@ class MainTtyTests(unittest.TestCase):
         with mock.patch.object(self.sdd, 'note') as fn:
             code, err = self.run_main(['note', '--fact', 'F', '--evidence', 'E'], env, stdin)
             self.assertEqual(code, 0, err)
-            fn.assert_called_once_with('F', None, None, 'E', None, None)
+            fn.assert_called_once_with('F', None, None, 'E', None, None, progress=None, discovery=None)
         with mock.patch.object(self.sdd, 'validate', return_value=[]) as fn:
             code, err = self.run_main(['check', 'x'], env, stdin)
             self.assertEqual(code, 0, err)

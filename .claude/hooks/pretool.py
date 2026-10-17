@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Guardia de herramientas nativas Claude Code (best effort, NO sandbox)."""
+import hashlib
 import json
 import os
 import re
 import shlex
 import sys
+from fnmatch import fnmatchcase
 from pathlib import Path, PurePosixPath
 
 
@@ -79,18 +81,102 @@ def msg_unparseable() -> str:
             'backticks o escapes). Reformúlalo sin sustituciones ni operadores; ' + msg_approve())
 
 
-def agent_may_approve(cwd: str | None) -> bool:
+def load_harness_config(cwd: str | None) -> dict:
     path = Path(cwd or '.').resolve() / '.microharness' / 'config.json'
+    cfg = {
+        'agent_may_approve': True,
+        'rdd_max_files': DEFAULT_RDD_MAX_FILES,
+        'rdd_max_lines': DEFAULT_RDD_MAX_LINES,
+    }
     if not path.is_file():
-        return True
+        return cfg
     try:
         data = json.loads(path.read_text(encoding='utf-8'))
     except (OSError, ValueError, TypeError):
-        return True
+        return cfg
     if not isinstance(data, dict):
-        return True
-    val = data.get('agent_may_approve', True)
-    return val if isinstance(val, bool) else True
+        return cfg
+    if isinstance(data.get('agent_may_approve'), bool):
+        cfg['agent_may_approve'] = data['agent_may_approve']
+    for key in ('rdd_max_files', 'rdd_max_lines'):
+        val = data.get(key)
+        if type(val) is int and not isinstance(val, bool) and val >= 1:
+            cfg[key] = val
+    return cfg
+
+
+def agent_may_approve(cwd: str | None) -> bool:
+    return bool(load_harness_config(cwd).get('agent_may_approve', True))
+
+
+def count_lines(text: str | None) -> int:
+    if not text:
+        return 0
+    if text.endswith('\n'):
+        return text.count('\n')
+    return text.count('\n') + (1 if text else 0)
+
+
+def estimate_edit_lines(tool: str, inputs: dict) -> int:
+    if tool == 'Write':
+        return count_lines(inputs.get('content') if isinstance(inputs.get('content'), str) else '')
+    if tool == 'Edit':
+        new = inputs.get('new_string') if isinstance(inputs.get('new_string'), str) else ''
+        old = inputs.get('old_string') if isinstance(inputs.get('old_string'), str) else ''
+        return max(count_lines(new), count_lines(old), abs(count_lines(new) - count_lines(old)))
+    if tool == 'MultiEdit':
+        edits = inputs.get('edits') or []
+        total = 0
+        if isinstance(edits, list):
+            for edit in edits:
+                if not isinstance(edit, dict):
+                    continue
+                new = edit.get('new_string') if isinstance(edit.get('new_string'), str) else ''
+                old = edit.get('old_string') if isinstance(edit.get('old_string'), str) else ''
+                total += max(count_lines(new), count_lines(old), abs(count_lines(new) - count_lines(old)))
+        return total
+    if tool == 'NotebookEdit':
+        src = inputs.get('new_source') if isinstance(inputs.get('new_source'), str) else ''
+        return count_lines(src)
+    return 0
+
+
+def file_digest(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes().replace(b'\r\n', b'\n')).hexdigest()
+
+
+def changed_files_vs_receipt(root: Path, receipt: dict) -> int:
+    """Cuenta archivos del recibo cuyo contenido actual difiere del hash sellado."""
+    files = receipt.get('files') if isinstance(receipt, dict) else None
+    if not isinstance(files, dict):
+        return 0
+    changed = 0
+    for rel, expected in files.items():
+        if not isinstance(rel, str) or not isinstance(expected, str):
+            continue
+        path = root / rel
+        if not path.is_file():
+            changed += 1
+            continue
+        if file_digest(path) != expected:
+            changed += 1
+    return changed
+
+
+def path_in_patterns(rel: str, patterns: list) -> bool:
+    return any(fnmatchcase(rel, p) or
+               (isinstance(p, str) and p.endswith('/**') and rel.startswith(p[:-3] + '/'))
+               for p in patterns)
+
+
+def msg_kill_switch(reason: str) -> str:
+    return (f'Kill switch RDD: {reason}. Detén la ejecución; reduce el alcance o pide ampliar '
+            f'rdd_max_files / rdd_max_lines en .microharness/config.json (humano).')
+
+
+def msg_outside_receipt(rel: str) -> str:
+    return (f'Fuera del recibo RDD: {rel}. El alcance quedó congelado al aprobar la spec '
+            f'(receipt.allowed_paths); no edites rutas fuera de ese recibo.')
 
 
 def gated_with_note_evidence(cmd: str) -> bool:
@@ -110,6 +196,13 @@ MSG_SETTINGS_READ_HINT = ('Para leer settings usa cat, head, tail, grep, rg, jq 
                           'no los modifiques desde el agente.')
 MSG_EXECUTABLES = ('El líder/autor no escriben ejecutables en docs/ ni spec/; ' + msg_approve())
 MSG_DOCS_PY = ('No ejecutes scripts bajo docs/ o spec/ desde el agente; ' + msg_approve())
+MSG_FULL_REWRITE = (
+    'Reescritura completa bloqueada (ODD): el archivo ya existe. Usa Edit o MultiEdit con un diff/parche '
+    'acotado; Write solo para archivos nuevos. Así se evita saturar el contexto y se preserva el historial '
+    'quirúrgico del cambio.'
+)
+DEFAULT_RDD_MAX_FILES = 20
+DEFAULT_RDD_MAX_LINES = 500
 
 
 def norm_path_token(t: str) -> str:
@@ -467,6 +560,15 @@ def run(event: dict) -> str | None:
             return ('Se prohíbe editar fuera del proyecto (excepción: ~/.claude/plans/*.md). '
                     'No abras el resto de ~/.claude.')
         low = rel.lower()
+        cfg = load_harness_config(event.get('cwd'))
+        # ODD: el implementador no reescribe archivos existentes con Write (exige Edit/MultiEdit).
+        if agent == 'implementador' and tool == 'Write' and target.exists() and target.is_file():
+            return MSG_FULL_REWRITE
+        if agent == 'implementador':
+            line_budget = estimate_edit_lines(tool, inputs)
+            if line_budget > cfg['rdd_max_lines']:
+                return msg_kill_switch(
+                    f'el cambio aporta ~{line_budget} líneas (límite rdd_max_lines={cfg["rdd_max_lines"]})')
         if agent in ('lider', 'autor') and (rel.startswith('docs/') or rel.startswith('spec/')):
             suffix = Path(rel).suffix.lower()
             if suffix in EXEC_EXTS:
@@ -498,13 +600,8 @@ def run(event: dict) -> str | None:
                     continue
             if len(active) != 1:
                 return 'Se requiere exactamente una spec activa en proceso.'
-            from fnmatch import fnmatchcase
-            paths = active[0].get('scope', {}).get('allowed_paths', [])
-            ok = any(fnmatchcase(rel, p) or
-                     (p.endswith('/**') and rel.startswith(p[:-3] + '/')) for p in paths)
-            if not ok:
-                return f'Fuera del alcance aprobado: {rel}'
             memory_file = root / '.microharness/memory.json'
+            receipt = None
             if memory_file.exists():
                 try:
                     memory = json.loads(memory_file.read_text(encoding='utf-8'))
@@ -514,8 +611,26 @@ def run(event: dict) -> str | None:
                     sealed = task.get('sealed_tests', {})
                     if rel in sealed:
                         return 'El test está sellado; pide aprobación humana para resellarlo.'
+                    receipt = task.get('receipt')
                 except (OSError, ValueError, KeyError):
                     return 'Memoria inválida; no se puede autorizar edición.'
+            if isinstance(receipt, dict) and isinstance(receipt.get('allowed_paths'), list) and receipt['allowed_paths']:
+                if not path_in_patterns(rel, receipt['allowed_paths']):
+                    return msg_outside_receipt(rel)
+                baseline = receipt.get('files') if isinstance(receipt.get('files'), dict) else {}
+                already = changed_files_vs_receipt(root, receipt)
+                unchanged = (rel in baseline and (root / rel).is_file()
+                             and file_digest(root / rel) == baseline[rel])
+                new_file = rel not in baseline
+                will_add = 1 if (unchanged or new_file) else 0
+                if already + will_add > cfg['rdd_max_files']:
+                    return msg_kill_switch(
+                        f'se superarían {already + will_add} archivos distintos del recibo '
+                        f'(límite rdd_max_files={cfg["rdd_max_files"]})')
+            else:
+                paths = active[0].get('scope', {}).get('allowed_paths', [])
+                if not path_in_patterns(rel, paths):
+                    return f'Fuera del alcance aprobado: {rel}'
         elif agent == 'lider':
             if not rel.startswith(('docs/', 'spec/')):
                 return 'El líder no modifica código; delega al implementador.'
