@@ -4,16 +4,16 @@ from __future__ import annotations
 import argparse
 import copy
 import hashlib
+import importlib.util
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 from datetime import datetime, timezone
 from importlib import metadata
 from pathlib import Path
-
-import importlib.util
 
 try:
     from microsdd.worktree import worktree_sync
@@ -54,6 +54,16 @@ INSTALL_RECORD = '.microharness/install.json'
 MERGE_KEYS = ('agent', 'model', 'effortLevel')
 INIT_FILES = ('docs/AGENT.md', 'docs/arquitectura.md', 'docs/convenciones.md',
               'docs/especificaciones.md', '.microharness/memory.json')
+AGENT_REL_PATHS = (
+    '.claude/agents/lider.md',
+    '.claude/agents/autor.md',
+    '.claude/agents/implementador.md',
+    '.claude/agents/revisor.md',
+)
+DEFAULT_MODEL = 'claude-opus-5-5'
+DEFAULT_EFFORT = 'medium'
+EFFORTS = ('low', 'medium', 'high', 'xhigh', 'max')
+FRONTMATTER_RE = re.compile(r'\A---\r?\n(.*?)\r?\n---(?:\r?\n|$)', re.DOTALL)
 BEGIN = '<!-- microsdd:begin -->'
 END = '<!-- microsdd:end -->'
 BLOCK = (BEGIN,
@@ -76,6 +86,89 @@ def version() -> str:
 def banner() -> str:
     return (f'{NAME} {version()}\n'
             'ALERTA: micro arnés por proyecto; no es un arnés global y no modifica ~/.claude.\n')
+
+
+def target_runtime(target: Path) -> tuple[str, str]:
+    """Modelo y esfuerzo efectivos desde config.json del destino (fuente de verdad) o defaults."""
+    path = Path(target) / '.microharness' / 'config.json'
+    model, effort = DEFAULT_MODEL, DEFAULT_EFFORT
+    if not path.is_file():
+        return model, effort
+    try:
+        data = json.loads(path.read_text(encoding='utf-8'))
+    except (OSError, ValueError) as err:
+        raise ValueError(f'.microharness/config.json: ilegible ({err})') from err
+    if not isinstance(data, dict):
+        raise ValueError('.microharness/config.json: debe ser un objeto JSON')
+    profiles = data.get('profiles') if isinstance(data.get('profiles'), dict) else {}
+    pid = data.get('profile')
+    if isinstance(pid, str) and pid.strip() and pid.strip() in profiles:
+        chosen = profiles[pid.strip()]
+        if isinstance(chosen, dict):
+            if isinstance(chosen.get('model'), str) and chosen['model'].strip():
+                model = chosen['model'].strip()
+            if chosen.get('effort') in EFFORTS:
+                effort = chosen['effort']
+    if isinstance(data.get('model'), str) and data['model'].strip():
+        model = data['model'].strip()
+    if data.get('effort') in EFFORTS:
+        effort = data['effort']
+    return model, effort
+
+
+def parse_frontmatter(text: str) -> dict[str, str]:
+    match = FRONTMATTER_RE.match(text)
+    if not match:
+        return {}
+    fields: dict[str, str] = {}
+    for line in match.group(1).splitlines():
+        if ':' not in line:
+            continue
+        key, _, value = line.partition(':')
+        fields[key.strip()] = value.strip()
+    return fields
+
+
+def apply_frontmatter_fields(text: str, updates: dict[str, str]) -> str:
+    match = FRONTMATTER_RE.match(text)
+    if match:
+        body = text[match.end():]
+        lines = match.group(1).splitlines()
+    else:
+        body = text
+        lines = []
+    seen: set[str] = set()
+    new_lines: list[str] = []
+    for line in lines:
+        if ':' in line:
+            key = line.partition(':')[0].strip()
+            if key in updates:
+                new_lines.append(f'{key}: {updates[key]}')
+                seen.add(key)
+                continue
+        new_lines.append(line)
+    for key, value in updates.items():
+        if key not in seen:
+            new_lines.append(f'{key}: {value}')
+    return '---\n' + '\n'.join(new_lines) + '\n---\n' + body
+
+
+def payload_with_runtime(source: Path, rel: str, model: str, effort: str) -> bytes:
+    raw = (source / rel).read_bytes()
+    if rel == SETTINGS:
+        data = json.loads(raw.decode('utf-8'))
+        if data.get('model') == model and data.get('effortLevel') == effort:
+            return raw
+        data['model'] = model
+        data['effortLevel'] = effort
+        return dump_json(data)
+    if rel in AGENT_REL_PATHS:
+        text = raw.decode('utf-8')
+        fields = parse_frontmatter(text)
+        if fields.get('model') == model and fields.get('effort') == effort:
+            return raw
+        return apply_frontmatter_fields(text, {'model': model, 'effort': effort}).encode('utf-8')
+    return raw
 
 
 def filter_path(value: str, prefix: str, base_prefix: str) -> str:
@@ -300,20 +393,41 @@ def install_record(actions, previous: dict | None, applied: dict, claude_before:
 
 def plan(source: Path, target: Path, force: bool) -> list[tuple[str, str, Path | None, bytes | None]]:
     actions = []
+    model, effort = target_runtime(target)
     for src, dst in MANIFEST.items():
-        data = (source / src).read_bytes()
+        data = payload_with_runtime(source, src, model, effort)
         current = target / dst
         if dst == SETTINGS and current.is_file():
             existing = load_settings(current)
-            merged, _ = merge(existing, json.loads(data))
+            merged, _ = merge(existing, json.loads(data.decode('utf-8')))
             actions.append(('sin cambios', dst, None, None) if merged == existing
                            else ('fusionar', dst, None, dump_json(merged)))
+        elif dst in AGENT_REL_PATHS and current.is_file() and not force:
+            # Alinea model/effort solo si el cuerpo del agente coincide con el payload.
+            if current.read_bytes() == data:
+                actions.append(('sin cambios', dst, None, None))
+            else:
+                current_text = current.read_text(encoding='utf-8')
+                source_text = data.decode('utf-8')
+                cur_match = FRONTMATTER_RE.match(current_text)
+                src_match = FRONTMATTER_RE.match(source_text)
+                if (cur_match and src_match
+                        and current_text[cur_match.end():] == source_text[src_match.end():]):
+                    updated = apply_frontmatter_fields(
+                        current_text, {'model': model, 'effort': effort}
+                    ).encode('utf-8')
+                    actions.append(('sin cambios', dst, None, None) if updated == current.read_bytes()
+                                   else ('fusionar', dst, None, updated))
+                else:
+                    actions.append(('conflicto', dst, source / src, None))
         elif not current.exists():
-            actions.append(('crear', dst, source / src, None))
+            actions.append(('crear', dst, None, data) if data != (source / src).read_bytes()
+                           else ('crear', dst, source / src, None))
         elif current.read_bytes() == data:
             actions.append(('sin cambios', dst, None, None))
         else:
-            actions.append(('actualizar' if force else 'conflicto', dst, source / src, None))
+            actions.append(('actualizar' if force else 'conflicto', dst,
+                            None if force else source / src, data if force else None))
     claude = target / 'CLAUDE.md'
     if not claude.exists():
         actions.append(('crear', 'CLAUDE.md', None, registry_block(None, (target / 'AGENTS.md').is_file())))
@@ -371,7 +485,9 @@ def install(source: Path, target: Path, *, uv: list[str] | None, home: Path,
     if dry_run:
         print('Simulación (--dry-run): no se escribió nada.')
         return 0
-    _, applied = merge(load_settings(target / SETTINGS) or {}, json.loads((source / SETTINGS).read_bytes()))
+    model, effort = target_runtime(target)
+    _, applied = merge(load_settings(target / SETTINGS) or {},
+                       json.loads(payload_with_runtime(source, SETTINGS, model, effort)))
     _local_data = load_settings_local(target / SETTINGS_LOCAL)
     _, local_added = merge_settings_local(_local_data)
     claude = target / 'CLAUDE.md'
@@ -434,7 +550,9 @@ def toggle(source: Path, target: Path, enable: bool) -> int:
         return 1
     state = record['settings']
     if enable:
-        new, applied = merge(current or {}, json.loads((Path(source) / SETTINGS).read_bytes()))
+        model, effort = target_runtime(target)
+        payload = json.loads(payload_with_runtime(Path(source), SETTINGS, model, effort))
+        new, applied = merge(current or {}, payload)
         state = {**state, 'enabled': True, 'keys': {**applied['keys'], **state.get('keys', {})},
                  'hook': applied['hook']}
     else:

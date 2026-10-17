@@ -235,28 +235,34 @@ El comando `new` genera un ejemplo completo y editable con estos campos relevant
 
 `commands` y `mutation.command` son **arreglos de argumentos**, no cadenas shell; el verificador los ejecuta con `shell=False`. No puede determinar que un comando sea confiable: el líder debe verificarlo antes de ejecutar. `max_iterations` limita revisiones declaradas, no las llamadas internas al modelo, y `effort` es una preferencia consignada en la especificación; el runtime real lo configuran settings/frontmatter, no el JSON automáticamente.
 
-### Modelo y esfuerzo por defecto: `.microharness/config.json`
+### Modelo y esfuerzo: `.microharness/config.json` (fuente de verdad)
 
-Archivo opcional de configuración humana del proyecto; el instalador no lo crea ni lo distribuye y `sdd.py` solo lo lee. Es un objeto JSON con dos claves opcionales y ninguna otra:
+Archivo opcional de configuración humana; el instalador no lo crea. Define el runtime efectivo y, desde 1.4.0, `check` e `install` lo hacen valer en settings y agentes.
 
 ```json
-{ "model": "claude-opus-5-5", "effort": "medium" }
+{
+  "profile": "opus-5-5-medium",
+  "model": "claude-opus-5-5",
+  "effort": "medium",
+  "profiles": {
+    "opus-5-5-medium": {
+      "status": "probado",
+      "model": "claude-opus-5-5",
+      "effort": "medium"
+    }
+  }
+}
 ```
 
-- `model`: cadena no vacía. `effort`: uno de `low`, `medium`, `high`, `xhigh`, `max`.
-- Si el archivo no existe, o falta una clave, se usan `claude-opus-5-5` y `medium`.
-- `new` copia ambos valores en el `spec.json` generado.
-- `check` exige que `spec.model` sea igual al modelo configurado, salvo en tareas `terminado` (no se invalidan al cambiar de modelo). `spec.effort` solo debe ser un nivel válido; puede diferir del configurado.
-- Un archivo inválido (JSON mal formado, no objeto, claves desconocidas o valores inválidos) hace fallar `new`, `check` y `approve` con `ERROR:` y el motivo, sin escrituras.
+- `model`: cadena no vacía. `effort`: `low`|`medium`|`high`|`xhigh`|`max`.
+- `profile` / `profiles`: perfil activo y catálogo; cada perfil exige `status` (`probado`|`experimental`), `model` y `effort`. Built-in: solo `opus-5-5-medium` está **probado** (el protocolo de `assets/eval-esfuerzo.md` no se ha ejecutado).
+- Si falta el archivo o las claves, se usa ese default probado.
+- `new` copia `model`/`effort`; si el runtime no es probado, añade `profile_status: "experimental"`.
+- `check` exige: (1) `spec.model` = configurado (salvo `terminado`); (2) `.claude/settings.json` (`model`, `effortLevel`) y frontmatter de los cuatro agentes alineados con la config. `spec.effort` solo debe ser un nivel válido.
+- El instalador aplica modelo/esfuerzo del `config.json` del destino (o defaults) al crear/fusionar settings y al alinear el frontmatter de agentes.
+- Id de modelo canónico en el repo: `claude-opus-5-5` (`DEFAULT_MODEL` en `sdd.py`).
 
-Cambiar de modelo o esfuerzo es manual y debe hacerse en todas las fuentes, que `check` no sincroniza:
-
-1. `.microharness/config.json` (`model`, `effort`).
-2. `.claude/settings.json` (`model`, `effortLevel`).
-3. El frontmatter `model`/`effort` de los cuatro agentes en `.claude/agents/*.md`.
-4. El cuerpo de `.claude/agents/autor.md` (y el resto de agentes): modelo y esfuerzo desde `.microharness/config.json` o defaults del proyecto; el frontmatter puede fijar valores para Claude Code.
-
-Las tareas en `pendiente` o `proceso` fallarán `check` hasta actualizar su `spec.model`; ese cambio altera la huella de la especificación y exige reaprobarla.
+Las tareas en `pendiente` o `proceso` fallarán `check` hasta actualizar su `spec.model`; ese cambio altera la huella y exige reaprobarla.
 
 ### EARS, SDD, RDD, ODD
 

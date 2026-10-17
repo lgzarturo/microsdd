@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "project": {
+    "observations": [],
+    "decisions": [],
+    "progress": [],
+    "discoveries": []
+  },
+  "tasks": {}
+}
