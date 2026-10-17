@@ -77,7 +77,7 @@ Sin manifiesto, `on`/`off`/`uninstall` fallan con código 1. Tras `on`/`off`, re
 
 1. Abre el proyecto con `claude --agent lider` (o confía en `agent: lider` del settings fusionado).
 2. Encarga el trabajo al líder (`/sdd …` o una petición concreta).
-3. Flujo: líder → autor → (aprobación) → implementador → revisor → (aprobación de cierre). Tú apruebas en lenguaje natural. Con `agent_may_approve` (default **true**) el líder registra tu cita en `note` y ejecuta `approve`/`seal` con `--evidence @note:<id>`. No puede demostrar que la frase la escribiste tú. Modo estricto: `{"agent_may_approve": false}` en `.microharness/config.json`.
+3. Flujo: líder → autor → (aprobación) → implementador → revisor → (aprobación de cierre). Tú apruebas en lenguaje natural. Con `agent_may_approve` (default **true**) **solo el líder** registra tu cita en `note` y ejecuta `approve`/`seal`/`allow-test-command` con `--evidence @note:<id>`; el hook deniega esos subcomandos a autor, implementador y roles ausentes. No puede demostrar que la frase la escribiste tú. Modo estricto: `{"agent_may_approve": false}` en `.microharness/config.json`.
 
 ### Modelo, ODD y RDD (`config.json`)
 
