@@ -32,6 +32,7 @@ LOCK_TIMEOUT = 10.0
 DEFAULT_MODEL = 'claude-opus-5-5'
 DEFAULT_EFFORT = 'medium'
 DEFAULT_ODD_MAX_RETRIES = 3
+DEFAULT_ODD_REWRITE_PERCENT = 80
 DEFAULT_RDD_MAX_FILES = 20
 DEFAULT_RDD_MAX_LINES = 500
 EFFORTS = ('low', 'medium', 'high', 'xhigh', 'max')
@@ -192,6 +193,7 @@ def config() -> dict:
         'effort': DEFAULT_EFFORT,
         'agent_may_approve': True,
         'odd_max_retries': DEFAULT_ODD_MAX_RETRIES,
+        'odd_rewrite_percent': DEFAULT_ODD_REWRITE_PERCENT,
         'rdd_max_files': DEFAULT_RDD_MAX_FILES,
         'rdd_max_lines': DEFAULT_RDD_MAX_LINES,
     }
@@ -213,10 +215,42 @@ def config() -> dict:
     if 'agent_may_approve' in data and not isinstance(data['agent_may_approve'], bool):
         raise ValueError('.microharness/config.json: agent_may_approve debe ser un booleano')
     _positive_int(data, 'odd_max_retries', 1, 10)
+    _positive_int(data, 'odd_rewrite_percent', 50, 100)
     _positive_int(data, 'rdd_max_files', 1, 200)
     _positive_int(data, 'rdd_max_lines', 1, 10000)
     cfg.update(data)
     return cfg
+
+
+def clear_rdd_runtime(slug: str | None = None) -> None:
+    """Borra el contador local de líneas del kill switch (no versionado)."""
+    path = MEMORY.parent / 'rdd_runtime.json'
+    if not path.is_file():
+        return
+    if slug is None:
+        try:
+            path.unlink()
+        except OSError:
+            pass
+        return
+    try:
+        data = json.loads(path.read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        try:
+            path.unlink()
+        except OSError:
+            pass
+        return
+    tasks = data.get('tasks') if isinstance(data, dict) else None
+    if isinstance(tasks, dict) and slug in tasks:
+        del tasks[slug]
+        if tasks:
+            dump(path, data)
+        else:
+            try:
+                path.unlink()
+            except OSError:
+                pass
 
 
 def normalize_project(memory: dict) -> dict:
@@ -256,6 +290,7 @@ def ensure_init() -> None:
         after = json.dumps(memory, sort_keys=True, ensure_ascii=False)
         if before != after:
             dump(MEMORY, memory)
+    clear_rdd_runtime()
     print('Contexto inicializado, sin sobrescribir documentación existente.')
 
 
@@ -744,6 +779,7 @@ def approve(slug: str, phase: str, by: str, evidence: str) -> None:
         memory['tasks'][slug]['iterations'] = 0
         memory['tasks'][slug]['odd_retries'] = 0
         memory['tasks'][slug]['receipt'] = build_receipt(spec.get('scope', {}).get('allowed_paths', []))
+        clear_rdd_runtime(slug)
     memory['tasks'][slug]['events'].append({'at': now(), 'event': f'aprobación_{phase}', 'by': by})
     if phase == 'spec':
         spec['state'] = 'proceso'

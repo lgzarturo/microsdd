@@ -81,12 +81,19 @@ def msg_unparseable() -> str:
             'backticks o escapes). Reformúlalo sin sustituciones ni operadores; ' + msg_approve())
 
 
+DEFAULT_RDD_MAX_FILES = 20
+DEFAULT_RDD_MAX_LINES = 500
+DEFAULT_ODD_REWRITE_PERCENT = 80
+RDD_RUNTIME_NAME = 'rdd_runtime.json'
+
+
 def load_harness_config(cwd: str | None) -> dict:
     path = Path(cwd or '.').resolve() / '.microharness' / 'config.json'
     cfg = {
         'agent_may_approve': True,
         'rdd_max_files': DEFAULT_RDD_MAX_FILES,
         'rdd_max_lines': DEFAULT_RDD_MAX_LINES,
+        'odd_rewrite_percent': DEFAULT_ODD_REWRITE_PERCENT,
     }
     if not path.is_file():
         return cfg
@@ -98,9 +105,13 @@ def load_harness_config(cwd: str | None) -> dict:
         return cfg
     if isinstance(data.get('agent_may_approve'), bool):
         cfg['agent_may_approve'] = data['agent_may_approve']
-    for key in ('rdd_max_files', 'rdd_max_lines'):
+    for key, lo, hi in (
+            ('rdd_max_files', 1, None),
+            ('rdd_max_lines', 1, None),
+            ('odd_rewrite_percent', 50, 100),
+    ):
         val = data.get(key)
-        if type(val) is int and not isinstance(val, bool) and val >= 1:
+        if type(val) is int and not isinstance(val, bool) and val >= lo and (hi is None or val <= hi):
             cfg[key] = val
     return cfg
 
@@ -118,6 +129,7 @@ def count_lines(text: str | None) -> int:
 
 
 def estimate_edit_lines(tool: str, inputs: dict) -> int:
+    """Estimación aproximada de líneas tocadas en una llamada (no es un diff unificado)."""
     if tool == 'Write':
         return count_lines(inputs.get('content') if isinstance(inputs.get('content'), str) else '')
     if tool == 'Edit':
@@ -141,8 +153,57 @@ def estimate_edit_lines(tool: str, inputs: dict) -> int:
     return 0
 
 
+def _norm_newlines(text: str) -> str:
+    return text.replace('\r\n', '\n').replace('\r', '\n')
+
+
+def collect_old_strings(tool: str, inputs: dict) -> list[str]:
+    if tool == 'Edit':
+        old = inputs.get('old_string')
+        return [old] if isinstance(old, str) and old else []
+    if tool == 'MultiEdit':
+        edits = inputs.get('edits') or []
+        out: list[str] = []
+        if isinstance(edits, list):
+            for edit in edits:
+                if isinstance(edit, dict) and isinstance(edit.get('old_string'), str) and edit['old_string']:
+                    out.append(edit['old_string'])
+        return out
+    return []
+
+
+def is_near_full_rewrite(tool: str, inputs: dict, target: Path, percent: int) -> bool:
+    """True si old_string(s) cubren ≥ percent% del archivo en disco (ODD: no reescribir)."""
+    if tool not in ('Edit', 'MultiEdit') or not target.is_file():
+        return False
+    try:
+        disk = _norm_newlines(target.read_text(encoding='utf-8'))
+    except (OSError, UnicodeDecodeError):
+        return False
+    if not disk:
+        return False
+    olds = collect_old_strings(tool, inputs)
+    if not olds:
+        return False
+    if any(_norm_newlines(o) == disk for o in olds):
+        return True
+    covered = sum(len(_norm_newlines(o)) for o in olds)
+    return covered * 100 >= percent * len(disk)
+
+
 def file_digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes().replace(b'\r\n', b'\n')).hexdigest()
+
+
+def paths_casefold() -> bool:
+    """En Windows las rutas del recibo se comparan sin distinguir mayúsculas."""
+    return os.name == 'nt'
+
+
+def path_key(rel: str, casefold: bool | None = None) -> str:
+    if casefold is None:
+        casefold = paths_casefold()
+    return rel.casefold() if casefold else rel
 
 
 def changed_files_vs_receipt(root: Path, receipt: dict) -> int:
@@ -163,20 +224,99 @@ def changed_files_vs_receipt(root: Path, receipt: dict) -> int:
     return changed
 
 
-def path_in_patterns(rel: str, patterns: list) -> bool:
-    return any(fnmatchcase(rel, p) or
-               (isinstance(p, str) and p.endswith('/**') and rel.startswith(p[:-3] + '/'))
-               for p in patterns)
+def path_in_patterns(rel: str, patterns: list, casefold: bool | None = None) -> bool:
+    if casefold is None:
+        casefold = paths_casefold()
+    rel_n = path_key(rel, casefold)
+    for p in patterns:
+        if not isinstance(p, str):
+            continue
+        p_n = path_key(p, casefold)
+        if fnmatchcase(rel_n, p_n):
+            return True
+        if p_n.endswith('/**') and rel_n.startswith(p_n[:-3] + '/'):
+            return True
+    return False
+
+
+def receipt_baseline_lookup(baseline: dict, rel: str) -> str | None:
+    """Devuelve el hash esperado para rel, con lookup casefold en Windows."""
+    if rel in baseline and isinstance(baseline[rel], str):
+        return baseline[rel]
+    if not paths_casefold():
+        return None
+    key = rel.casefold()
+    for k, v in baseline.items():
+        if isinstance(k, str) and k.casefold() == key and isinstance(v, str):
+            return v
+    return None
+
+
+def resolve_edit_rel(base: Path, target: Path) -> tuple[str | None, str | None]:
+    """(rel_posix, error). resolve() sigue symlinks; el destino real debe quedar en el proyecto."""
+    try:
+        resolved = target.resolve()
+        rel = resolved.relative_to(base.resolve()).as_posix()
+    except (ValueError, OSError):
+        return None, ('Se prohíbe editar fuera del proyecto (excepción: ~/.claude/plans/*.md). '
+                      'No abras el resto de ~/.claude. Symlinks cuyo destino real sale del árbol '
+                      'también se rechazan.')
+    return rel, None
+
+
+def runtime_path(root: Path) -> Path:
+    return root / '.microharness' / RDD_RUNTIME_NAME
+
+
+def load_runtime_lines(root: Path, slug: str) -> int:
+    path = runtime_path(root)
+    if not path.is_file():
+        return 0
+    try:
+        data = json.loads(path.read_text(encoding='utf-8'))
+    except (OSError, ValueError, TypeError):
+        return 0
+    tasks = data.get('tasks') if isinstance(data, dict) else None
+    if not isinstance(tasks, dict):
+        return 0
+    entry = tasks.get(slug)
+    if isinstance(entry, dict) and type(entry.get('lines')) is int and not isinstance(entry.get('lines'), bool):
+        return max(0, entry['lines'])
+    return 0
+
+
+def add_runtime_lines(root: Path, slug: str, delta: int) -> int:
+    """Suma líneas aproximadas al contador de la tarea; archivo local no versionado."""
+    path = runtime_path(root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data: dict = {'tasks': {}}
+    if path.is_file():
+        try:
+            loaded = json.loads(path.read_text(encoding='utf-8'))
+            if isinstance(loaded, dict) and isinstance(loaded.get('tasks'), dict):
+                data = loaded
+        except (OSError, ValueError, TypeError):
+            data = {'tasks': {}}
+    tasks = data.setdefault('tasks', {})
+    entry = tasks.get(slug) if isinstance(tasks.get(slug), dict) else {}
+    current = entry.get('lines') if type(entry.get('lines')) is int else 0
+    total = max(0, current) + max(0, delta)
+    tasks[slug] = {'lines': total}
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+    return total
 
 
 def msg_kill_switch(reason: str) -> str:
     return (f'Kill switch RDD: {reason}. Detén la ejecución; reduce el alcance o pide ampliar '
-            f'rdd_max_files / rdd_max_lines en .microharness/config.json (humano).')
+            f'rdd_max_files / rdd_max_lines en .microharness/config.json (humano). '
+            f'El conteo de líneas es aproximado y acumulado por tarea '
+            f'(defensa global del implementador, aunque RDD no esté en optional).')
 
 
 def msg_outside_receipt(rel: str) -> str:
     return (f'Fuera del recibo RDD: {rel}. El alcance quedó congelado al aprobar la spec '
-            f'(receipt.allowed_paths); no edites rutas fuera de ese recibo.')
+            f'(receipt.allowed_paths); no edites rutas fuera de ese recibo '
+            f'(incluye destino real tras resolver symlinks).')
 
 
 def gated_with_note_evidence(cmd: str) -> bool:
@@ -197,12 +337,11 @@ MSG_SETTINGS_READ_HINT = ('Para leer settings usa cat, head, tail, grep, rg, jq 
 MSG_EXECUTABLES = ('El líder/autor no escriben ejecutables en docs/ ni spec/; ' + msg_approve())
 MSG_DOCS_PY = ('No ejecutes scripts bajo docs/ o spec/ desde el agente; ' + msg_approve())
 MSG_FULL_REWRITE = (
-    'Reescritura completa bloqueada (ODD): el archivo ya existe. Usa Edit o MultiEdit con un diff/parche '
-    'acotado; Write solo para archivos nuevos. Así se evita saturar el contexto y se preserva el historial '
-    'quirúrgico del cambio.'
+    'Reescritura completa bloqueada (ODD): no sustituyas casi todo el archivo de una vez. '
+    'Write solo para archivos nuevos; Edit/MultiEdit deben ser diffs acotados '
+    f'(old_string < odd_rewrite_percent% del contenido en disco, default {DEFAULT_ODD_REWRITE_PERCENT}%). '
+    'Así se evita saturar el contexto y se preserva el historial quirúrgico del cambio.'
 )
-DEFAULT_RDD_MAX_FILES = 20
-DEFAULT_RDD_MAX_LINES = 500
 
 
 def norm_path_token(t: str) -> str:
@@ -554,21 +693,20 @@ def run(event: dict) -> str | None:
             target = base / target
         if plans_md_exception(target, agent):
             return None
-        try:
-            rel = target.resolve().relative_to(base).as_posix()
-        except ValueError:
-            return ('Se prohíbe editar fuera del proyecto (excepción: ~/.claude/plans/*.md). '
-                    'No abras el resto de ~/.claude.')
+        rel, rel_err = resolve_edit_rel(base, target)
+        if rel_err:
+            return rel_err
+        assert rel is not None
         low = rel.lower()
         cfg = load_harness_config(event.get('cwd'))
-        # ODD: el implementador no reescribe archivos existentes con Write (exige Edit/MultiEdit).
-        if agent == 'implementador' and tool == 'Write' and target.exists() and target.is_file():
-            return MSG_FULL_REWRITE
+        # ODD: Write sobre existente, o Edit/MultiEdit que cubre ≥ odd_rewrite_percent del disco.
         if agent == 'implementador':
-            line_budget = estimate_edit_lines(tool, inputs)
-            if line_budget > cfg['rdd_max_lines']:
-                return msg_kill_switch(
-                    f'el cambio aporta ~{line_budget} líneas (límite rdd_max_lines={cfg["rdd_max_lines"]})')
+            if tool == 'Write' and target.exists() and target.is_file():
+                return MSG_FULL_REWRITE
+            disk_file = base / rel
+            if is_near_full_rewrite(tool, inputs, disk_file if disk_file.is_file() else target,
+                                    cfg['odd_rewrite_percent']):
+                return MSG_FULL_REWRITE
         if agent in ('lider', 'autor') and (rel.startswith('docs/') or rel.startswith('spec/')):
             suffix = Path(rel).suffix.lower()
             if suffix in EXEC_EXTS:
@@ -600,16 +738,20 @@ def run(event: dict) -> str | None:
                     continue
             if len(active) != 1:
                 return 'Se requiere exactamente una spec activa en proceso.'
+            slug = active[0]['id']
             memory_file = root / '.microharness/memory.json'
             receipt = None
             if memory_file.exists():
                 try:
                     memory = json.loads(memory_file.read_text(encoding='utf-8'))
-                    task = memory['tasks'][active[0]['id']]
+                    task = memory['tasks'][slug]
                     if not task.get('approvals', {}).get('spec'):
                         return 'Especificación sin aprobación registrada.'
                     sealed = task.get('sealed_tests', {})
-                    if rel in sealed:
+                    sealed_hit = rel in sealed or (
+                        paths_casefold() and any(isinstance(k, str) and k.casefold() == rel.casefold()
+                                                 for k in sealed))
+                    if sealed_hit:
                         return 'El test está sellado; pide aprobación humana para resellarlo.'
                     receipt = task.get('receipt')
                 except (OSError, ValueError, KeyError):
@@ -619,9 +761,11 @@ def run(event: dict) -> str | None:
                     return msg_outside_receipt(rel)
                 baseline = receipt.get('files') if isinstance(receipt.get('files'), dict) else {}
                 already = changed_files_vs_receipt(root, receipt)
-                unchanged = (rel in baseline and (root / rel).is_file()
-                             and file_digest(root / rel) == baseline[rel])
-                new_file = rel not in baseline
+                expected_hash = receipt_baseline_lookup(baseline, rel)
+                disk_path = root / rel
+                unchanged = (expected_hash is not None and disk_path.is_file()
+                             and file_digest(disk_path) == expected_hash)
+                new_file = expected_hash is None
                 will_add = 1 if (unchanged or new_file) else 0
                 if already + will_add > cfg['rdd_max_files']:
                     return msg_kill_switch(
@@ -631,6 +775,15 @@ def run(event: dict) -> str | None:
                 paths = active[0].get('scope', {}).get('allowed_paths', [])
                 if not path_in_patterns(rel, paths):
                     return f'Fuera del alcance aprobado: {rel}'
+            # Kill switch de líneas: acumula por tarea (defensa global; conteo aproximado).
+            line_delta = estimate_edit_lines(tool, inputs)
+            used = load_runtime_lines(root, slug)
+            if used + line_delta > cfg['rdd_max_lines']:
+                return msg_kill_switch(
+                    f'acumulado ~{used}+{line_delta} líneas en la tarea {slug} '
+                    f'(límite rdd_max_lines={cfg["rdd_max_lines"]}; conteo aproximado)')
+            if line_delta:
+                add_runtime_lines(root, slug, line_delta)
         elif agent == 'lider':
             if not rel.startswith(('docs/', 'spec/')):
                 return 'El líder no modifica código; delega al implementador.'

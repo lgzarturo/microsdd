@@ -23,7 +23,7 @@ Se basa en Semantic Versioning 2.0.0 (https://semver.org/lang/es/) y en Conventi
 - **API-06** · `.claude/settings.json` (agente predeterminado, modelo, esfuerzo y registro del hook, que el instalador crea o fusiona), la skill `/sdd` (incluido `/sdd on|off|status`) y el esquema de `.microharness/install.json` (`schema_version` 1) del que dependen `uninstall`, `on` y `off`.
 - **API-07** · Formato de mensaje aceptado por `commit-check`.
 - **API-08** · Conjunto de rutas instaladas (sección «Instalación»).
-- **API-09** · `.microharness/config.json`: archivo humano opcional con las claves `model`, `effort`, `agent_may_approve` (bool, default true), `odd_max_retries` (entero 1–10, default **3**), `rdd_max_files` (entero 1–200, default **20**) y `rdd_max_lines` (entero 1–10000, default **500**). Otras claves son error. No lo crea el instalador.
+- **API-09** · `.microharness/config.json`: archivo humano opcional con las claves `model`, `effort`, `agent_may_approve` (bool, default true), `odd_max_retries` (entero 1–10, default **3**), `odd_rewrite_percent` (entero 50–100, default **80**), `rdd_max_files` (entero 1–200, default **20**) y `rdd_max_lines` (entero 1–10000, default **500**). `rdd_max_lines` es una defensa global del implementador (conteo aproximado acumulado por tarea en `.microharness/rdd_runtime.json`, no versionado). Otras claves son error. No lo crea el instalador.
 
 No forman parte de la API pública: los textos de los mensajes de salida y de error (sí sus códigos de salida), las funciones internas de `sdd.py`, `tests/`, `README.md`, `assets/`, `CHANGELOG.md` y las specs y la memoria del propio arnés.
 

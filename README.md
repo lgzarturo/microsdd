@@ -86,12 +86,13 @@ En `.microharness/config.json` (opcionales; defaults entre paréntesis):
 | Clave | Default | Efecto |
 |---|---|---|
 | `odd_max_retries` | 3 | Tras fallos de pruebas/análisis, `note --fact … --evidence '<stack>' --for-task <slug> --for-phase odd-retry` cuenta reintentos; al llegar al límite detiene y registra. |
-| `rdd_max_files` | 20 | Kill switch: el hook deniega más ediciones del implementador si se superarían N archivos distintos del recibo. |
-| `rdd_max_lines` | 500 | Kill switch: deniega un Edit/Write/MultiEdit del implementador que aporte más de N líneas. |
+| `odd_rewrite_percent` | 80 | Si `old_string`(s) de Edit/MultiEdit cubren ≥ N% del archivo en disco, el hook lo deniega igual que un Write de reescritura. |
+| `rdd_max_files` | 20 | Kill switch: deniega más ediciones si se superarían N archivos distintos del recibo. |
+| `rdd_max_lines` | 500 | Kill switch de líneas: **defensa global del implementador** (aplica aunque `method.optional` no incluya RDD). Acumula un conteo **aproximado** por tarea en `.microharness/rdd_runtime.json` (no versionado; `init`/`limpiar_arnes` lo borran). |
 
 - Progreso / descubrimientos: `note --progress '…' --evidence '…'` y `note --discovery '…' --evidence '…'` → `project.progress` / `project.discoveries`.
-- Al aprobar la spec se genera un **recibo RDD** (`tasks.<slug>.receipt`) con digest y hashes del alcance; el hook rechaza rutas fuera de ese recibo.
-- El implementador no puede usar `Write` sobre archivos que ya existen (debe editar por diff).
+- Al aprobar la spec se genera un **recibo RDD** (`tasks.<slug>.receipt`) con digest y hashes del alcance; el hook rechaza rutas fuera de ese recibo (en Windows la comparación de rutas es case-insensitive; se sigue el destino real de symlinks).
+- El implementador no puede usar `Write` sobre archivos existentes ni Edit/MultiEdit que reescriban casi todo el archivo.
 
 Flujo completo, archivos, máquina de estados y `spec.json`: [assets/arnes-completo.md](assets/arnes-completo.md).
 

@@ -89,8 +89,9 @@ class OddRddBase(unittest.TestCase):
         (folder / 'plan.md').write_text('# CÓMO\nHacer.\n', encoding='utf-8')
         (folder / 'tareas.md').write_text('# PASOS\n- [ ] T01 (AC-01): hacer.\n', encoding='utf-8')
         (self.root / 'src').mkdir(exist_ok=True)
-        (self.root / 'src' / 'a.py').write_text('a = 1\n', encoding='utf-8')
-        (self.root / 'src' / 'b.py').write_text('b = 1\n', encoding='utf-8')
+        # Contenido con varias líneas para que un Edit acotado no dispare odd_rewrite_percent.
+        (self.root / 'src' / 'a.py').write_text('a = 1\n# keep\n# more\n# lines\n# here\n', encoding='utf-8')
+        (self.root / 'src' / 'b.py').write_text('b = 1\n# keep\n# more\n# lines\n# here\n', encoding='utf-8')
         (self.root / 'tests').mkdir(exist_ok=True)
         (self.root / 'tests' / 't.py').write_text('x = 1\n', encoding='utf-8')
         self.git_add_commit('seed')
@@ -174,6 +175,7 @@ class OddWriteBlockTests(OddRddBase):
         self.assertIsNone(reason)
 
     def test_edit_existing_allowed(self):
+        self.write_config(odd_rewrite_percent=80, rdd_max_lines=10000)
         self.seed_task()
         self.approve_spec()
         reason = self.impl_edit('src/a.py', tool='Edit', old_string='a = 1', new_string='a = 2')
@@ -237,7 +239,7 @@ class RddReceiptTests(OddRddBase):
 
 class RddKillSwitchTests(OddRddBase):
     def test_kill_switch_lines(self):
-        self.write_config(rdd_max_lines=3)
+        self.write_config(rdd_max_lines=3, odd_rewrite_percent=100)
         self.seed_task()
         self.approve_spec()
         reason = self.impl_edit(
@@ -248,12 +250,12 @@ class RddKillSwitchTests(OddRddBase):
         self.assertIn('rdd_max_lines', reason)
 
     def test_kill_switch_files(self):
-        self.write_config(rdd_max_files=1)
+        self.write_config(rdd_max_files=1, odd_rewrite_percent=100, rdd_max_lines=10000)
         self.seed_task()
         self.approve_spec()
-        # Primer archivo OK.
+        # Primer archivo OK (aún coincide con el recibo → suma 1).
         self.assertIsNone(self.impl_edit('src/a.py', tool='Edit', old_string='a = 1', new_string='a = 2'))
-        (self.root / 'src' / 'a.py').write_text('a = 2\n', encoding='utf-8')
+        (self.root / 'src' / 'a.py').write_text('a = 2\n# keep\n# more\n# lines\n# here\n', encoding='utf-8')
         # Segundo archivo distinto del recibo → kill.
         reason = self.impl_edit('src/b.py', tool='Edit', old_string='b = 1', new_string='b = 2')
         self.assertIsNotNone(reason)
@@ -265,6 +267,114 @@ class RddKillSwitchTests(OddRddBase):
         self.assertEqual(cfg['rdd_max_files'], 20)
         self.assertEqual(cfg['rdd_max_lines'], 500)
         self.assertEqual(cfg['odd_max_retries'], 3)
+        self.assertEqual(cfg['odd_rewrite_percent'], 80)
+
+    def test_kill_switch_lines_accumulates_across_calls(self):
+        self.write_config(rdd_max_lines=5, odd_rewrite_percent=100)
+        self.seed_task()
+        self.approve_spec()
+        body = 'line0\nline1\nline2\nline3\nline4\nline5\n'
+        (self.root / 'src' / 'a.py').write_text(body, encoding='utf-8')
+        # Tres edits de ~2 líneas: el tercero debe superar el acumulado.
+        self.assertIsNone(self.impl_edit(
+            'src/a.py', tool='Edit', old_string='line0', new_string='line0\nx'))
+        self.assertIsNone(self.impl_edit(
+            'src/a.py', tool='Edit', old_string='line1', new_string='line1\ny'))
+        reason = self.impl_edit(
+            'src/a.py', tool='Edit', old_string='line2', new_string='line2\nz')
+        self.assertIsNotNone(reason)
+        self.assertIn('Kill switch RDD', reason)
+        self.assertIn('acumulado', reason)
+        runtime = self.root / '.microharness' / 'rdd_runtime.json'
+        self.assertTrue(runtime.is_file())
+        data = json.loads(runtime.read_text(encoding='utf-8'))
+        self.assertIn('tarea', data['tasks'])
+
+
+class OddRewriteEditTests(OddRddBase):
+    def test_edit_near_full_rewrite_blocked(self):
+        self.write_config(odd_rewrite_percent=80, rdd_max_lines=10000)
+        self.seed_task()
+        self.approve_spec()
+        content = 'alpha\nbeta\ngamma\ndelta\nepsilon\n'
+        path = self.root / 'src' / 'a.py'
+        path.write_text(content, encoding='utf-8')
+        reason = self.impl_edit(
+            'src/a.py', tool='Edit', old_string=content, new_string='reescrito\npor\ncompleto\n')
+        self.assertIsNotNone(reason)
+        self.assertIn('Reescritura completa bloqueada', reason)
+
+    def test_multiedit_near_full_rewrite_blocked(self):
+        self.write_config(odd_rewrite_percent=80, rdd_max_lines=10000)
+        self.seed_task()
+        self.approve_spec()
+        content = 'one\ntwo\nthree\nfour\nfive\n'
+        path = self.root / 'src' / 'a.py'
+        path.write_text(content, encoding='utf-8')
+        reason = self.impl_edit(
+            'src/a.py', tool='MultiEdit',
+            edits=[
+                {'old_string': 'one\ntwo\nthree\n', 'new_string': 'A\nB\nC\n'},
+                {'old_string': 'four\nfive\n', 'new_string': 'D\nE\n'},
+            ])
+        self.assertIsNotNone(reason)
+        self.assertIn('Reescritura completa bloqueada', reason)
+
+    def test_small_edit_allowed(self):
+        self.write_config(odd_rewrite_percent=80, rdd_max_lines=10000)
+        self.seed_task()
+        self.approve_spec()
+        path = self.root / 'src' / 'a.py'
+        path.write_text('one\ntwo\nthree\nfour\nfive\n', encoding='utf-8')
+        reason = self.impl_edit('src/a.py', tool='Edit', old_string='two', new_string='TWO')
+        self.assertIsNone(reason)
+
+
+class RddPathCaseAndSymlinkTests(OddRddBase):
+    def test_path_in_patterns_casefold(self):
+        self.assertTrue(self.hook.path_in_patterns('Src/A.py', ['src/**'], casefold=True))
+        self.assertFalse(self.hook.path_in_patterns('Src/A.py', ['src/**'], casefold=False))
+
+    def test_receipt_allows_case_variant_when_windows(self):
+        self.write_config(odd_rewrite_percent=100, rdd_max_lines=10000)
+        self.seed_task()
+        self.approve_spec()
+        with mock.patch.object(self.hook, 'paths_casefold', return_value=True), \
+                mock.patch.object(self.hook, 'resolve_edit_rel', return_value=('Src/A.py', None)):
+            reason = self.impl_edit('src/a.py', tool='Edit', old_string='a = 1', new_string='a = 2')
+        self.assertIsNone(reason)
+
+    def test_receipt_rejects_outside_case_variant_when_windows(self):
+        self.write_config(odd_rewrite_percent=100, rdd_max_lines=10000)
+        self.seed_task()
+        self.approve_spec()
+        with mock.patch.object(self.hook, 'paths_casefold', return_value=True), \
+                mock.patch.object(self.hook, 'resolve_edit_rel', return_value=('Extra/X.py', None)):
+            reason = self.impl_edit('src/a.py', tool='Edit', old_string='a = 1', new_string='a = 2')
+        self.assertIsNotNone(reason)
+        self.assertIn('Fuera del recibo RDD', reason)
+
+    def test_symlink_real_destination_outside_receipt(self):
+        self.write_config(odd_rewrite_percent=100, rdd_max_lines=10000)
+        self.seed_task()
+        self.approve_spec()
+        other = self.root / 'other'
+        other.mkdir()
+        (other / 'x.py').write_text('x = 1\n', encoding='utf-8')
+        link = self.root / 'src' / 'link.py'
+        try:
+            link.symlink_to(other / 'x.py')
+        except OSError:
+            with mock.patch.object(self.hook, 'resolve_edit_rel', return_value=('other/x.py', None)):
+                reason = self.impl_edit('src/link.py', tool='Edit', old_string='x = 1', new_string='x = 2')
+            self.assertIsNotNone(reason)
+            self.assertIn('Fuera del recibo RDD', reason)
+            return
+        reason = self.impl_edit('src/link.py', tool='Edit', old_string='x = 1', new_string='x = 2')
+        self.assertIsNotNone(reason)
+        self.assertTrue(
+            'Fuera del recibo RDD' in reason or 'Symlinks' in reason or 'fuera del proyecto' in reason,
+            reason)
 
 
 class CompatibilityTests(OddRddBase):

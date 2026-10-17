@@ -5,3 +5,4 @@ __pycache__/
 .pytest_cache/
 .mutmut-cache/
 .microharness/memory.lock
+.microharness/rdd_runtime.json
