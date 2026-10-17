@@ -21,7 +21,7 @@ WORKTREE_SYNC_FILES = (
 
 EMPTY_MEMORY = {
     'schema_version': 1,
-    'project': {'observations': [], 'decisions': []},
+    'project': {'observations': [], 'decisions': [], 'progress': [], 'discoveries': []},
     'tasks': {},
 }
 

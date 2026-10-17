@@ -25,17 +25,21 @@ TASK_FILES = ('spec.json', 'requerimientos.md', 'plan.md', 'tareas.md')
 STATES = ('pendiente', 'proceso', 'terminado')
 SLUG_RE = re.compile(r'^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$')
 COMMIT_RE = re.compile(r'^(feat|fix|docs|test|refactor|perf|chore)(\([a-z0-9][a-z0-9-]*\))?(!)?: [^\n]{1,72}$')
-__version__ = '1.2.1'
+__version__ = '1.3.0'
 SUBJECT_RE = re.compile(r'^([a-z]+)(\([^)]*\))?(!)?: ')
 FINAL_TAG_RE = re.compile(r'^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$')
 LOCK_TIMEOUT = 10.0
 DEFAULT_MODEL = 'claude-opus-5-5'
 DEFAULT_EFFORT = 'medium'
+DEFAULT_ODD_MAX_RETRIES = 3
+DEFAULT_ODD_REWRITE_PERCENT = 80
+DEFAULT_RDD_MAX_FILES = 20
+DEFAULT_RDD_MAX_LINES = 500
 EFFORTS = ('low', 'medium', 'high', 'xhigh', 'max')
 NOTE_EVIDENCE_MAX_AGE_S = 1800
 NOTE_REF_RE = re.compile(r'^@note:([a-zA-Z0-9_-]+)$')
 NOTE_IN_CMD_RE = re.compile(r'@note:[a-zA-Z0-9_-]+')
-NOTE_PHASES = ('spec', 'close', 'seal', 'allow-test')
+NOTE_PHASES = ('spec', 'close', 'seal', 'allow-test', 'odd-retry')
 _LOCK_DEPTH = 0
 # Resúmenes de runners: unittest, pytest, bun y Maven (se usa la última coincidencia de cada uno).
 TEST_COUNT_RES = (
@@ -60,7 +64,14 @@ INTEGRITY_FIELDS = (
     (('review',), ('revisión', 'aprobación_spec')),
     (('review_fingerprint',), ('revisión', 'aprobación_spec')),
     (('iterations',), ('revisión', 'aprobación_spec')),
+    (('odd_retries',), ('reintento_odd', 'reintentos_agotados', 'aprobación_spec')),
+    (('receipt',), ('aprobación_spec',)),
 )
+EMPTY_MEMORY = {
+    'schema_version': 1,
+    'project': {'observations': [], 'decisions': [], 'progress': [], 'discoveries': []},
+    'tasks': {},
+}
 
 
 def _example_sdd_command(suffix: str) -> str:
@@ -166,10 +177,26 @@ def task_files(slug: str) -> tuple[Path, dict, dict]:
     return path, load(path / 'spec.json'), load(MEMORY)
 
 
+def _positive_int(data: dict, key: str, lo: int, hi: int) -> None:
+    if key not in data:
+        return
+    val = data[key]
+    if type(val) is not int or isinstance(val, bool) or not lo <= val <= hi:
+        raise ValueError(f'.microharness/config.json: {key} debe ser un entero entre {lo} y {hi}')
+
+
 def config() -> dict:
     # Configuración humana opcional junto a memory.json; solo lectura.
     path = MEMORY.parent / 'config.json'
-    cfg = {'model': DEFAULT_MODEL, 'effort': DEFAULT_EFFORT, 'agent_may_approve': True}
+    cfg = {
+        'model': DEFAULT_MODEL,
+        'effort': DEFAULT_EFFORT,
+        'agent_may_approve': True,
+        'odd_max_retries': DEFAULT_ODD_MAX_RETRIES,
+        'odd_rewrite_percent': DEFAULT_ODD_REWRITE_PERCENT,
+        'rdd_max_files': DEFAULT_RDD_MAX_FILES,
+        'rdd_max_lines': DEFAULT_RDD_MAX_LINES,
+    }
     if not path.exists():
         return cfg
     try:
@@ -187,8 +214,55 @@ def config() -> dict:
         raise ValueError(f'.microharness/config.json: effort debe ser uno de: {", ".join(EFFORTS)}')
     if 'agent_may_approve' in data and not isinstance(data['agent_may_approve'], bool):
         raise ValueError('.microharness/config.json: agent_may_approve debe ser un booleano')
+    _positive_int(data, 'odd_max_retries', 1, 10)
+    _positive_int(data, 'odd_rewrite_percent', 50, 100)
+    _positive_int(data, 'rdd_max_files', 1, 200)
+    _positive_int(data, 'rdd_max_lines', 1, 10000)
     cfg.update(data)
     return cfg
+
+
+def clear_rdd_runtime(slug: str | None = None) -> None:
+    """Borra el contador local de líneas del kill switch (no versionado)."""
+    path = MEMORY.parent / 'rdd_runtime.json'
+    if not path.is_file():
+        return
+    if slug is None:
+        try:
+            path.unlink()
+        except OSError:
+            pass
+        return
+    try:
+        data = json.loads(path.read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        try:
+            path.unlink()
+        except OSError:
+            pass
+        return
+    tasks = data.get('tasks') if isinstance(data, dict) else None
+    if isinstance(tasks, dict) and slug in tasks:
+        del tasks[slug]
+        if tasks:
+            dump(path, data)
+        else:
+            try:
+                path.unlink()
+            except OSError:
+                pass
+
+
+def normalize_project(memory: dict) -> dict:
+    """Garantiza progress/discoveries vacíos sin borrar datos existentes."""
+    project = memory.setdefault('project', {})
+    if not isinstance(project, dict):
+        raise ValueError('memory.json: project debe ser un objeto')
+    project.setdefault('observations', [])
+    project.setdefault('decisions', [])
+    project.setdefault('progress', [])
+    project.setdefault('discoveries', [])
+    return memory
 
 
 @memory_lock()
@@ -208,7 +282,15 @@ def ensure_init() -> None:
         elif not p.exists():
             p.write_text(f'# {doc.removesuffix(".md")}\n\nPendiente de inspección.\n', encoding='utf-8')
     if not MEMORY.exists():
-        dump(MEMORY, {'schema_version': 1, 'project': {'observations': [], 'decisions': []}, 'tasks': {}})
+        dump(MEMORY, json.loads(json.dumps(EMPTY_MEMORY)))
+    else:
+        memory = load(MEMORY)
+        before = json.dumps(memory, sort_keys=True, ensure_ascii=False)
+        normalize_project(memory)
+        after = json.dumps(memory, sort_keys=True, ensure_ascii=False)
+        if before != after:
+            dump(MEMORY, memory)
+    clear_rdd_runtime()
     print('Contexto inicializado, sin sobrescribir documentación existente.')
 
 
@@ -248,9 +330,17 @@ def new(slug: str) -> None:
                                   '## Decisión y justificación\n[PENDIENTE]\n\n## Invariantes y riesgos\n[PENDIENTE]\n', encoding='utf-8')
     (path / 'tareas.md').write_text('# PASOS: trabajo verificable\n\n- [ ] T01 (AC-01): [prueba o cambio mínimo concreto].\n'
                                    '- [ ] T02 (AC-01): [ejecutar verificación y comprobar resultado].\n', encoding='utf-8')
-    memory = load(MEMORY)
-    memory['tasks'][slug] = {'approvals': {'spec': None, 'close': None}, 'sealed_tests': {},
-                             'review': None, 'review_fingerprint': None, 'iterations': 0, 'events': [{'at': now(), 'event': 'creada'}]}
+    memory = normalize_project(load(MEMORY))
+    memory['tasks'][slug] = {
+        'approvals': {'spec': None, 'close': None},
+        'sealed_tests': {},
+        'review': None,
+        'review_fingerprint': None,
+        'iterations': 0,
+        'odd_retries': 0,
+        'receipt': None,
+        'events': [{'at': now(), 'event': 'creada'}],
+    }
     dump(MEMORY, memory)
     print(f'Tarea creada: spec/{slug}/ (4 archivos).')
 
@@ -296,6 +386,34 @@ def diff_files() -> list[str]:
         if r.returncode == 0:
             files.update(n for n in r.stdout.split('\0') if n)
     return sorted(files)
+
+
+def tracked_files() -> list[str]:
+    """Archivos rastreados por Git en la raíz (sin untracked)."""
+    if not (ROOT / '.git').exists() and not subprocess.run(['git', 'rev-parse', '--is-inside-work-tree'],
+        cwd=ROOT, capture_output=True, text=True).returncode == 0:
+        return []
+    r = subprocess.run(['git', 'ls-files', '-z'], cwd=ROOT, capture_output=True, encoding='utf-8', check=False)
+    if r.returncode != 0:
+        return []
+    return sorted(n for n in r.stdout.split('\0') if n)
+
+
+def build_receipt(patterns: list[str]) -> dict:
+    """Recibo RDD: huella de alcance + hash de archivos rastreados que coinciden."""
+    files: dict[str, str] = {}
+    for relative in tracked_files():
+        try:
+            if not path_allowed(relative, patterns):
+                continue
+        except ValueError:
+            continue
+        target = ROOT / relative
+        if target.is_file():
+            files[relative] = hash_file(target)
+    payload = {'allowed_paths': list(patterns), 'files': files}
+    digest = hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode('utf-8')).hexdigest()
+    return {'at': now(), 'allowed_paths': list(patterns), 'files': files, 'digest': digest}
 
 
 def code_fingerprint(patterns: list[str]) -> str:
@@ -659,6 +777,9 @@ def approve(slug: str, phase: str, by: str, evidence: str) -> None:
         memory['tasks'][slug]['review'] = None
         memory['tasks'][slug]['review_fingerprint'] = None
         memory['tasks'][slug]['iterations'] = 0
+        memory['tasks'][slug]['odd_retries'] = 0
+        memory['tasks'][slug]['receipt'] = build_receipt(spec.get('scope', {}).get('allowed_paths', []))
+        clear_rdd_runtime(slug)
     memory['tasks'][slug]['events'].append({'at': now(), 'event': f'aprobación_{phase}', 'by': by})
     if phase == 'spec':
         spec['state'] = 'proceso'
@@ -666,7 +787,12 @@ def approve(slug: str, phase: str, by: str, evidence: str) -> None:
         spec['state'] = 'terminado'
     dump(MEMORY, memory)
     dump(path / 'spec.json', spec)
-    print(f'Aprobación declarada registrada ({phase}). No es una firma ni autentica al usuario.')
+    if phase == 'spec':
+        receipt = memory['tasks'][slug]['receipt']
+        print(f'Aprobación declarada registrada (spec). Recibo RDD digest={receipt["digest"][:12]}… '
+              f'({len(receipt["files"])} archivos). No es una firma ni autentica al usuario.')
+    else:
+        print(f'Aprobación declarada registrada ({phase}). No es una firma ni autentica al usuario.')
 
 
 @memory_lock()
@@ -692,16 +818,47 @@ def review(slug: str, verdict: str, evidence: str) -> None:
     print('Revisión registrada.', 'Escalada al humano.' if spec['state'] == 'pendiente' else '')
 
 
+def record_odd_retry(memory: dict, slug: str, fact: str, evidence: str) -> None:
+    """Incrementa reintentos ODD; al llegar al límite registra y aborta."""
+    cfg = config()
+    limit = cfg['odd_max_retries']
+    tasks = memory.setdefault('tasks', {})
+    if slug not in tasks:
+        raise ValueError(f'No existe memoria para la tarea {slug}')
+    task = tasks[slug]
+    current = task.get('odd_retries', 0)
+    if type(current) is not int:
+        current = 0
+    current += 1
+    task['odd_retries'] = current
+    task.setdefault('events', []).append({
+        'at': now(), 'event': 'reintento_odd', 'attempt': current, 'limit': limit,
+        'fact': fact, 'evidence': evidence,
+    })
+    if current >= limit:
+        task['events'].append({
+            'at': now(), 'event': 'reintentos_agotados', 'attempt': current, 'limit': limit,
+            'fact': fact, 'evidence': evidence,
+        })
+        dump(MEMORY, memory)
+        raise ValueError(
+            f'Límite de reintentos ODD agotado ({current}/{limit}). '
+            f'Detén la subtarea y escala al humano; stacktrace registrado en memory.'
+        )
+
+
 @memory_lock()
 def note(fact: str | None, decision: str | None, by: str | None, evidence: str,
-         for_task: str | None = None, for_phase: str | None = None) -> None:
+         for_task: str | None = None, for_phase: str | None = None,
+         progress: str | None = None, discovery: str | None = None) -> None:
     # Se registra una declaración, no una identidad autenticada.
     _reject_if_memory_corrupt()
-    if (fact is None) == (decision is None):
-        raise ValueError('Indica exactamente uno de --fact o --decision.')
+    kinds = [x for x in (fact, decision, progress, discovery) if x is not None]
+    if len(kinds) != 1:
+        raise ValueError('Indica exactamente uno de --fact, --decision, --progress o --discovery.')
     if decision is not None and by is None:
         raise ValueError('--decision requiere --by.')
-    if fact is not None and by is not None:
+    if by is not None and decision is None:
         raise ValueError('--by solo se admite con --decision.')
     if (for_task is None) != (for_phase is None):
         raise ValueError('Indica --for-task y --for-phase juntos, o ninguno.')
@@ -712,13 +869,32 @@ def note(fact: str | None, decision: str | None, by: str | None, evidence: str,
             raise ValueError('--for-task/--for-phase solo se admiten con --fact.')
         if not SLUG_RE.fullmatch(for_task):
             raise ValueError('Slug inválido: usa minúsculas, números y guiones; empieza con letra.')
-    if any(not text.strip() for text in (fact, decision, by, evidence) if text is not None):
+    if any(not text.strip() for text in (fact, decision, by, evidence, progress, discovery)
+           if text is not None):
         raise ValueError('Los textos de la nota no pueden estar vacíos.')
     if not MEMORY.exists():
         ensure_init()
-    memory = load(MEMORY)
-    project = memory.setdefault('project', {})
+    memory = normalize_project(load(MEMORY))
+    project = memory['project']
+    if for_task is not None and (progress is not None or discovery is not None):
+        raise ValueError('--for-task/--for-phase no se admiten con --progress ni --discovery.')
+    if progress is not None:
+        project['progress'].append({'at': now(), 'text': progress, 'evidence': evidence})
+        dump(MEMORY, memory)
+        print('Progreso registrado en memory.json (project.progress).')
+        return
+    if discovery is not None:
+        project['discoveries'].append({'at': now(), 'text': discovery, 'evidence': evidence})
+        dump(MEMORY, memory)
+        print('Descubrimiento registrado en memory.json (project.discoveries).')
+        return
     if fact is not None:
+        if for_phase == 'odd-retry':
+            record_odd_retry(memory, for_task, fact, evidence)
+            dump(MEMORY, memory)
+            print(f'Reintento ODD registrado ({memory["tasks"][for_task]["odd_retries"]}/'
+                  f'{config()["odd_max_retries"]}).')
+            return
         observations = project.setdefault('observations', [])
         entry = {'at': now(), 'fact': fact, 'evidence': evidence}
         if for_task is not None:
@@ -851,7 +1027,15 @@ def main() -> int:
     ap = sub.add_parser('approve'); ap.add_argument('slug'); ap.add_argument('phase', choices=('spec', 'close')); ap.add_argument('--by', required=True); ap.add_argument('--evidence', required=True)
     rev = sub.add_parser('review'); rev.add_argument('slug'); rev.add_argument('verdict', choices=('APROBADO', 'RECHAZADO')); rev.add_argument('--evidence', required=True)
     se = sub.add_parser('seal'); se.add_argument('slug'); se.add_argument('--by', required=True); se.add_argument('--evidence', required=True)
-    no = sub.add_parser('note'); no.add_argument('--fact'); no.add_argument('--decision'); no.add_argument('--by'); no.add_argument('--evidence', required=True); no.add_argument('--for-task'); no.add_argument('--for-phase', choices=NOTE_PHASES)
+    no = sub.add_parser('note')
+    no.add_argument('--fact')
+    no.add_argument('--decision')
+    no.add_argument('--progress')
+    no.add_argument('--discovery')
+    no.add_argument('--by')
+    no.add_argument('--evidence', required=True)
+    no.add_argument('--for-task')
+    no.add_argument('--for-phase', choices=NOTE_PHASES)
     atc = sub.add_parser('allow-test-command'); atc.add_argument('tokens', nargs='+'); atc.add_argument('--evidence', required=True)
     sub.add_parser('commit-check').add_argument('message')
     rel = sub.add_parser('release')
@@ -871,7 +1055,9 @@ def main() -> int:
         elif args.command == 'approve': approve(args.slug, args.phase, args.by, args.evidence)
         elif args.command == 'review': review(args.slug, args.verdict, args.evidence)
         elif args.command == 'seal': seal(args.slug, args.by, args.evidence)
-        elif args.command == 'note': note(args.fact, args.decision, args.by, args.evidence, args.for_task, args.for_phase)
+        elif args.command == 'note':
+            note(args.fact, args.decision, args.by, args.evidence, args.for_task, args.for_phase,
+                 progress=args.progress, discovery=args.discovery)
         elif args.command == 'allow-test-command': allow_test_command(args.tokens, args.evidence)
         elif args.command == 'commit-check': commit_check(args.message)
         elif args.command == 'release': release_propose()

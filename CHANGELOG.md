@@ -2,6 +2,16 @@
 
 Formato y reglas: `assets/proceso-versionado.md` (R-04). Entradas derivadas de los asuntos de commit; se omiten los commits de merge, que no aportan cambios propios (su contenido figura en los commits integrados).
 
+## [1.3.0] - 2026-10-17
+
+### Añadido
+- `sdd` / ODD: `odd_max_retries` en `config.json` (default 3); `note --for-phase odd-retry` registra reintentos con stacktrace y detiene al llegar al límite
+- `sdd` / ODD: `note --progress` / `--discovery` escriben en `project.progress` y `project.discoveries` (schema vacío en `init`)
+- `hook` / ODD: bloquea `Write` del implementador sobre archivos existentes; Edit/MultiEdit si `old_string` cubre ≥ `odd_rewrite_percent` (default 80%) del disco
+- `sdd` / RDD: al `approve … spec` genera `receipt` (digest + hashes de archivos del alcance); el hook rechaza rutas fuera del recibo (casefold en Windows; destino real de symlinks)
+- `hook` / RDD: kill switch `rdd_max_files` (default 20) y `rdd_max_lines` (default 500, **ado aproximado por tarea en `rdd_runtime.json` no versionado; defensa global del implementador)
+- `tests`: `tests/test_odd_rdd.py`
+
 ## [1.2.1] - 2026-10-15
 
 ### Añadido

@@ -137,6 +137,9 @@ def archive(root: Path, plan: list[tuple[Path, Path]]) -> None:
     if result.returncode != 0:
         raise OSError(f'sdd.py init terminó con código {result.returncode}: {result.stderr.strip()}')
     print(result.stdout.rstrip())
+    runtime = root / '.microharness' / 'rdd_runtime.json'
+    if runtime.is_file() or runtime.is_symlink():
+        runtime.unlink()
     gitkeep = root / 'spec' / '.gitkeep'
     if not gitkeep.exists():
         gitkeep.write_bytes(b'')
@@ -144,6 +147,8 @@ def archive(root: Path, plan: list[tuple[Path, Path]]) -> None:
     spec = [p.name for p in (root / 'spec').iterdir()]
     if docs != sorted(DOCS) or spec != ['.gitkeep'] or not (root / '.microharness' / 'memory.json').is_file():
         raise OSError('El estado posterior no coincide con el de sdd.py init.')
+    if runtime.exists():
+        raise OSError('Quedó .microharness/rdd_runtime.json tras la limpieza.')
 
 
 def main(argv: list[str] | None = None, root: Path | None = None) -> int:
