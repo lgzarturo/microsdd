@@ -2,12 +2,6 @@
 
 Formato y reglas: `assets/proceso-versionado.md` (R-04). Entradas derivadas de los asuntos de commit; se omiten los commits de merge, que no aportan cambios propios (su contenido figura en los commits integrados).
 
-## [1.3.2] - 2026-10-17
-
-### Corregido
-- `hook`: con `agent_may_approve` true, solo el rol `lider` puede ejecutar `approve`/`seal`/`allow-test-command` con `--evidence @note:<id>`; autor, implementador y roles ausentes/desconocidos quedan denegados (fail closed)
-- `tests`: cobertura de rol en `tests/test_agent_may_approve.py`
-
 ## [1.3.0] - 2026-10-17
 
 ### Añadido

@@ -10,7 +10,7 @@ Se basa en Semantic Versioning 2.0.0 (https://semver.org/lang/es/) y en Conventi
 
 ## Estado actual
 
-- El árbol de trabajo prepara `1.3.2`: `CHANGELOG.md` incluye `[1.3.2]`; `.microharness/sdd.py` define `__version__ = '1.3.2'`, replicada en `pyproject.toml`. Con `agent_may_approve` true, solo el líder usa `approve`/`seal`/`allow-test-command` con `@note`.
+- El árbol de trabajo prepara `1.3.0`: `CHANGELOG.md` incluye `[1.3.0]`; `.microharness/sdd.py` define `__version__ = '1.3.0'`, replicada en `pyproject.toml`. ODD/RDD ejecutables (reintentos, Write, progress, recibo, kill switch). Con `agent_may_approve` true, solo el líder usa `approve`/`seal`/`allow-test-command` con `@note`.
 
 
 ## API pública
