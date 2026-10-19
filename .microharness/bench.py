@@ -9,6 +9,7 @@ import os
 import random
 import shutil
 import statistics
+import sys
 import tempfile
 import urllib.error
 import urllib.request
@@ -30,6 +31,8 @@ DEFAULT_CONFIG = {
     'claim': 'efficiency',  # efficiency | quality
     'models': [],  # rellenar con IDs :free; vacío = pendiente
     'baselineStatus': 'pending',
+    # Tope de limit de la key OpenRouter (USD/mes). Arturo: key real con $5.
+    'maxPaidLimitUsd': 5,
 }
 # Límites OpenRouter :free (documentados; riesgo de corte).
 FREE_RPM = 20
@@ -72,13 +75,40 @@ def list_tasks() -> list[dict]:
 
 
 def assert_free_model(model_id: str) -> None:
+    # Solo sufijo exacto ':free' (minúsculas); ':FREE' u otros fallan.
     if not isinstance(model_id, str) or not model_id.endswith(':free'):
         raise BenchError(
             f'Modelo {model_id!r} no termina en :free; la línea base solo admite modelos gratis.')
 
 
-def check_openrouter_free_lock(api_key: str | None, n_total: int) -> dict:
-    """Candado :free / $0. Aborta si hay saldo de pago > 0, límite de pago, o cuota insuficiente."""
+def _require_number(data: dict, key: str, *, label: str | None = None) -> float:
+    """Fail-closed: campo presente, numérico finito (no bool/str/null)."""
+    name = label or key
+    if key not in data:
+        raise BenchError(f'/api/v1/key: falta {name} (fail-closed).')
+    val = data[key]
+    if val is None:
+        raise BenchError(f'/api/v1/key: {name} es null (fail-closed).')
+    if isinstance(val, bool) or not isinstance(val, (int, float)):
+        raise BenchError(
+            f'/api/v1/key: {name} tipo inesperado {type(val).__name__}={val!r} (fail-closed).')
+    num = float(val)
+    if math.isnan(num) or math.isinf(num):
+        raise BenchError(f'/api/v1/key: {name}={val} no es finito (fail-closed).')
+    return num
+
+
+def _require_nonneg_int(data: dict, key: str, *, label: str | None = None) -> int:
+    """Fail-closed: entero/float no bool, >= 0."""
+    num = _require_number(data, key, label=label)
+    if num < 0 or num != int(num):
+        raise BenchError(
+            f'/api/v1/key: {label or key}={num} no es un entero >= 0 (fail-closed).')
+    return int(num)
+
+
+def fetch_openrouter_key(api_key: str) -> dict:
+    """GET /api/v1/key → objeto data (fail-closed ante HTTP/JSON inválido)."""
     if not api_key:
         raise BenchError(
             'OPENROUTER_API_KEY ausente; no se lanza la línea base real. '
@@ -90,27 +120,96 @@ def check_openrouter_free_lock(api_key: str | None, n_total: int) -> dict:
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
             body = json.loads(resp.read().decode('utf-8'))
-    except (urllib.error.URLError, TimeoutError, ValueError) as exc:
+    except (urllib.error.URLError, TimeoutError, ValueError, OSError) as exc:
         raise BenchError(f'No se pudo consultar /api/v1/key: {exc}') from exc
-    data = body.get('data') if isinstance(body, dict) else None
-    if not isinstance(data, dict):
-        raise BenchError('/api/v1/key: respuesta inesperada')
-    # Saldo / límite de pago → abortar (solo key «pura» free para baseline $0).
-    usage = data.get('usage')
-    limit = data.get('limit')
-    if isinstance(usage, (int, float)) and usage > 0:
-        raise BenchError(f'Key con uso de pago usage={usage}; baseline exige tope $0.')
-    if limit is not None and limit != 0:
-        raise BenchError(f'Key con limit={limit!r}; baseline exige key sin cupo de pago.')
-    free = data.get('free_model_daily_requests') or data.get('rate_limit') or {}
-    remaining = None
-    if isinstance(free, dict):
-        remaining = free.get('remaining')
-    if remaining is not None and int(remaining) < n_total:
+    if not isinstance(body, dict):
+        raise BenchError('/api/v1/key: JSON raíz no es objeto (fail-closed).')
+    data = body.get('data')
+    if not isinstance(data, dict) or not data:
+        raise BenchError('/api/v1/key: data ausente o vacío (fail-closed).')
+    return data
+
+
+def read_usage(data: dict) -> float:
+    """Lee usage numérico fail-closed."""
+    usage = _require_number(data, 'usage')
+    if usage < 0:
+        raise BenchError(f'/api/v1/key: usage={usage} negativo (fail-closed).')
+    return usage
+
+
+def check_openrouter_free_lock(
+    api_key: str | None,
+    n_total: int,
+    *,
+    max_paid_limit_usd: float = 5.0,
+    data: dict | None = None,
+) -> dict:
+    """Candado :free + limit finito ≤ tope. Fail-closed. Devuelve data de /key."""
+    if type(n_total) is not int or n_total < 1:
+        raise BenchError(f'n_total inválido: {n_total!r}')
+    if not isinstance(max_paid_limit_usd, (int, float)) or isinstance(max_paid_limit_usd, bool):
+        raise BenchError(f'maxPaidLimitUsd inválido: {max_paid_limit_usd!r}')
+    max_cap = float(max_paid_limit_usd)
+    if max_cap < 0 or math.isnan(max_cap) or math.isinf(max_cap):
+        raise BenchError(f'maxPaidLimitUsd inválido: {max_paid_limit_usd!r}')
+
+    if data is None:
+        data = fetch_openrouter_key(api_key or '')
+
+    # usage debe ser número finito (snapshot); no se exige 0.
+    read_usage(data)
+
+    # limit: numérico finito y ≤ tope (null/ilimitado aborta).
+    limit = _require_number(data, 'limit')
+    if limit < 0:
+        raise BenchError(f'/api/v1/key: limit={limit} negativo (fail-closed).')
+    if limit > max_cap:
+        raise BenchError(
+            f'/api/v1/key: limit={limit} supera tope maxPaidLimitUsd={max_cap} (fail-closed).')
+
+    # limit_remaining opcional: si aparece, debe ser numérico finito ≥ 0.
+    for lr_key in ('limit_remaining', 'limitRemaining'):
+        if lr_key in data:
+            lr = _require_number(data, lr_key, label=lr_key)
+            if lr < 0:
+                raise BenchError(f'/api/v1/key: {lr_key}={lr} negativo (fail-closed).')
+
+    free = data.get('free_model_daily_requests')
+    if not isinstance(free, dict) or not free:
+        raise BenchError(
+            '/api/v1/key: free_model_daily_requests ausente o vacío (fail-closed; §3.6).')
+    remaining = _require_nonneg_int(free, 'remaining', label='free_model_daily_requests.remaining')
+    if remaining < n_total:
         raise BenchError(
             f'Cuota :free insuficiente: remaining={remaining}, hace falta {n_total} '
-            f'(límite típico {FREE_RPD_LOW}/día o {FREE_RPD_HIGH}/día; {FREE_RPM}/min).')
+            f'(limite tipico {FREE_RPD_LOW}/dia o {FREE_RPD_HIGH}/dia; {FREE_RPM}/min).')
     return data
+
+
+def assert_usage_unchanged(api_key: str, usage_before: float, *, data: dict | None = None) -> float:
+    """Relee usage; si subió (delta > 0) aborta y la corrida queda inválida."""
+    payload = data if data is not None else fetch_openrouter_key(api_key)
+    usage_after = read_usage(payload)
+    delta = usage_after - float(usage_before)
+    if delta > 0:
+        raise BenchError(
+            f'usage subio durante la corrida: before={usage_before} after={usage_after} '
+            f'delta={delta}; corrida invalida (solo :free sin gasto).')
+    return usage_after
+
+
+def safe_print(text: str) -> None:
+    """Imprime sin depender del encoding de la consola (Windows cp1252)."""
+    payload = (text if text.endswith('\n') else text + '\n').encode('utf-8', errors='replace')
+    buf = getattr(sys.stdout, 'buffer', None)
+    if buf is not None:
+        buf.write(payload)
+        buf.flush()
+        return
+    # Fallback: ASCII sustituyendo no representables.
+    sys.stdout.write(payload.decode('ascii', errors='replace'))
+    sys.stdout.flush()
 
 
 def median(xs: list[float]) -> float | None:
@@ -220,11 +319,17 @@ def run_bench(
     seed = int(cfg.get('seed', 42))
     tasks = list_tasks()
     model_list = models if models is not None else list(cfg.get('models') or [])
+    api_key: str | None = None
+    usage_before: float | None = None
     if not skip_key_check and not isinstance(provider, FakeProvider):
         for mid in model_list:
             assert_free_model(mid)
         n_total = n * len(tasks) * 2  # base + treatment intercalados
-        check_openrouter_free_lock(os.environ.get('OPENROUTER_API_KEY'), n_total)
+        api_key = os.environ.get('OPENROUTER_API_KEY')
+        max_cap = cfg.get('maxPaidLimitUsd', DEFAULT_CONFIG['maxPaidLimitUsd'])
+        key_data = check_openrouter_free_lock(
+            api_key, n_total, max_paid_limit_usd=max_cap)
+        usage_before = read_usage(key_data)
         if not model_list:
             raise BenchError('bench.config models vacío; línea base pendiente de IDs :free.')
 
@@ -253,11 +358,18 @@ def run_bench(
                 **result,
             })
 
+    if usage_before is not None and api_key is not None:
+        assert_usage_unchanged(api_key, usage_before)
+
     report = aggregate_report(cells, cfg=cfg, claim=claim, cheap=cheap, seed=seed, n=n)
     report['models'] = model_list
     report['baselineStatus'] = cfg.get('baselineStatus', 'pending')
+    report['usageBefore'] = usage_before
     report['risks'] = [
         f'OpenRouter :free: ~{FREE_RPM} req/min; {FREE_RPD_LOW} o {FREE_RPD_HIGH} req/día según créditos.',
+        f'Candado: modelos :free; limit de key <= maxPaidLimitUsd '
+        f'({cfg.get("maxPaidLimitUsd", DEFAULT_CONFIG["maxPaidLimitUsd"])}); '
+        'usage no debe subir durante la corrida.',
         '[No verificado] Política de datos y retención de modelos :free de OpenRouter.',
         'Semilla Claude Code: seed=null (sin flag documentado).',
     ]
@@ -544,9 +656,11 @@ def cmd_bench(argv: list[str]) -> int:
                     for m in models:
                         assert_free_model(m)
                 n = int(cfg['nCheap'] if cheap else cfg['n'])
+                max_cap = cfg.get('maxPaidLimitUsd', DEFAULT_CONFIG['maxPaidLimitUsd'])
                 check_openrouter_free_lock(
                     os.environ.get('OPENROUTER_API_KEY'),
                     n * 5 * 2,
+                    max_paid_limit_usd=max_cap,
                 )
             except BenchError as exc:
                 print(f'ERROR: {exc}', flush=True)
@@ -563,8 +677,8 @@ def cmd_bench(argv: list[str]) -> int:
         if os.name == 'nt' and out is None:
             dest = Path(os.environ.get('LOCALAPPDATA') or (Path.home() / 'AppData' / 'Local')) / 'microsdd' / 'bench-last'
         write_report(report, dest)
-        print(format_report_md(report))
-        print(f'Reporte escrito en {dest}')
+        safe_print(format_report_md(report))
+        safe_print(f'Reporte escrito en {dest}')
         return 0 if report['verdict'] != 'RECHAZA' else 2
     if sub == 'report':
         src = None
@@ -580,7 +694,7 @@ def cmd_bench(argv: list[str]) -> int:
             print('ERROR: indica --from DIR', flush=True)
             return 1
         data = json.loads((src / 'bench-report.json').read_text(encoding='utf-8'))
-        print(format_report_md(data))
+        safe_print(format_report_md(data))
         return 0
     print(f'ERROR: subcomando bench desconocido: {sub}', flush=True)
     return 1
@@ -592,5 +706,5 @@ def cmd_prompt_diff(argv: list[str]) -> int:
         return 0
     a, b = Path(argv[0]), Path(argv[1])
     diff = prompt_diff(a, b)
-    print(json.dumps(diff, indent=2, ensure_ascii=False))
+    safe_print(json.dumps(diff, indent=2, ensure_ascii=True))
     return 0

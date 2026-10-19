@@ -1,7 +1,8 @@
-"""Bench m2: estadísticas, candado :free, fake provider y prompt-diff."""
+"""Bench m2: estadísticas, candado :free fail-closed, fake provider y prompt-diff."""
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
 import os
 import sys
@@ -19,7 +20,6 @@ def load(name: str, path: Path):
     spec = importlib.util.spec_from_file_location(name, path)
     mod = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
-    # Asegura que imports relativos al dir .microharness funcionen.
     sys.path.insert(0, str(path.parent))
     try:
         spec.loader.exec_module(mod)
@@ -27,6 +27,35 @@ def load(name: str, path: Path):
         if sys.path[0] == str(path.parent):
             sys.path.pop(0)
     return mod
+
+
+def _resp(payload: dict | bytes | str):
+    if isinstance(payload, dict):
+        raw = json.dumps(payload).encode('utf-8')
+    elif isinstance(payload, str):
+        raw = payload.encode('utf-8')
+    else:
+        raw = payload
+
+    class Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return raw
+
+    return Resp()
+
+
+VALID_KEY_DATA = {
+    'usage': 0,
+    'limit': 0,
+    'limit_remaining': 0,
+    'free_model_daily_requests': {'remaining': 100},
+}
 
 
 @unittest.skipUnless(BENCH_PATH.is_file(), 'bench.py ausente')
@@ -43,37 +72,265 @@ class BenchStatsTests(unittest.TestCase):
         self.assertEqual(len(ci), 2)
         self.assertLess(ci[0], ci[1])
 
-    def test_assert_free_model(self):
+    def test_assert_free_model_rejects_uppercase_suffix(self):
         self.b.assert_free_model('meta/llama:free')
         with self.assertRaises(self.b.BenchError):
+            self.b.assert_free_model('meta/llama:FREE')
+        with self.assertRaises(self.b.BenchError):
             self.b.assert_free_model('anthropic/claude-opus-5-5')
-
-    def test_openrouter_lock_aborts_on_paid_usage(self):
-        payload = json.dumps({'data': {'usage': 1.5, 'limit': None,
-                                       'free_model_daily_requests': {'remaining': 100}}}).encode()
-
-        class Resp:
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *a):
-                return False
-
-            def read(self):
-                return payload
-
-        with mock.patch('urllib.request.urlopen', return_value=Resp()):
-            with self.assertRaises(self.b.BenchError) as ctx:
-                self.b.check_openrouter_free_lock('sk-test', 10)
-            self.assertIn('usage', str(ctx.exception).lower())
 
     def test_openrouter_lock_aborts_without_key(self):
         with self.assertRaises(self.b.BenchError):
             self.b.check_openrouter_free_lock(None, 10)
 
+    def test_openrouter_lock_aborts_on_empty_data(self):
+        with mock.patch('urllib.request.urlopen', return_value=_resp({'data': {}})):
+            with self.assertRaises(self.b.BenchError) as ctx:
+                self.b.check_openrouter_free_lock('sk-test', 10)
+        self.assertIn('fail-closed', str(ctx.exception).lower())
+
+    def test_openrouter_lock_aborts_on_null_limit_with_remaining(self):
+        data = {
+            'usage': 0,
+            'limit': None,
+            'limit_remaining': 50,
+            'free_model_daily_requests': {'remaining': 100},
+        }
+        with mock.patch('urllib.request.urlopen', return_value=_resp({'data': data})):
+            with self.assertRaises(self.b.BenchError) as ctx:
+                self.b.check_openrouter_free_lock('sk-test', 10)
+        self.assertIn('limit', str(ctx.exception).lower())
+
+    def test_openrouter_lock_aborts_on_null_limit_with_camel_remaining(self):
+        data = {
+            'usage': 0,
+            'limit': None,
+            'limitRemaining': 50,
+            'free_model_daily_requests': {'remaining': 100},
+        }
+        with mock.patch('urllib.request.urlopen', return_value=_resp({'data': data})):
+            with self.assertRaises(self.b.BenchError) as ctx:
+                self.b.check_openrouter_free_lock('sk-test', 10)
+        msg = str(ctx.exception).lower()
+        self.assertTrue('limit' in msg)
+
+    def test_openrouter_lock_aborts_on_usage_string(self):
+        data = dict(VALID_KEY_DATA)
+        data['usage'] = '1.5'
+        with mock.patch('urllib.request.urlopen', return_value=_resp({'data': data})):
+            with self.assertRaises(self.b.BenchError) as ctx:
+                self.b.check_openrouter_free_lock('sk-test', 10)
+        self.assertIn('usage', str(ctx.exception).lower())
+        self.assertIn('inesperado', str(ctx.exception).lower())
+
+    def test_openrouter_lock_aborts_when_usage_absent_and_limit_null(self):
+        data = {
+            'limit': None,
+            'limit_remaining': 0,
+            'free_model_daily_requests': {'remaining': 100},
+        }
+        with mock.patch('urllib.request.urlopen', return_value=_resp({'data': data})):
+            with self.assertRaises(self.b.BenchError) as ctx:
+                self.b.check_openrouter_free_lock('sk-test', 10)
+        self.assertIn('usage', str(ctx.exception).lower())
+
+    def test_openrouter_lock_aborts_when_quota_absent(self):
+        data = {'usage': 0, 'limit': 0, 'limit_remaining': 0}
+        with mock.patch('urllib.request.urlopen', return_value=_resp({'data': data})):
+            with self.assertRaises(self.b.BenchError) as ctx:
+                self.b.check_openrouter_free_lock('sk-test', 10)
+        self.assertIn('free_model_daily_requests', str(ctx.exception).lower())
+
+    def test_openrouter_lock_aborts_on_remaining_unexpected_type(self):
+        data = dict(VALID_KEY_DATA)
+        data['free_model_daily_requests'] = {'remaining': ['x']}
+        with mock.patch('urllib.request.urlopen', return_value=_resp({'data': data})):
+            with self.assertRaises(self.b.BenchError) as ctx:
+                self.b.check_openrouter_free_lock('sk-test', 10)
+        self.assertIsInstance(ctx.exception, self.b.BenchError)
+        self.assertIn('inesperado', str(ctx.exception).lower())
+
+    def test_openrouter_lock_accepts_nonzero_usage_when_limit_ok(self):
+        """usage previo > 0 es válido; solo el delta durante la corrida invalida."""
+        data = dict(VALID_KEY_DATA)
+        data['usage'] = 1.5
+        data['limit'] = 5
+        with mock.patch('urllib.request.urlopen', return_value=_resp({'data': data})):
+            out = self.b.check_openrouter_free_lock('sk-test', 10, max_paid_limit_usd=5)
+        self.assertEqual(out['usage'], 1.5)
+        self.assertEqual(out['limit'], 5)
+
+    def test_openrouter_lock_aborts_when_limit_exceeds_cap(self):
+        data = dict(VALID_KEY_DATA)
+        data['limit'] = 5.01
+        with mock.patch('urllib.request.urlopen', return_value=_resp({'data': data})):
+            with self.assertRaises(self.b.BenchError) as ctx:
+                self.b.check_openrouter_free_lock('sk-test', 10, max_paid_limit_usd=5)
+        self.assertIn('maxpaidlimitusd', str(ctx.exception).lower())
+
+    def test_openrouter_lock_aborts_on_infinite_limit(self):
+        data = dict(VALID_KEY_DATA)
+        data['limit'] = float('inf')
+        with mock.patch('urllib.request.urlopen', return_value=_resp({'data': data})):
+            with self.assertRaises(self.b.BenchError) as ctx:
+                self.b.check_openrouter_free_lock('sk-test', 10)
+        self.assertIn('finito', str(ctx.exception).lower())
+
+    def test_openrouter_lock_aborts_on_http_error(self):
+        with mock.patch('urllib.request.urlopen', side_effect=OSError('boom')):
+            with self.assertRaises(self.b.BenchError) as ctx:
+                self.b.check_openrouter_free_lock('sk-test', 10)
+        self.assertIn('/api/v1/key', str(ctx.exception))
+
+    def test_openrouter_lock_aborts_on_invalid_json(self):
+        with mock.patch('urllib.request.urlopen', return_value=_resp('not-json{')):
+            with self.assertRaises(self.b.BenchError):
+                self.b.check_openrouter_free_lock('sk-test', 10)
+
+    def test_openrouter_lock_accepts_strict_zero_key(self):
+        with mock.patch('urllib.request.urlopen', return_value=_resp({'data': VALID_KEY_DATA})):
+            out = self.b.check_openrouter_free_lock('sk-test', 10)
+        self.assertEqual(out['usage'], 0)
+        self.assertEqual(out['limit'], 0)
+
+    def test_openrouter_lock_accepts_limit_at_default_cap(self):
+        data = dict(VALID_KEY_DATA)
+        data['limit'] = 5
+        with mock.patch('urllib.request.urlopen', return_value=_resp({'data': data})):
+            out = self.b.check_openrouter_free_lock('sk-test', 10)
+        self.assertEqual(out['limit'], 5)
+
+    def test_assert_usage_unchanged_passes_when_same(self):
+        data = dict(VALID_KEY_DATA)
+        data['usage'] = 2.0
+        with mock.patch('urllib.request.urlopen', return_value=_resp({'data': data})):
+            after = self.b.assert_usage_unchanged('sk-test', 2.0)
+        self.assertEqual(after, 2.0)
+
+    def test_assert_usage_unchanged_aborts_on_rise(self):
+        data = dict(VALID_KEY_DATA)
+        data['usage'] = 2.5
+        with mock.patch('urllib.request.urlopen', return_value=_resp({'data': data})):
+            with self.assertRaises(self.b.BenchError) as ctx:
+                self.b.assert_usage_unchanged('sk-test', 2.0)
+        msg = str(ctx.exception).lower()
+        self.assertIn('usage', msg)
+        self.assertIn('invalida', msg)
+
+    def test_assert_usage_unchanged_accepts_injected_data(self):
+        data = dict(VALID_KEY_DATA)
+        data['usage'] = 1.0
+        after = self.b.assert_usage_unchanged('sk-test', 1.0, data=data)
+        self.assertEqual(after, 1.0)
+
+    def test_run_bench_invalidates_when_usage_rises(self):
+        """Corrida real (no fake): snapshot usage y aborta si sube."""
+        before = dict(VALID_KEY_DATA)
+        before['usage'] = 1.0
+        before['limit'] = 5
+        after = dict(before)
+        after['usage'] = 1.25
+        calls = {'n': 0}
+
+        def fake_urlopen(*_a, **_k):
+            calls['n'] += 1
+            payload = before if calls['n'] == 1 else after
+            return _resp({'data': payload})
+
+        class StubProvider:
+            def run_cell(self, task, variant, repetition):
+                return {
+                    'success': True,
+                    'iterations': 1,
+                    'retries': 0,
+                    'calls': 1,
+                    'tokens': 100,
+                    'costUsd': 0.0,
+                    'durationMs': 1,
+                    'cacheRate': 0.0,
+                    'firstTry': True,
+                    'modelId': 'meta/llama:free',
+                    'seed': None,
+                }
+
+        cfg = self.b.load_config()
+        cfg['bootstrap'] = 50
+        cfg['models'] = ['meta/llama:free']
+        cfg['maxPaidLimitUsd'] = 5
+        with mock.patch('urllib.request.urlopen', side_effect=fake_urlopen):
+            with mock.patch.dict(os.environ, {'OPENROUTER_API_KEY': 'sk-test'}):
+                with self.assertRaises(self.b.BenchError) as ctx:
+                    self.b.run_bench(
+                        provider=StubProvider(), cheap=True, claim='efficiency',
+                        config=cfg, skip_key_check=False,
+                    )
+        self.assertIn('usage', str(ctx.exception).lower())
+        self.assertGreaterEqual(calls['n'], 2)
+
+    def test_run_bench_records_usage_before_when_stable(self):
+        data = dict(VALID_KEY_DATA)
+        data['usage'] = 0.75
+        data['limit'] = 5
+
+        class StubProvider:
+            def run_cell(self, task, variant, repetition):
+                return {
+                    'success': True,
+                    'iterations': 1,
+                    'retries': 0,
+                    'calls': 1,
+                    'tokens': 100,
+                    'costUsd': 0.0,
+                    'durationMs': 1,
+                    'cacheRate': 0.0,
+                    'firstTry': True,
+                    'modelId': 'meta/llama:free',
+                    'seed': None,
+                }
+
+        cfg = self.b.load_config()
+        cfg['bootstrap'] = 50
+        cfg['models'] = ['meta/llama:free']
+        with mock.patch('urllib.request.urlopen', return_value=_resp({'data': data})):
+            with mock.patch.dict(os.environ, {'OPENROUTER_API_KEY': 'sk-test'}):
+                report = self.b.run_bench(
+                    provider=StubProvider(), cheap=True, claim='efficiency',
+                    config=cfg, skip_key_check=False,
+                )
+        self.assertEqual(report['usageBefore'], 0.75)
+        self.assertTrue(any('maxPaidLimitUsd' in r for r in report['risks']))
+
+    def test_report_md_is_cp1252_safe_ascii_arrows(self):
+        """Windows cp1252: el markdown no usa flechas Unicode."""
+        cfg = self.b.load_config()
+        cfg['bootstrap'] = 100
+        report = self.b.run_bench(
+            provider=self.b.FakeProvider(seed=1), cheap=True, claim='efficiency',
+            config=cfg, skip_key_check=True,
+        )
+        md = self.b.format_report_md(report)
+        self.assertNotIn('\u2192', md)
+        self.assertIn('->', md)
+        md.encode('cp1252')  # no debe lanzar
+        # safe_print no depende del encoding de la consola
+        buf = io.BytesIO()
+
+        class FakeOut:
+            buffer = buf
+
+            def write(self, *_a, **_k):
+                return 0
+
+            def flush(self):
+                return None
+
+        with mock.patch.object(sys, 'stdout', FakeOut()):
+            self.b.safe_print(md)
+        self.assertTrue(buf.getvalue().startswith(b'# Bench report'))
+
     def test_fake_run_produces_verdict_and_cheap_flag(self):
         cfg = self.b.load_config()
-        cfg['bootstrap'] = 500  # más rápido en CI
+        cfg['bootstrap'] = 500
         provider = self.b.FakeProvider(seed=42)
         report = self.b.run_bench(
             provider=provider, cheap=False, claim='efficiency',
@@ -127,7 +384,6 @@ class BenchStatsTests(unittest.TestCase):
 @unittest.skipUnless(METRICS_PATH.is_file() and BENCH_PATH.is_file(), 'metrics/bench ausentes')
 class MetricsBenchDispatchTests(unittest.TestCase):
     def test_metrics_dispatches_bench_and_prompt_diff(self):
-        # Carga metrics desde su directorio para que `import bench` funcione.
         sys.path.insert(0, str(METRICS_PATH.parent))
         self.addCleanup(lambda: sys.path.remove(str(METRICS_PATH.parent))
                         if str(METRICS_PATH.parent) in sys.path else None)

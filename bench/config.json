@@ -8,9 +8,12 @@
   "claim": "efficiency",
   "models": [],
   "baselineStatus": "pending",
+  "maxPaidLimitUsd": 5,
   "notes": [
-    "Línea base real pendiente: requiere OPENROUTER_API_KEY y modelos :free.",
-    "Tope $0: el runner aborta si /api/v1/key muestra usage>0 o limit de pago.",
+    "Línea base real pendiente: requiere OPENROUTER_API_KEY y modelos con sufijo exacto :free.",
+    "Candado: limit de la key numérico finito y <= maxPaidLimitUsd (por defecto 5). null/ilimitado o > tope aborta.",
+    "Se guarda usage antes de la corrida; si usage sube (>0 delta) la corrida queda inválida.",
+    "Campos ausentes, null donde se espera número, tipo inesperado o no parseable: fail-closed.",
     "[No verificado] Política de datos/retención de modelos :free.",
     "Riesgo de cuota: 20 req/min; 50 o 1000 req/día según créditos OpenRouter."
   ]
