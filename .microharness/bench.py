@@ -260,6 +260,7 @@ def sanitize_report(report: dict) -> dict:
         'taskId', 'variant', 'repetition', 'success', 'pending', 'iterations',
         'retries', 'calls', 'tokens', 'costUsd', 'durationMs', 'cacheRate',
         'firstTry', 'modelId', 'seed', 'hostVersion', 'status',
+        'exitCode', 'stderrTruncated', 'subtype', 'isError', 'errorClass',
     })
 
     def scrub(obj: Any) -> Any:
@@ -384,10 +385,21 @@ class FakeProvider:
         }
 
 
+def _scrub_secrets(text: str) -> str:
+    """Quita valores de keys del texto (nunca imprimir secrets)."""
+    out = text or ''
+    for env_key in ('OPENROUTER_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_API_KEY'):
+        val = os.environ.get(env_key) or ''
+        if len(val) >= 8:
+            out = out.replace(val, '[REDACTED]')
+    return out
+
+
 class ClaudeCodeProvider:
     """Bench agéntico vía Claude Code + OpenRouter (:free)."""
 
     MIN_INTERVAL_S = 3.1  # respeta ~20 req/min entre celdas
+    CELL_TIMEOUT_S = 900
 
     def __init__(self, model_id: str, *, claude_bin: str = 'claude'):
         assert_free_model(model_id)
@@ -411,25 +423,7 @@ class ClaudeCodeProvider:
         if elapsed < self.MIN_INTERVAL_S:
             time.sleep(self.MIN_INTERVAL_S - elapsed)
 
-    def _prompt(self, task: dict) -> str:
-        title = task.get('title') or task.get('id')
-        cmd = ' '.join(task.get('testCommand') or ['python', '-m', 'unittest', 'test_fixture'])
-        return (
-            f'Fix the Python fixture in the current directory so `{cmd}` passes. '
-            f'Task: {title}. Edit only local fixture files. Do not print secrets.'
-        )
-
-    def run_cell(self, task: dict, variant: str, repetition: int,
-                 workdir: Path | None = None) -> dict:
-        if workdir is None:
-            return {
-                'success': False, 'pending': True, 'status': 'pending',
-                'iterations': None, 'retries': None, 'calls': None, 'tokens': None,
-                'costUsd': None, 'durationMs': None, 'cacheRate': None,
-                'firstTry': None, 'modelId': self.model_id, 'seed': None,
-                'hostVersion': self.host_version,
-            }
-        self._throttle()
+    def _env(self) -> dict[str, str]:
         env = os.environ.copy()
         # Key solo desde entorno; no se imprime.
         or_key = env.get('OPENROUTER_API_KEY') or env.get('ANTHROPIC_AUTH_TOKEN') or ''
@@ -440,12 +434,48 @@ class ClaudeCodeProvider:
         env['ANTHROPIC_DEFAULT_OPUS_MODEL'] = self.model_id
         env['ANTHROPIC_DEFAULT_HAIKU_MODEL'] = self.model_id
         env['CLAUDE_CODE_SUBAGENT_MODEL'] = self.model_id
+        # Evitar prompts interactivos de trust/onboarding en CI.
+        env.setdefault('CI', 'true')
+        env.setdefault('CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC', '1')
+        return env
+
+    def _prompt(self, task: dict) -> str:
+        title = task.get('title') or task.get('id')
+        cmd = ' '.join(task.get('testCommand') or ['python', '-m', 'unittest', 'test_fixture'])
+        return (
+            f'Fix the Python fixture in the current directory so `{cmd}` passes. '
+            f'Task: {title}. Edit only local fixture files. Do not print secrets.'
+        )
+
+    def _pending_diag(self, *, exit_code: int | None, stderr: str, subtype: Any,
+                      is_error: Any, error_class: str | None = None,
+                      duration_ms: int | None = None) -> dict:
+        return {
+            'success': False, 'pending': True, 'status': 'pending',
+            'iterations': None, 'retries': None, 'calls': None, 'tokens': None,
+            'costUsd': None, 'durationMs': duration_ms, 'cacheRate': None,
+            'firstTry': None, 'modelId': self.model_id, 'seed': None,
+            'hostVersion': self.host_version,
+            'exitCode': exit_code,
+            'stderrTruncated': _scrub_secrets(stderr)[:800],
+            'subtype': subtype if isinstance(subtype, str) else None,
+            'isError': is_error if isinstance(is_error, bool) else None,
+            'errorClass': error_class,
+        }
+
+    def run_cell(self, task: dict, variant: str, repetition: int,
+                 workdir: Path | None = None) -> dict:
+        if workdir is None:
+            return self._pending_diag(
+                exit_code=None, stderr='workdir ausente', subtype=None, is_error=True)
+        self._throttle()
+        env = self._env()
+        # Flags compatibles con Claude Code 2.1.197 + OpenRouter (Arturo).
         cmd = [
             self.claude_bin, '-p', self._prompt(task),
             '--output-format', 'json',
+            '--dangerously-skip-permissions',
             '--allowedTools', 'Read,Edit,Bash',
-            '--permission-mode', 'auto',
-            '--permission-prompts', 'none',
             '--model', self.model_id,
         ]
         started = time.monotonic()
@@ -453,15 +483,13 @@ class ClaudeCodeProvider:
         try:
             proc = subprocess.run(
                 cmd, cwd=str(workdir), env=env, capture_output=True, text=True,
-                timeout=600, check=False)
+                timeout=self.CELL_TIMEOUT_S, check=False)
         except (OSError, subprocess.TimeoutExpired) as exc:
-            return {
-                'success': False, 'pending': True, 'status': 'pending',
-                'iterations': None, 'retries': None, 'calls': None, 'tokens': None,
-                'costUsd': None, 'durationMs': None, 'cacheRate': None,
-                'firstTry': None, 'modelId': self.model_id, 'seed': None,
-                'hostVersion': self.host_version, 'errorClass': type(exc).__name__,
-            }
+            return self._pending_diag(
+                exit_code=None, stderr=str(exc)[:800], subtype=None, is_error=True,
+                error_class=type(exc).__name__,
+                duration_ms=int((time.monotonic() - started) * 1000),
+            )
         duration_ms = int((time.monotonic() - started) * 1000)
         payload: dict = {}
         raw_out = (proc.stdout or '').strip()
@@ -472,6 +500,9 @@ class ClaudeCodeProvider:
                     payload = parsed
             except ValueError:
                 payload = {}
+        subtype = payload.get('subtype')
+        is_error = payload.get('is_error')
+        stderr_trunc = _scrub_secrets(proc.stderr or '')[:800]
         usage = payload.get('usage') if isinstance(payload.get('usage'), dict) else {}
         model_usage = payload.get('modelUsage') if isinstance(payload.get('modelUsage'), dict) else {}
         tokens = None
@@ -507,7 +538,14 @@ class ClaudeCodeProvider:
             test_ok = tproc.returncode == 0
         except (OSError, subprocess.TimeoutExpired):
             test_ok = False
-        pending = proc.returncode != 0 and not test_ok and tokens is None
+        # Fallo inmediato de Claude (login, flags, 429, …) → pending + diagnóstico.
+        if proc.returncode != 0 or is_error is True or not payload:
+            return self._pending_diag(
+                exit_code=proc.returncode, stderr=stderr_trunc, subtype=subtype,
+                is_error=is_error if isinstance(is_error, bool) else True,
+                duration_ms=duration_ms,
+            )
+        pending = not test_ok and tokens is None
         return {
             'success': bool(test_ok),
             'pending': bool(pending),
@@ -523,6 +561,10 @@ class ClaudeCodeProvider:
             'modelId': self.model_id,
             'seed': None,
             'hostVersion': self.host_version,
+            'exitCode': proc.returncode,
+            'stderrTruncated': stderr_trunc,
+            'subtype': subtype if isinstance(subtype, str) else None,
+            'isError': is_error if isinstance(is_error, bool) else False,
         }
 
 
@@ -740,32 +782,41 @@ def aggregate_report(
 
     x = float(cfg.get('efficiencyDeltaPct', 10)) / 100.0
     y = float(cfg.get('qualityTokenCeilingPct', 15)) / 100.0
-    success_ok = rate_t >= rate_b and non_inf_ok
-    med_b_tok = median(b_tok) or 0
-    efficiency_ok = (
-        med_b_tok > 0
-        and d_tok <= -x * med_b_tok
-        and ci_tok[1] < 0
-    ) or (
-        (median(b_it) or 0) > 0
-        and d_it <= -x * (median(b_it) or 1)
-        and ci_it[1] < 0
-    )
-    quality_ok = med_b_tok == 0 or d_tok <= y * med_b_tok
-
-    if not success_ok:
-        verdict = 'RECHAZA'
-    elif claim == 'efficiency' and not efficiency_ok:
-        # IC cruza 0 o no baja lo suficiente
-        verdict = 'NO CONCLUYENTE' if ci_tok[0] < 0 < ci_tok[1] or ci_it[0] < 0 < ci_it[1] else 'RECHAZA'
-    elif claim == 'quality' and not quality_ok:
-        verdict = 'RECHAZA'
-    elif claim == 'efficiency' and efficiency_ok:
-        verdict = 'ACEPTA'
-    elif claim == 'quality' and quality_ok and success_ok:
-        verdict = 'ACEPTA'
-    else:
+    expected = n * max(1, len(task_ids))
+    # Sin datos suficientes: no rechazar; marcar inconcluso (celdas pending aparte).
+    if nb == 0 or nt == 0 or nb < expected or nt < expected:
         verdict = 'NO CONCLUYENTE'
+    else:
+        success_ok = rate_t >= rate_b and non_inf_ok
+        med_b_tok = median(b_tok) or 0
+        efficiency_ok = (
+            med_b_tok > 0
+            and d_tok <= -x * med_b_tok
+            and ci_tok[1] < 0
+        ) or (
+            (median(b_it) or 0) > 0
+            and d_it <= -x * (median(b_it) or 1)
+            and ci_it[1] < 0
+        )
+        quality_ok = med_b_tok == 0 or d_tok <= y * med_b_tok
+
+        if not success_ok:
+            verdict = 'RECHAZA'
+        elif claim == 'efficiency' and not efficiency_ok:
+            # IC cruza 0 o no baja lo suficiente
+            verdict = (
+                'NO CONCLUYENTE'
+                if ci_tok[0] < 0 < ci_tok[1] or ci_it[0] < 0 < ci_it[1]
+                else 'RECHAZA'
+            )
+        elif claim == 'quality' and not quality_ok:
+            verdict = 'RECHAZA'
+        elif claim == 'efficiency' and efficiency_ok:
+            verdict = 'ACEPTA'
+        elif claim == 'quality' and quality_ok and success_ok:
+            verdict = 'ACEPTA'
+        else:
+            verdict = 'NO CONCLUYENTE'
 
     return {
         'schema': 'microsdd-bench-report/v1',

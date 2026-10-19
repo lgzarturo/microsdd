@@ -390,6 +390,8 @@ class BenchStatsTests(unittest.TestCase):
                 'taskId': '01', 'variant': 'base', 'repetition': 0,
                 'success': True, 'tokens': 10, 'prompt': 'no',
                 'session_id': 'x', 'workdir': '/tmp/secret',
+                'exitCode': 1, 'stderrTruncated': 'boom', 'subtype': 'error',
+                'isError': True,
             }],
         }
         clean = self.b.sanitize_report(dirty)
@@ -397,8 +399,30 @@ class BenchStatsTests(unittest.TestCase):
         self.assertNotIn('session_id', clean)
         self.assertEqual(clean['privacy'], 'strict-aggregate')
         self.assertEqual(clean['cells'][0]['tokens'], 10)
+        self.assertEqual(clean['cells'][0]['exitCode'], 1)
+        self.assertEqual(clean['cells'][0]['subtype'], 'error')
         self.assertNotIn('workdir', clean['cells'][0])
         self.assertNotIn('prompt', clean['cells'][0])
+
+    def test_aggregate_zero_valid_cells_is_no_concluyente(self):
+        """0/0 celdas válidas (todas pending) → NO CONCLUYENTE, no RECHAZA."""
+        cfg = self.b.load_config()
+        cfg['bootstrap'] = 50
+        cells = []
+        for tid in ('01-correccion-localizada', '02-regla-nueva', '03-refactor',
+                    '04-config-docs', '05-prueba-regresion'):
+            for variant in ('base', 'treatment'):
+                for rep in range(3):
+                    cells.append({
+                        'taskId': tid, 'variant': variant, 'repetition': rep,
+                        'success': False, 'pending': True, 'status': 'pending',
+                        'iterations': None, 'tokens': None, 'costUsd': None,
+                    })
+        report = self.b.aggregate_report(
+            cells, cfg=cfg, claim='efficiency', cheap=True, seed=1, n=3)
+        self.assertEqual(report['verdict'], 'NO CONCLUYENTE')
+        self.assertEqual(report['success']['base'], '0/0')
+        self.assertEqual(report['success']['treatment'], '0/0')
 
     def test_verify_model_pricing_requires_zero(self):
         models = {
