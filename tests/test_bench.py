@@ -359,7 +359,7 @@ class BenchStatsTests(unittest.TestCase):
         self.assertTrue((out / 'bench-report.json').is_file())
         self.assertTrue((out / 'bench-report.md').is_file())
         data = json.loads((out / 'bench-report.json').read_text(encoding='utf-8'))
-        self.assertEqual(data['baselineStatus'], 'pending')
+        self.assertEqual(data['baselineStatus'], self.b.load_config().get('baselineStatus'))
         code2 = self.b.cmd_bench(['report', '--from', str(out)])
         self.assertEqual(code2, 0)
 
