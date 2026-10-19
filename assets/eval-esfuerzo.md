@@ -21,7 +21,9 @@ Decidir con datos si el esfuerzo por defecto del proyecto (`effort` en `.microha
 1. Specs de bench ya aprobadas y congeladas en cada `bench/tareas/*/spec/` (no se mide la redacción).
 2. `python .microharness/metrics.py bench run [--cheap] --provider fake|openrouter`
    - N=5 por celda (N=3 con `--cheap`, marca `cheap: true`).
-   - Solo modelos `:free` de OpenRouter para línea base; tope $0; candado vía `OPENROUTER_API_KEY` + `/api/v1/key`.
+   - Solo modelos con sufijo exacto `:free`; candado vía `OPENROUTER_API_KEY` + `/api/v1/key`:
+     `limit` finito ≤ `maxPaidLimitUsd` (defecto 5); uso esperado $0;
+     abortar si `usage` sube durante la corrida; fail-closed en campos inválidos.
 3. `bench report` emite mediana [IQR], Δ con IC bootstrap 95 %, Wilson en éxito, veredicto `ACEPTA`/`RECHAZA`/`NO CONCLUYENTE`.
 4. Resultados fuera del repo; hash del `bench-report.json` se anota al congelar la línea base.
 
