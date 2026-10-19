@@ -399,7 +399,7 @@ def format_report_md(report: dict) -> str:
         f"- ts: `{report.get('ts')}`",
         f"- cheap: `{report.get('cheap')}` · N={report.get('n')} · seed={report.get('seed')}",
         f"- claim: `{report.get('claim')}`",
-        f"- success: base {report['success']['base']} → treatment {report['success']['treatment']}",
+        f"- success: base {report['success']['base']} -> treatment {report['success']['treatment']}",
         f"- tokens Δ: {report['tokens']['delta']} IC95 {report['tokens']['ci95']}",
         f"- iterations Δ: {report['iterations']['delta']} IC95 {report['iterations']['ci95']}",
         f"- costUsdTotal: {report.get('costUsdTotal')}",
