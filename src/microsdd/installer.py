@@ -47,6 +47,7 @@ MANIFEST = {
 METRICS_MANIFEST = {
     '.microharness/metrics.py': '.microharness/metrics.py',
     '.microharness/pricing.json': '.microharness/pricing.json',
+    '.microharness/bench.py': '.microharness/bench.py',
 }
 METRICS_HOOK_EVENTS = ('SubagentStop', 'SessionEnd')
 GITIGNORE_METRICS = '.microharness/metrics/'

@@ -233,6 +233,29 @@ class EditPolicyTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertIsNotNone(self.edit('implementador', 'Write', path))
 
+    def test_ac14_implementer_edits_bench_and_metrics_in_scope(self):
+        self.make_task(['.microharness/bench.py', '.microharness/metrics.py'])
+        for tool in EDIT_TOOLS:
+            for path in ('.microharness/bench.py', self.cwd / '.microharness' / 'metrics.py'):
+                with self.subTest(tool=tool, permitido=str(path)):
+                    self.assertIsNone(self.edit('implementador', tool, path))
+            for path in ('.microharness/otro.py', '.MicroHarness/bench.py',
+                         '.microharness/memory.json', '.microharness/config.json'):
+                with self.subTest(tool=tool, denegado=path):
+                    self.assertIsNotNone(self.edit('implementador', tool, path))
+
+    def test_ac14_bench_denied_without_scope(self):
+        self.make_task(['src/**'])
+        for path in ('.microharness/bench.py', '.microharness/metrics.py'):
+            with self.subTest(path=path):
+                self.assertIsNotNone(self.edit('implementador', 'Write', path))
+
+    def test_ac14_bench_denied_without_approval(self):
+        self.make_task(['.microharness/bench.py', '.microharness/metrics.py'], approved=False)
+        for path in ('.microharness/bench.py', '.microharness/metrics.py'):
+            with self.subTest(path=path):
+                self.assertIsNotNone(self.edit('implementador', 'Write', path))
+
 
 class FakeStdin:
     def __init__(self, tty):

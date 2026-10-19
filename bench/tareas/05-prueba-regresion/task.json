@@ -1,0 +1,14 @@
+{
+  "id": "05-prueba-regresion",
+  "title": "Prueba de regresi\u00f3n",
+  "kind": "test",
+  "fixtureSha256": "77e4d843c53d1e034d6ec0297b57a7a6e2d3845fb592ccfec8da5a2100142dca",
+  "testCommand": [
+    "python",
+    "-m",
+    "unittest",
+    "test_fixture"
+  ],
+  "specDir": "spec",
+  "frozen": true
+}

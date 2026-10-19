@@ -1,6 +1,8 @@
 # Mini-eval de esfuerzo: `medium` frente a `high`
 
-> **Protocolo no ejecutado; no hay resultados.** Este documento solo describe cómo medir; no contiene cifras ni conclusiones.
+> **Protocolo de líneas base:** las 5 tareas tipo viven en `bench/tareas/` (m2).
+> La línea base congelada de `opus-5-5-medium` (N=5) está **pendiente** — ver `bench/baseline/README.md`.
+> Mientras tanto el runner se prueba con `--provider fake` (sin modelos ni gasto).
 
 ## Objetivo
 
@@ -8,25 +10,35 @@ Decidir con datos si el esfuerzo por defecto del proyecto (`effort` en `.microha
 
 ## Tareas tipo (5)
 
-1. **Corrección localizada:** un defecto acotado a una función con prueba de regresión clara.
-2. **Regla nueva:** una funcionalidad de una sola regla de negocio con AC verificables.
-3. **Refactor sin cambio de conducta:** reorganización pequeña con la suite existente como red.
-4. **Cambio de configuración o documentación:** ajuste sin lógica nueva que exige coherencia entre archivos.
-5. **Prueba de regresión:** añadir una prueba para un defecto ya corregido, sin tocar código de producción.
+1. **Corrección localizada:** un defecto acotado a una función con prueba de regresión clara. → `bench/tareas/01-correccion-localizada`
+2. **Regla nueva:** una funcionalidad de una sola regla de negocio con AC verificables. → `bench/tareas/02-regla-nueva`
+3. **Refactor sin cambio de conducta:** reorganización pequeña con la suite existente como red. → `bench/tareas/03-refactor`
+4. **Cambio de configuración o documentación:** ajuste sin lógica nueva que exige coherencia entre archivos. → `bench/tareas/04-config-docs`
+5. **Prueba de regresión:** añadir una prueba para un defecto ya corregido, sin tocar código de producción. → `bench/tareas/05-prueba-regresion`
 
-## Procedimiento
+## Procedimiento (bench m2)
 
-1. Elegir una tarea real de cada tipo y redactar su spec; el humano la aprueba una sola vez.
-2. Para cada tarea, ejecutar el ciclo completo dos veces desde el **mismo commit base** y con **specs aprobadas idénticas**: una con `medium` y otra con `high` (cambiando `config.json`, `.claude/settings.json` y el frontmatter de los agentes según el README, sección 6).
-3. No reutilizar contexto entre ejecuciones; registrar cada una por separado.
-4. El humano revisa ambos resultados sin saber, si es posible, qué esfuerzo produjo cada uno.
+1. Specs de bench ya aprobadas y congeladas en cada `bench/tareas/*/spec/` (no se mide la redacción).
+2. `python .microharness/metrics.py bench run [--cheap] --provider fake|openrouter`
+   - N=5 por celda (N=3 con `--cheap`, marca `cheap: true`).
+   - Solo modelos con sufijo exacto `:free`; candado vía `OPENROUTER_API_KEY` + `/api/v1/key`:
+     `limit` finito ≤ `maxPaidLimitUsd` (defecto 5); uso esperado $0;
+     abortar si `usage` sube durante la corrida; fail-closed en campos inválidos.
+3. `bench report` emite mediana [IQR], Δ con IC bootstrap 95 %, Wilson en éxito, veredicto `ACEPTA`/`RECHAZA`/`NO CONCLUYENTE`.
+4. Resultados fuera del repo; hash del `bench-report.json` se anota al congelar la línea base.
 
 ## Métricas por ejecución
 
 - Iteraciones de revisión (rechazos del revisor hasta `APROBADO` o escalado).
-- AC cumplidos sobre el total de la spec.
-- Tokens consumidos y tiempo de reloj.
-- Defectos detectados por el humano tras el cierre.
+- AC cumplidos / `success`.
+- Tokens, llamadas, costo y tiempo.
+- Tasa de caché y `firstTry`.
+
+## Riesgos
+
+- OpenRouter `:free`: ~20 req/min; 50 o 1000 req/día según créditos.
+- **[No verificado]** Política de datos y retención de los modelos `:free`.
+- Semilla Claude Code: `seed: null`.
 
 ## Criterio de lectura
 

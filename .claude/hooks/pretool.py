@@ -28,6 +28,8 @@ HARNESS_EDITABLE = (
     '.microharness/python.sh',
     '.microharness/python.ps1',
     '.microharness/python.cmd',
+    '.microharness/bench.py',
+    '.microharness/metrics.py',
 )
 TOGGLE_RE = re.compile(r'(?:microsdd|installer\.py).*\b(?:on|off|uninstall)\b', re.I | re.S)
 SETTINGS_RE = re.compile(r'settings(?:\.local)?\.json', re.I)

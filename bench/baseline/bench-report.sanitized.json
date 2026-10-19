@@ -1,0 +1,1056 @@
+{
+  "schema": "microsdd-bench-report/v1",
+  "ts": "2026-10-19T06:03:36+00:00",
+  "cheap": true,
+  "claim": "efficiency",
+  "n": 3,
+  "seed": 42,
+  "verdict": "NO CONCLUYENTE",
+  "success": {
+    "base": "7/8",
+    "treatment": "8/8",
+    "baseWilson": [
+      0.5291051942301386,
+      0.9775830911367038
+    ],
+    "treatmentWilson": [
+      0.6755843804891231,
+      1.0
+    ]
+  },
+  "tokens": {
+    "baseMedian": 333162.0,
+    "treatmentMedian": 364072.5,
+    "delta": 30910.5,
+    "ci95": [
+      -174707.5,
+      389934.5
+    ]
+  },
+  "iterations": {
+    "baseMedian": 1.0,
+    "treatmentMedian": 1.0,
+    "delta": 0.0,
+    "ci95": [
+      0.0,
+      0.0
+    ]
+  },
+  "tasks": [
+    {
+      "taskId": "01-correccion-localizada",
+      "base": {
+        "success": "2/3",
+        "successWilson": [
+          0.2076549551264879,
+          0.9385096847238394
+        ],
+        "tokensMedian": 419935.0,
+        "tokensIqr": [
+          406757.0,
+          473988.0
+        ],
+        "iterationsMedian": 1.0
+      },
+      "treatment": {
+        "success": "3/3",
+        "successWilson": [
+          0.43849391955098227,
+          1.0
+        ],
+        "tokensMedian": 294586.0,
+        "tokensIqr": [
+          167702.0,
+          985994.0
+        ],
+        "iterationsMedian": 1.0
+      },
+      "deltaTokens": -125349.0,
+      "deltaTokensCI95": [
+        -306286.0,
+        579237.0
+      ]
+    },
+    {
+      "taskId": "02-regla-nueva",
+      "base": {
+        "success": "3/3",
+        "successWilson": [
+          0.43849391955098227,
+          1.0
+        ],
+        "tokensMedian": 294514.0,
+        "tokensIqr": [
+          286995.0,
+          371810.0
+        ],
+        "iterationsMedian": 1.0
+      },
+      "treatment": {
+        "success": "3/3",
+        "successWilson": [
+          0.43849391955098227,
+          1.0
+        ],
+        "tokensMedian": 662912.0,
+        "tokensIqr": [
+          433559.0,
+          680689.0
+        ],
+        "iterationsMedian": 1.0
+      },
+      "deltaTokens": 368398.0,
+      "deltaTokensCI95": [
+        61749.0,
+        393694.0
+      ]
+    },
+    {
+      "taskId": "03-refactor",
+      "base": {
+        "success": "2/2",
+        "successWilson": [
+          0.34237195288961925,
+          1.0
+        ],
+        "tokensMedian": 200590.5,
+        "tokensIqr": [
+          148127.25,
+          253053.75
+        ],
+        "iterationsMedian": 1.0
+      },
+      "treatment": {
+        "success": "2/2",
+        "successWilson": [
+          0.34237195288961925,
+          1.0
+        ],
+        "tokensMedian": 214767.5,
+        "tokensIqr": [
+          146885.75,
+          282649.25
+        ],
+        "iterationsMedian": 1.0
+      },
+      "deltaTokens": 14177.0,
+      "deltaTokensCI95": [
+        -66053.0,
+        94407.0
+      ]
+    },
+    {
+      "taskId": "04-config-docs",
+      "base": {
+        "success": "0/0",
+        "successWilson": [
+          0.0,
+          0.0
+        ],
+        "tokensMedian": null,
+        "tokensIqr": null,
+        "iterationsMedian": null
+      },
+      "treatment": {
+        "success": "0/0",
+        "successWilson": [
+          0.0,
+          0.0
+        ],
+        "tokensMedian": null,
+        "tokensIqr": null,
+        "iterationsMedian": null
+      },
+      "deltaTokens": 0,
+      "deltaTokensCI95": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "taskId": "05-prueba-regresion",
+      "base": {
+        "success": "0/0",
+        "successWilson": [
+          0.0,
+          0.0
+        ],
+        "tokensMedian": null,
+        "tokensIqr": null,
+        "iterationsMedian": null
+      },
+      "treatment": {
+        "success": "0/0",
+        "successWilson": [
+          0.0,
+          0.0
+        ],
+        "tokensMedian": null,
+        "tokensIqr": null,
+        "iterationsMedian": null
+      },
+      "deltaTokens": 0,
+      "deltaTokensCI95": [
+        0.0,
+        0.0
+      ]
+    }
+  ],
+  "cells": [
+    {
+      "success": true,
+      "firstTry": true,
+      "durationMs": 163189,
+      "costUsd": 0.795824,
+      "cacheRate": null,
+      "hostVersion": "2.1.197 (Claude Code)",
+      "status": "ok",
+      "variant": "base",
+      "pending": false,
+      "iterations": 1,
+      "seed": null,
+      "repetition": 0,
+      "tokens": 473988,
+      "exitCode": 0,
+      "subtype": "success",
+      "taskId": "01-correccion-localizada",
+      "retries": 0,
+      "calls": 1,
+      "stderrTruncated": "",
+      "modelId": "nvidia/nemotron-3-super-120b-a12b:free",
+      "isError": false
+    },
+    {
+      "success": true,
+      "firstTry": true,
+      "durationMs": 355752,
+      "costUsd": 1.3076539999999999,
+      "cacheRate": null,
+      "hostVersion": "2.1.197 (Claude Code)",
+      "status": "ok",
+      "variant": "treatment",
+      "pending": false,
+      "iterations": 1,
+      "seed": null,
+      "repetition": 0,
+      "tokens": 985994,
+      "exitCode": 0,
+      "subtype": "success",
+      "taskId": "01-correccion-localizada",
+      "retries": 0,
+      "calls": 1,
+      "stderrTruncated": "",
+      "modelId": "nvidia/nemotron-3-super-120b-a12b:free",
+      "isError": false
+    },
+    {
+      "success": false,
+      "firstTry": false,
+      "durationMs": 133686,
+      "costUsd": 0.6130169999999998,
+      "cacheRate": null,
+      "hostVersion": "2.1.197 (Claude Code)",
+      "status": "fail",
+      "variant": "base",
+      "pending": false,
+      "iterations": 1,
+      "seed": null,
+      "repetition": 1,
+      "tokens": 406757,
+      "exitCode": 0,
+      "subtype": "success",
+      "taskId": "01-correccion-localizada",
+      "retries": 0,
+      "calls": 1,
+      "stderrTruncated": "",
+      "modelId": "nvidia/nemotron-3-super-120b-a12b:free",
+      "isError": false
+    },
+    {
+      "success": true,
+      "firstTry": true,
+      "durationMs": 129032,
+      "costUsd": 0.469594,
+      "cacheRate": null,
+      "hostVersion": "2.1.197 (Claude Code)",
+      "status": "ok",
+      "variant": "treatment",
+      "pending": false,
+      "iterations": 1,
+      "seed": null,
+      "repetition": 1,
+      "tokens": 294586,
+      "exitCode": 0,
+      "subtype": "success",
+      "taskId": "01-correccion-localizada",
+      "retries": 0,
+      "calls": 1,
+      "stderrTruncated": "",
+      "modelId": "nvidia/nemotron-3-super-120b-a12b:free",
+      "isError": false
+    },
+    {
+      "success": true,
+      "firstTry": true,
+      "durationMs": 114510,
+      "costUsd": 0.6122110000000001,
+      "cacheRate": null,
+      "hostVersion": "2.1.197 (Claude Code)",
+      "status": "ok",
+      "variant": "base",
+      "pending": false,
+      "iterations": 1,
+      "seed": null,
+      "repetition": 2,
+      "tokens": 419935,
+      "exitCode": 0,
+      "subtype": "success",
+      "taskId": "01-correccion-localizada",
+      "retries": 0,
+      "calls": 1,
+      "stderrTruncated": "",
+      "modelId": "nvidia/nemotron-3-super-120b-a12b:free",
+      "isError": false
+    },
+    {
+      "success": true,
+      "firstTry": true,
+      "durationMs": 80407,
+      "costUsd": 0.39486200000000005,
+      "cacheRate": null,
+      "hostVersion": "2.1.197 (Claude Code)",
+      "status": "ok",
+      "variant": "treatment",
+      "pending": false,
+      "iterations": 1,
+      "seed": null,
+      "repetition": 2,
+      "tokens": 167702,
+      "exitCode": 0,
+      "subtype": "success",
+      "taskId": "01-correccion-localizada",
+      "retries": 0,
+      "calls": 1,
+      "stderrTruncated": "",
+      "modelId": "nvidia/nemotron-3-super-120b-a12b:free",
+      "isError": false
+    },
+    {
+      "success": true,
+      "firstTry": true,
+      "durationMs": 202898,
+      "costUsd": 0.416179,
+      "cacheRate": null,
+      "hostVersion": "2.1.197 (Claude Code)",
+      "status": "ok",
+      "variant": "base",
+      "pending": false,
+      "iterations": 1,
+      "seed": null,
+      "repetition": 0,
+      "tokens": 286995,
+      "exitCode": 0,
+      "subtype": "success",
+      "taskId": "02-regla-nueva",
+      "retries": 0,
+      "calls": 1,
+      "stderrTruncated": "",
+      "modelId": "nvidia/nemotron-3-super-120b-a12b:free",
+      "isError": false
+    },
+    {
+      "success": true,
+      "firstTry": true,
+      "durationMs": 595719,
+      "costUsd": 2.011353,
+      "cacheRate": null,
+      "hostVersion": "2.1.197 (Claude Code)",
+      "status": "ok",
+      "variant": "treatment",
+      "pending": false,
+      "iterations": 1,
+      "seed": null,
+      "repetition": 0,
+      "tokens": 680689,
+      "exitCode": 0,
+      "subtype": "success",
+      "taskId": "02-regla-nueva",
+      "retries": 0,
+      "calls": 1,
+      "stderrTruncated": "",
+      "modelId": "nvidia/nemotron-3-super-120b-a12b:free",
+      "isError": false
+    },
+    {
+      "success": true,
+      "firstTry": true,
+      "durationMs": 108039,
+      "costUsd": 0.53821,
+      "cacheRate": null,
+      "hostVersion": "2.1.197 (Claude Code)",
+      "status": "ok",
+      "variant": "base",
+      "pending": false,
+      "iterations": 1,
+      "seed": null,
+      "repetition": 1,
+      "tokens": 294514,
+      "exitCode": 0,
+      "subtype": "success",
+      "taskId": "02-regla-nueva",
+      "retries": 0,
+      "calls": 1,
+      "stderrTruncated": "",
+      "modelId": "nvidia/nemotron-3-super-120b-a12b:free",
+      "isError": false
+    },
+    {
+      "success": true,
+      "firstTry": true,
+      "durationMs": 141384,
+      "costUsd": 0.6799989999999999,
+      "cacheRate": null,
+      "hostVersion": "2.1.197 (Claude Code)",
+      "status": "ok",
+      "variant": "treatment",
+      "pending": false,
+      "iterations": 1,
+      "seed": null,
+      "repetition": 1,
+      "tokens": 433559,
+      "exitCode": 0,
+      "subtype": "success",
+      "taskId": "02-regla-nueva",
+      "retries": 0,
+      "calls": 1,
+      "stderrTruncated": "",
+      "modelId": "nvidia/nemotron-3-super-120b-a12b:free",
+      "isError": false
+    },
+    {
+      "success": true,
+      "firstTry": true,
+      "durationMs": 123163,
+      "costUsd": 0.5479620000000001,
+      "cacheRate": null,
+      "hostVersion": "2.1.197 (Claude Code)",
+      "status": "ok",
+      "variant": "base",
+      "pending": false,
+      "iterations": 1,
+      "seed": null,
+      "repetition": 2,
+      "tokens": 371810,
+      "exitCode": 0,
+      "subtype": "success",
+      "taskId": "02-regla-nueva",
+      "retries": 0,
+      "calls": 1,
+      "stderrTruncated": "",
+      "modelId": "nvidia/nemotron-3-super-120b-a12b:free",
+      "isError": false
+    },
+    {
+      "success": true,
+      "firstTry": true,
+      "durationMs": 153159,
+      "costUsd": 0.8851240000000001,
+      "cacheRate": null,
+      "hostVersion": "2.1.197 (Claude Code)",
+      "status": "ok",
+      "variant": "treatment",
+      "pending": false,
+      "iterations": 1,
+      "seed": null,
+      "repetition": 2,
+      "tokens": 662912,
+      "exitCode": 0,
+      "subtype": "success",
+      "taskId": "02-regla-nueva",
+      "retries": 0,
+      "calls": 1,
+      "stderrTruncated": "",
+      "modelId": "nvidia/nemotron-3-super-120b-a12b:free",
+      "isError": false
+    },
+    {
+      "success": true,
+      "firstTry": true,
+      "durationMs": 42034,
+      "costUsd": 0.28417899999999996,
+      "cacheRate": null,
+      "hostVersion": "2.1.197 (Claude Code)",
+      "status": "ok",
+      "variant": "base",
+      "pending": false,
+      "iterations": 1,
+      "seed": null,
+      "repetition": 0,
+      "tokens": 165615,
+      "exitCode": 0,
+      "subtype": "success",
+      "taskId": "03-refactor",
+      "retries": 0,
+      "calls": 1,
+      "stderrTruncated": "",
+      "modelId": "nvidia/nemotron-3-super-120b-a12b:free",
+      "isError": false
+    },
+    {
+      "success": true,
+      "firstTry": true,
+      "durationMs": 54087,
+      "costUsd": 0.40735699999999997,
+      "cacheRate": null,
+      "hostVersion": "2.1.197 (Claude Code)",
+      "status": "ok",
+      "variant": "treatment",
+      "pending": false,
+      "iterations": 1,
+      "seed": null,
+      "repetition": 0,
+      "tokens": 169513,
+      "exitCode": 0,
+      "subtype": "success",
+      "taskId": "03-refactor",
+      "retries": 0,
+      "calls": 1,
+      "stderrTruncated": "",
+      "modelId": "nvidia/nemotron-3-super-120b-a12b:free",
+      "isError": false
+    },
+    {
+      "success": true,
+      "firstTry": true,
+      "durationMs": 69525,
+      "costUsd": 0.40729,
+      "cacheRate": null,
+      "hostVersion": "2.1.197 (Claude Code)",
+      "status": "ok",
+      "variant": "base",
+      "pending": false,
+      "iterations": 1,
+      "seed": null,
+      "repetition": 1,
+      "tokens": 235566,
+      "exitCode": 0,
+      "subtype": "success",
+      "taskId": "03-refactor",
+      "retries": 0,
+      "calls": 1,
+      "stderrTruncated": "",
+      "modelId": "nvidia/nemotron-3-super-120b-a12b:free",
+      "isError": false
+    },
+    {
+      "success": true,
+      "firstTry": true,
+      "durationMs": 70158,
+      "costUsd": 0.40605800000000003,
+      "cacheRate": null,
+      "hostVersion": "2.1.197 (Claude Code)",
+      "status": "ok",
+      "variant": "treatment",
+      "pending": false,
+      "iterations": 1,
+      "seed": null,
+      "repetition": 1,
+      "tokens": 260022,
+      "exitCode": 0,
+      "subtype": "success",
+      "taskId": "03-refactor",
+      "retries": 0,
+      "calls": 1,
+      "stderrTruncated": "",
+      "modelId": "nvidia/nemotron-3-super-120b-a12b:free",
+      "isError": false
+    },
+    {
+      "success": false,
+      "firstTry": null,
+      "durationMs": 235115,
+      "costUsd": null,
+      "cacheRate": null,
+      "hostVersion": "2.1.197 (Claude Code)",
+      "status": "pending",
+      "variant": "base",
+      "pending": true,
+      "iterations": null,
+      "seed": null,
+      "repetition": 2,
+      "tokens": null,
+      "errorClass": null,
+      "exitCode": 1,
+      "subtype": "success",
+      "taskId": "03-refactor",
+      "retries": null,
+      "calls": null,
+      "stderrTruncated": "",
+      "modelId": "nvidia/nemotron-3-super-120b-a12b:free",
+      "isError": true
+    },
+    {
+      "success": false,
+      "firstTry": null,
+      "durationMs": 178353,
+      "costUsd": null,
+      "cacheRate": null,
+      "hostVersion": "2.1.197 (Claude Code)",
+      "status": "pending",
+      "variant": "treatment",
+      "pending": true,
+      "iterations": null,
+      "seed": null,
+      "repetition": 2,
+      "tokens": null,
+      "errorClass": null,
+      "exitCode": 1,
+      "subtype": "success",
+      "taskId": "03-refactor",
+      "retries": null,
+      "calls": null,
+      "stderrTruncated": "",
+      "modelId": "nvidia/nemotron-3-super-120b-a12b:free",
+      "isError": true
+    },
+    {
+      "success": false,
+      "firstTry": null,
+      "durationMs": null,
+      "costUsd": null,
+      "cacheRate": null,
+      "status": "pending",
+      "variant": "base",
+      "pending": true,
+      "iterations": null,
+      "seed": null,
+      "repetition": 0,
+      "tokens": null,
+      "taskId": "04-config-docs",
+      "retries": null,
+      "calls": null,
+      "modelId": "nvidia/nemotron-3-super-120b-a12b:free"
+    },
+    {
+      "success": false,
+      "firstTry": null,
+      "durationMs": null,
+      "costUsd": null,
+      "cacheRate": null,
+      "status": "pending",
+      "variant": "treatment",
+      "pending": true,
+      "iterations": null,
+      "seed": null,
+      "repetition": 0,
+      "tokens": null,
+      "taskId": "04-config-docs",
+      "retries": null,
+      "calls": null,
+      "modelId": "nvidia/nemotron-3-super-120b-a12b:free"
+    },
+    {
+      "success": false,
+      "firstTry": null,
+      "durationMs": null,
+      "costUsd": null,
+      "cacheRate": null,
+      "status": "pending",
+      "variant": "base",
+      "pending": true,
+      "iterations": null,
+      "seed": null,
+      "repetition": 1,
+      "tokens": null,
+      "taskId": "04-config-docs",
+      "retries": null,
+      "calls": null,
+      "modelId": "nvidia/nemotron-3-super-120b-a12b:free"
+    },
+    {
+      "success": false,
+      "firstTry": null,
+      "durationMs": null,
+      "costUsd": null,
+      "cacheRate": null,
+      "status": "pending",
+      "variant": "treatment",
+      "pending": true,
+      "iterations": null,
+      "seed": null,
+      "repetition": 1,
+      "tokens": null,
+      "taskId": "04-config-docs",
+      "retries": null,
+      "calls": null,
+      "modelId": "nvidia/nemotron-3-super-120b-a12b:free"
+    },
+    {
+      "success": false,
+      "firstTry": null,
+      "durationMs": null,
+      "costUsd": null,
+      "cacheRate": null,
+      "status": "pending",
+      "variant": "base",
+      "pending": true,
+      "iterations": null,
+      "seed": null,
+      "repetition": 2,
+      "tokens": null,
+      "taskId": "04-config-docs",
+      "retries": null,
+      "calls": null,
+      "modelId": "nvidia/nemotron-3-super-120b-a12b:free"
+    },
+    {
+      "success": false,
+      "firstTry": null,
+      "durationMs": null,
+      "costUsd": null,
+      "cacheRate": null,
+      "status": "pending",
+      "variant": "treatment",
+      "pending": true,
+      "iterations": null,
+      "seed": null,
+      "repetition": 2,
+      "tokens": null,
+      "taskId": "04-config-docs",
+      "retries": null,
+      "calls": null,
+      "modelId": "nvidia/nemotron-3-super-120b-a12b:free"
+    },
+    {
+      "success": false,
+      "firstTry": null,
+      "durationMs": null,
+      "costUsd": null,
+      "cacheRate": null,
+      "status": "pending",
+      "variant": "base",
+      "pending": true,
+      "iterations": null,
+      "seed": null,
+      "repetition": 0,
+      "tokens": null,
+      "taskId": "05-prueba-regresion",
+      "retries": null,
+      "calls": null,
+      "modelId": "nvidia/nemotron-3-super-120b-a12b:free"
+    },
+    {
+      "success": false,
+      "firstTry": null,
+      "durationMs": null,
+      "costUsd": null,
+      "cacheRate": null,
+      "status": "pending",
+      "variant": "treatment",
+      "pending": true,
+      "iterations": null,
+      "seed": null,
+      "repetition": 0,
+      "tokens": null,
+      "taskId": "05-prueba-regresion",
+      "retries": null,
+      "calls": null,
+      "modelId": "nvidia/nemotron-3-super-120b-a12b:free"
+    },
+    {
+      "success": false,
+      "firstTry": null,
+      "durationMs": null,
+      "costUsd": null,
+      "cacheRate": null,
+      "status": "pending",
+      "variant": "base",
+      "pending": true,
+      "iterations": null,
+      "seed": null,
+      "repetition": 1,
+      "tokens": null,
+      "taskId": "05-prueba-regresion",
+      "retries": null,
+      "calls": null,
+      "modelId": "nvidia/nemotron-3-super-120b-a12b:free"
+    },
+    {
+      "success": false,
+      "firstTry": null,
+      "durationMs": null,
+      "costUsd": null,
+      "cacheRate": null,
+      "status": "pending",
+      "variant": "treatment",
+      "pending": true,
+      "iterations": null,
+      "seed": null,
+      "repetition": 1,
+      "tokens": null,
+      "taskId": "05-prueba-regresion",
+      "retries": null,
+      "calls": null,
+      "modelId": "nvidia/nemotron-3-super-120b-a12b:free"
+    },
+    {
+      "success": false,
+      "firstTry": null,
+      "durationMs": null,
+      "costUsd": null,
+      "cacheRate": null,
+      "status": "pending",
+      "variant": "base",
+      "pending": true,
+      "iterations": null,
+      "seed": null,
+      "repetition": 2,
+      "tokens": null,
+      "taskId": "05-prueba-regresion",
+      "retries": null,
+      "calls": null,
+      "modelId": "nvidia/nemotron-3-super-120b-a12b:free"
+    },
+    {
+      "success": false,
+      "firstTry": null,
+      "durationMs": null,
+      "costUsd": null,
+      "cacheRate": null,
+      "status": "pending",
+      "variant": "treatment",
+      "pending": true,
+      "iterations": null,
+      "seed": null,
+      "repetition": 2,
+      "tokens": null,
+      "taskId": "05-prueba-regresion",
+      "retries": null,
+      "calls": null,
+      "modelId": "nvidia/nemotron-3-super-120b-a12b:free"
+    }
+  ],
+  "costUsdTotal": 10.776873,
+  "notes": {
+    "dataPolicyFreeModels": "[No verificado]",
+    "seedClaudeCode": null
+  },
+  "models": [
+    "nvidia/nemotron-3-super-120b-a12b:free"
+  ],
+  "baselineStatus": "cheap-partial",
+  "usageBefore": 0.0,
+  "usageAfter": 0.0,
+  "pendingCells": [
+    {
+      "taskId": "03-refactor",
+      "variant": "base",
+      "repetition": 2
+    },
+    {
+      "taskId": "03-refactor",
+      "variant": "treatment",
+      "repetition": 2
+    },
+    {
+      "taskId": "04-config-docs",
+      "variant": "base",
+      "repetition": 0
+    },
+    {
+      "taskId": "04-config-docs",
+      "variant": "treatment",
+      "repetition": 0
+    },
+    {
+      "taskId": "04-config-docs",
+      "variant": "base",
+      "repetition": 1
+    },
+    {
+      "taskId": "04-config-docs",
+      "variant": "treatment",
+      "repetition": 1
+    },
+    {
+      "taskId": "04-config-docs",
+      "variant": "base",
+      "repetition": 2
+    },
+    {
+      "taskId": "04-config-docs",
+      "variant": "treatment",
+      "repetition": 2
+    },
+    {
+      "taskId": "05-prueba-regresion",
+      "variant": "base",
+      "repetition": 0
+    },
+    {
+      "taskId": "05-prueba-regresion",
+      "variant": "treatment",
+      "repetition": 0
+    },
+    {
+      "taskId": "05-prueba-regresion",
+      "variant": "base",
+      "repetition": 1
+    },
+    {
+      "taskId": "05-prueba-regresion",
+      "variant": "treatment",
+      "repetition": 1
+    },
+    {
+      "taskId": "05-prueba-regresion",
+      "variant": "base",
+      "repetition": 2
+    },
+    {
+      "taskId": "05-prueba-regresion",
+      "variant": "treatment",
+      "repetition": 2
+    }
+  ],
+  "risks": [
+    "OpenRouter :free: ~20 req/min; 50 o 1000 req/d\u00eda seg\u00fan cr\u00e9ditos.",
+    "Candado: modelos :free; limit de key <= maxPaidLimitUsd (5); usage no debe subir durante la corrida.",
+    "[No verificado] Pol\u00edtica de datos y retenci\u00f3n de modelos :free de OpenRouter.",
+    "Semilla Claude Code: seed=null (sin flag documentado)."
+  ],
+  "privacy": "strict-aggregate",
+  "date": "2026-10-19T06:03:36+00:00",
+  "diagnostics": [
+    {
+      "taskId": "03-refactor",
+      "variant": "base",
+      "repetition": 2,
+      "exitCode": 1,
+      "subtype": "success",
+      "isError": true,
+      "stderrTruncated": ""
+    },
+    {
+      "taskId": "03-refactor",
+      "variant": "treatment",
+      "repetition": 2,
+      "exitCode": 1,
+      "subtype": "success",
+      "isError": true,
+      "stderrTruncated": ""
+    },
+    {
+      "taskId": "04-config-docs",
+      "variant": "base",
+      "repetition": 0,
+      "exitCode": null,
+      "subtype": null,
+      "isError": null,
+      "stderrTruncated": null
+    },
+    {
+      "taskId": "04-config-docs",
+      "variant": "treatment",
+      "repetition": 0,
+      "exitCode": null,
+      "subtype": null,
+      "isError": null,
+      "stderrTruncated": null
+    },
+    {
+      "taskId": "04-config-docs",
+      "variant": "base",
+      "repetition": 1,
+      "exitCode": null,
+      "subtype": null,
+      "isError": null,
+      "stderrTruncated": null
+    },
+    {
+      "taskId": "04-config-docs",
+      "variant": "treatment",
+      "repetition": 1,
+      "exitCode": null,
+      "subtype": null,
+      "isError": null,
+      "stderrTruncated": null
+    },
+    {
+      "taskId": "04-config-docs",
+      "variant": "base",
+      "repetition": 2,
+      "exitCode": null,
+      "subtype": null,
+      "isError": null,
+      "stderrTruncated": null
+    },
+    {
+      "taskId": "04-config-docs",
+      "variant": "treatment",
+      "repetition": 2,
+      "exitCode": null,
+      "subtype": null,
+      "isError": null,
+      "stderrTruncated": null
+    },
+    {
+      "taskId": "05-prueba-regresion",
+      "variant": "base",
+      "repetition": 0,
+      "exitCode": null,
+      "subtype": null,
+      "isError": null,
+      "stderrTruncated": null
+    },
+    {
+      "taskId": "05-prueba-regresion",
+      "variant": "treatment",
+      "repetition": 0,
+      "exitCode": null,
+      "subtype": null,
+      "isError": null,
+      "stderrTruncated": null
+    },
+    {
+      "taskId": "05-prueba-regresion",
+      "variant": "base",
+      "repetition": 1,
+      "exitCode": null,
+      "subtype": null,
+      "isError": null,
+      "stderrTruncated": null
+    },
+    {
+      "taskId": "05-prueba-regresion",
+      "variant": "treatment",
+      "repetition": 1,
+      "exitCode": null,
+      "subtype": null,
+      "isError": null,
+      "stderrTruncated": null
+    },
+    {
+      "taskId": "05-prueba-regresion",
+      "variant": "base",
+      "repetition": 2,
+      "exitCode": null,
+      "subtype": null,
+      "isError": null,
+      "stderrTruncated": null
+    },
+    {
+      "taskId": "05-prueba-regresion",
+      "variant": "treatment",
+      "repetition": 2,
+      "exitCode": null,
+      "subtype": null,
+      "isError": null,
+      "stderrTruncated": null
+    }
+  ],
+  "label": "cheap",
+  "runUrl": "https://github.com/lgzarturo/microsdd/actions/runs/39203441982",
+  "validCellCount": 16,
+  "pendingCellCount": 14
+}

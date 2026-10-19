@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "id": "05-prueba-regresion",
+  "title": "Prueba de regresi\u00f3n",
+  "state": "proceso",
+  "model": "claude-opus-5-5",
+  "effort": "medium",
+  "max_iterations": 3,
+  "method": {
+    "primary": "SDD",
+    "optional": [],
+    "notes": ""
+  },
+  "scope": {
+    "allowed_paths": [
+      "fixture_mod.py",
+      "test_fixture.py"
+    ],
+    "excluded": []
+  },
+  "requirements": {
+    "acceptance_ids": [
+      "AC-01"
+    ],
+    "preconditions": []
+  },
+  "testing": {
+    "strategy": "tdd",
+    "commands": [
+      [
+        "python",
+        "-m",
+        "unittest",
+        "test_fixture"
+      ]
+    ],
+    "protected_tests": [
+      "test_fixture.py"
+    ],
+    "mutation": {
+      "enabled": false,
+      "command": [],
+      "reason": "N/A"
+    },
+    "min_tests": 1
+  },
+  "frozen": true,
+  "note": "Spec congelada para bench; no mide redacci\u00f3n de spec."
+}

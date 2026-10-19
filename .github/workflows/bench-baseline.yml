@@ -1,0 +1,367 @@
+# Línea base cheap (N=3) vía OpenRouter + Claude Code.
+# Solo workflow_dispatch o push a bench/baseline-m2-run.
+# Sin pull_request / pull_request_target. Secret: OPENROUTER_API_KEY.
+name: bench-baseline
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - bench/baseline-m2-run
+permissions:
+  contents: read
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      ANTHROPIC_BASE_URL: https://openrouter.ai/api
+      ANTHROPIC_AUTH_TOKEN: ${{ secrets.OPENROUTER_API_KEY }}
+      ANTHROPIC_API_KEY: ""
+      BENCH_MODEL: nvidia/nemotron-3-super-120b-a12b:free
+      CI: "true"
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Require OpenRouter secret
+        run: |
+          if [ -z "${OPENROUTER_API_KEY}" ]; then
+            echo "ERROR: secret OPENROUTER_API_KEY no expuesto en Actions."
+            exit 1
+          fi
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Claude Code
+        run: npm install -g @anthropic-ai/claude-code@2.1.197
+
+      - name: Verify Claude Code
+        run: claude --version
+
+      - name: Candado smoke + precio 0
+        run: |
+          python3 <<'PY'
+          import json, os, sys
+          from pathlib import Path
+          sys.path.insert(0, '.microharness')
+          import bench as b
+          key = os.environ.get('OPENROUTER_API_KEY') or ''
+          model = os.environ['BENCH_MODEL']
+          b.assert_free_model(model)
+          cfg = b.load_config()
+          max_turns, _ = b.request_budget(cfg)
+          est = b.planned_requests(cfg, 1)
+          data = b.check_openrouter_free_lock(key, est, max_paid_limit_usd=5)
+          usage = b.read_usage(data)
+          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as fh:
+              fh.write(f'BENCH_MAX_TURNS={max_turns}\n')
+          b.verify_openrouter_model_pricing(key, model)
+          out = Path('smoke-out')
+          out.mkdir(exist_ok=True)
+          (out / 'usage-before.json').write_text(
+              json.dumps({'usage': usage}, indent=2) + '\n', encoding='utf-8')
+          print('smoke lock ok')
+          PY
+
+      - name: Smoke claude -p di hola
+        id: smoke_run
+        run: |
+          mkdir -p smoke-out
+          set +e
+          claude -p "di hola" \
+            --output-format json \
+            --dangerously-skip-permissions \
+            --model "${BENCH_MODEL}" \
+            --max-turns "${BENCH_MAX_TURNS}" \
+            > smoke-out/raw-stdout.json 2> smoke-out/raw-stderr.txt
+          ec=$?
+          set -e
+          echo "exit_code=${ec}" > smoke-out/exit.env
+          python3 <<'PY'
+          import json, os, sys
+          from pathlib import Path
+          sys.path.insert(0, '.microharness')
+          import bench as b
+          out = Path('smoke-out')
+          stdout = out.joinpath('raw-stdout.json').read_text(encoding='utf-8', errors='replace')
+          stderr = out.joinpath('raw-stderr.txt').read_text(encoding='utf-8', errors='replace')
+          exit_code = 1
+          for line in out.joinpath('exit.env').read_text(encoding='utf-8').splitlines():
+              if line.startswith('exit_code='):
+                  exit_code = int(line.split('=', 1)[1])
+          payload = {}
+          try:
+              parsed = json.loads(stdout.strip() or '{}')
+              if isinstance(parsed, dict):
+                  payload = parsed
+          except ValueError:
+              payload = {}
+          diag = {
+              'ok': exit_code == 0 and payload.get('is_error') is not True and bool(payload),
+              'exitCode': exit_code,
+              'subtype': payload.get('subtype') if isinstance(payload.get('subtype'), str) else None,
+              'isError': payload.get('is_error') if isinstance(payload.get('is_error'), bool) else None,
+              'stderrTruncated': b._scrub_secrets(stderr)[:800],
+              'hasPayload': bool(payload),
+              'model': os.environ.get('BENCH_MODEL'),
+              'hostVersion': None,
+          }
+          try:
+              import subprocess
+              ver = subprocess.run(['claude', '--version'], capture_output=True, text=True, timeout=30)
+              diag['hostVersion'] = (ver.stdout or ver.stderr or '').strip().splitlines()[:1]
+              if diag['hostVersion']:
+                  diag['hostVersion'] = diag['hostVersion'][0][:120]
+          except Exception:
+              pass
+          # usage after smoke
+          key = os.environ.get('OPENROUTER_API_KEY') or ''
+          before = json.loads(out.joinpath('usage-before.json').read_text(encoding='utf-8'))['usage']
+          after = b.read_usage(b.fetch_openrouter_key(key))
+          if after - float(before) > 0:
+              diag['ok'] = False
+              diag['usageRise'] = True
+          else:
+              diag['usageRise'] = False
+          diag['usageBefore'] = before
+          diag['usageAfter'] = after
+          out.joinpath('smoke.sanitized.json').write_text(
+              json.dumps(diag, indent=2, ensure_ascii=True) + '\n', encoding='utf-8')
+          out.joinpath('usage-after.json').write_text(
+              json.dumps({'usage': after, 'usageBefore': before}, indent=2) + '\n', encoding='utf-8')
+          # borrar crudos (pueden contener texto de modelo; no van al artifact)
+          for name in ('raw-stdout.json', 'raw-stderr.txt'):
+              p = out / name
+              if p.is_file():
+                  p.unlink()
+          print('smoke ok' if diag['ok'] else 'smoke FAILED')
+          raise SystemExit(0 if diag['ok'] else 1)
+          PY
+
+      - name: Upload smoke artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-smoke
+          path: |
+            smoke-out/smoke.sanitized.json
+            smoke-out/usage-before.json
+            smoke-out/usage-after.json
+          if-no-files-found: warn
+
+  cheap-baseline:
+    needs: smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      ANTHROPIC_BASE_URL: https://openrouter.ai/api
+      ANTHROPIC_AUTH_TOKEN: ${{ secrets.OPENROUTER_API_KEY }}
+      ANTHROPIC_API_KEY: ""
+      BENCH_MODEL: nvidia/nemotron-3-super-120b-a12b:free
+      CI: "true"
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Require OpenRouter secret
+        run: |
+          if [ -z "${OPENROUTER_API_KEY}" ]; then
+            echo "ERROR: secret OPENROUTER_API_KEY no expuesto en Actions."
+            exit 1
+          fi
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Claude Code
+        run: npm install -g @anthropic-ai/claude-code@2.1.197
+
+      - name: Verify Claude Code
+        run: claude --version
+
+      - name: Configure bench model
+        run: |
+          python3 <<'PY'
+          import json, os
+          from pathlib import Path
+          p = Path('bench/config.json')
+          cfg = json.loads(p.read_text(encoding='utf-8'))
+          cfg['models'] = [os.environ['BENCH_MODEL']]
+          cfg['baselineStatus'] = 'running-cheap'
+          p.write_text(json.dumps(cfg, indent=2) + '\n', encoding='utf-8')
+          print('model configured')
+          PY
+
+      - name: Candado pre-corrida + precio 0
+        run: |
+          python3 <<'PY'
+          import json, os, sys
+          from pathlib import Path
+          sys.path.insert(0, '.microharness')
+          import bench as b
+          key = os.environ.get('OPENROUTER_API_KEY') or ''
+          model = os.environ['BENCH_MODEL']
+          b.assert_free_model(model)
+          cfg = b.load_config()
+          est = b.planned_requests(cfg, int(cfg['nCheap']) * 5 * 2)
+          data = b.check_openrouter_free_lock(key, est, max_paid_limit_usd=5)
+          usage = b.read_usage(data)
+          b.verify_openrouter_model_pricing(key, model)
+          out = Path('bench-out')
+          out.mkdir(exist_ok=True)
+          (out / 'usage-before.json').write_text(
+              json.dumps({'usage': usage}, indent=2) + '\n', encoding='utf-8')
+          print('lock ok')
+          PY
+
+      - name: Run cheap baseline
+        id: cheap_run
+        continue-on-error: true
+        run: |
+          mkdir -p bench-out
+          set +e
+          python3 .microharness/metrics.py bench run --cheap --provider openrouter --out bench-out
+          ec=$?
+          set -e
+          echo "cheap_exit=${ec}" >> "$GITHUB_OUTPUT"
+          # 0 = ok/inconcluso; 2 = RECHAZA; otros = error duro
+          exit 0
+
+      - name: Candado post-corrida
+        if: always()
+        run: |
+          python3 <<'PY'
+          import json, os, sys
+          from pathlib import Path
+          sys.path.insert(0, '.microharness')
+          import bench as b
+          out = Path('bench-out')
+          out.mkdir(exist_ok=True)
+          key = os.environ.get('OPENROUTER_API_KEY') or ''
+          before_path = out / 'usage-before.json'
+          if before_path.is_file():
+              before = json.loads(before_path.read_text(encoding='utf-8'))['usage']
+          else:
+              before = b.read_usage(b.fetch_openrouter_key(key))
+          after = b.read_usage(b.fetch_openrouter_key(key))
+          rise = after - float(before) > 0
+          (out / 'usage-after.json').write_text(
+              json.dumps({
+                  'usage': after, 'usageBefore': before, 'usageRise': rise,
+              }, indent=2) + '\n', encoding='utf-8')
+          print('usage after recorded')
+          if rise:
+              raise SystemExit('usage rose; corrida invalida')
+          PY
+
+      - name: Sanitize artifact (§7)
+        if: always()
+        run: |
+          python3 <<'PY'
+          import json, sys
+          from pathlib import Path
+          sys.path.insert(0, '.microharness')
+          import bench as b
+          out = Path('bench-out')
+          out.mkdir(exist_ok=True)
+          report_path = out / 'bench-report.json'
+          if report_path.is_file():
+              raw = json.loads(report_path.read_text(encoding='utf-8'))
+              clean = b.sanitize_report(raw)
+          else:
+              clean = {
+                  'schema': 'microsdd-bench-report/v1',
+                  'verdict': 'NO CONCLUYENTE',
+                  'cheap': True,
+                  'cells': [],
+                  'pendingCells': [],
+                  'privacy': 'strict-aggregate',
+                  'note': 'bench-report.json ausente',
+              }
+          ub = {}
+          ua = {}
+          if (out / 'usage-before.json').is_file():
+              ub = json.loads((out / 'usage-before.json').read_text(encoding='utf-8'))
+          if (out / 'usage-after.json').is_file():
+              ua = json.loads((out / 'usage-after.json').read_text(encoding='utf-8'))
+          clean['usageBefore'] = ub.get('usage', clean.get('usageBefore'))
+          clean['usageAfter'] = ua.get('usage', clean.get('usageAfter'))
+          clean['cheap'] = True
+          clean['date'] = clean.get('ts')
+          # Resumen diagnóstico (sin prompts ni keys)
+          diags = []
+          for c in clean.get('cells') or []:
+              if c.get('pending') or c.get('exitCode') not in (0, None):
+                  diags.append({
+                      'taskId': c.get('taskId'),
+                      'variant': c.get('variant'),
+                      'repetition': c.get('repetition'),
+                      'exitCode': c.get('exitCode'),
+                      'subtype': c.get('subtype'),
+                      'isError': c.get('isError'),
+                      'stderrTruncated': c.get('stderrTruncated'),
+                  })
+          clean['diagnostics'] = diags[:50]
+          (out / 'bench-report.sanitized.json').write_text(
+              json.dumps(clean, indent=2, ensure_ascii=True) + '\n', encoding='utf-8')
+          (out / 'bench-report.sanitized.md').write_text(
+              b.format_report_md(clean), encoding='utf-8')
+          print('sanitized')
+          PY
+
+      - name: Upload sanitized results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-baseline-cheap
+          path: |
+            bench-out/bench-report.sanitized.json
+            bench-out/bench-report.sanitized.md
+            bench-out/usage-before.json
+            bench-out/usage-after.json
+          if-no-files-found: warn
+
+      - name: Fail if no valid cells or usage rose
+        if: always()
+        run: |
+          python3 <<'PY'
+          import json, sys
+          from pathlib import Path
+          p = Path('bench-out/bench-report.sanitized.json')
+          ua = Path('bench-out/usage-after.json')
+          if ua.is_file():
+              data = json.loads(ua.read_text(encoding='utf-8'))
+              if data.get('usageRise'):
+                  print('FAIL: usage rose')
+                  raise SystemExit(1)
+          if not p.is_file():
+              print('FAIL: no sanitized report')
+              raise SystemExit(1)
+          rep = json.loads(p.read_text(encoding='utf-8'))
+          cells = rep.get('cells') or []
+          valid = [c for c in cells if not c.get('pending')]
+          print(f'valid_cells={len(valid)} pending={len(cells)-len(valid)} verdict={rep.get("verdict")}')
+          if len(valid) == 0:
+              print('FAIL: cero celdas validas')
+              raise SystemExit(1)
+          raise SystemExit(0)
+          PY

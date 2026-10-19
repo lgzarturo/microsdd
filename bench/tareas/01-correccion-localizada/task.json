@@ -1,0 +1,14 @@
+{
+  "id": "01-correccion-localizada",
+  "title": "Correcci\u00f3n localizada",
+  "kind": "fix",
+  "fixtureSha256": "b5a6f95b0d9f2844868edff5686749a7964ee95ca346dc17125b769b39f71bb6",
+  "testCommand": [
+    "python",
+    "-m",
+    "unittest",
+    "test_fixture"
+  ],
+  "specDir": "spec",
+  "frozen": true
+}

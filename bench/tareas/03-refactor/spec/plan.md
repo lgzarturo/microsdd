@@ -1,0 +1,7 @@
+# CÓMO: Refactor sin cambio de conducta
+
+## Situación comprobada
+Fixture mínima.
+
+## Decisión
+Bench no mide autoría de spec.
