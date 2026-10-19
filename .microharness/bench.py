@@ -9,8 +9,10 @@ import os
 import random
 import shutil
 import statistics
+import subprocess
 import sys
 import tempfile
+import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
@@ -199,6 +201,93 @@ def assert_usage_unchanged(api_key: str, usage_before: float, *, data: dict | No
     return usage_after
 
 
+def verify_openrouter_model_pricing(api_key: str, model_id: str) -> dict:
+    """Fail-closed: modelo :free con precio 0 en /api/v1/models."""
+    assert_free_model(model_id)
+    if not api_key:
+        raise BenchError('OPENROUTER_API_KEY ausente para verificar precio del modelo.')
+    req = urllib.request.Request(
+        'https://openrouter.ai/api/v1/models',
+        headers={'Authorization': f'Bearer {api_key}', 'User-Agent': 'microsdd-bench/0'},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            body = json.loads(resp.read().decode('utf-8'))
+    except (urllib.error.URLError, TimeoutError, ValueError, OSError) as exc:
+        raise BenchError(f'No se pudo consultar /api/v1/models: {exc}') from exc
+    if not isinstance(body, dict):
+        raise BenchError('/api/v1/models: JSON raíz no es objeto (fail-closed).')
+    data = body.get('data')
+    if not isinstance(data, list):
+        raise BenchError('/api/v1/models: data no es lista (fail-closed).')
+    match = None
+    for item in data:
+        if isinstance(item, dict) and item.get('id') == model_id:
+            match = item
+            break
+    if match is None:
+        raise BenchError(f'/api/v1/models: modelo {model_id!r} no encontrado (fail-closed).')
+    pricing = match.get('pricing')
+    if not isinstance(pricing, dict):
+        raise BenchError(f'/api/v1/models: pricing ausente para {model_id!r} (fail-closed).')
+    for key in ('prompt', 'completion'):
+        if key not in pricing:
+            raise BenchError(f'/api/v1/models: falta pricing.{key} (fail-closed).')
+        raw = pricing[key]
+        if isinstance(raw, bool) or not isinstance(raw, (int, float, str)):
+            raise BenchError(
+                f'/api/v1/models: pricing.{key} tipo inesperado {type(raw).__name__} (fail-closed).')
+        try:
+            num = float(raw)
+        except (TypeError, ValueError) as exc:
+            raise BenchError(
+                f'/api/v1/models: pricing.{key}={raw!r} no parseable (fail-closed).') from exc
+        if math.isnan(num) or math.isinf(num) or num != 0.0:
+            raise BenchError(
+                f'/api/v1/models: pricing.{key}={num} no es 0 (fail-closed; solo :free).')
+    return match
+
+
+def sanitize_report(report: dict) -> dict:
+    """§7: agregados sin prompts, session_id, rutas ni keys."""
+    forbidden = frozenset({
+        'prompt', 'prompts', 'response', 'responses', 'diff', 'diffs',
+        'toolOutput', 'tool_output', 'session_id', 'sessionId', 'transcript',
+        'apiKey', 'api_key', 'authToken', 'workdir', 'cwd', 'path', 'paths',
+        'raw', 'stdout', 'stderr', 'message', 'messages', 'errorClass',
+    })
+    cell_keep = frozenset({
+        'taskId', 'variant', 'repetition', 'success', 'pending', 'iterations',
+        'retries', 'calls', 'tokens', 'costUsd', 'durationMs', 'cacheRate',
+        'firstTry', 'modelId', 'seed', 'hostVersion', 'status',
+    })
+
+    def scrub(obj: Any) -> Any:
+        if isinstance(obj, dict):
+            out = {}
+            for k, v in obj.items():
+                if k in forbidden:
+                    continue
+                if k == 'cells' and isinstance(v, list):
+                    out[k] = [
+                        {ck: scrub(c[ck]) for ck in cell_keep if isinstance(c, dict) and ck in c}
+                        for c in v
+                    ]
+                else:
+                    out[k] = scrub(v)
+            return out
+        if isinstance(obj, list):
+            return [scrub(x) for x in obj]
+        return obj
+
+    cleaned = scrub(report)
+    if not isinstance(cleaned, dict):
+        raise BenchError('sanitize_report: resultado no es objeto')
+    cleaned['privacy'] = 'strict-aggregate'
+    cleaned['schema'] = report.get('schema') or 'microsdd-bench-report/v1'
+    return cleaned
+
+
 def safe_print(text: str) -> None:
     """Imprime sin depender del encoding de la consola (Windows cp1252)."""
     payload = (text if text.endswith('\n') else text + '\n').encode('utf-8', errors='replace')
@@ -272,7 +361,8 @@ class FakeProvider:
     def __init__(self, seed: int = 42):
         self.rng = random.Random(seed)
 
-    def run_cell(self, task: dict, variant: str, repetition: int) -> dict:
+    def run_cell(self, task: dict, variant: str, repetition: int,
+                 workdir: Path | None = None) -> dict:
         # Base ligeramente peor que tratamiento para que efficiency pueda ACEPTA en fixtures.
         bias = 0 if variant == 'treatment' else 1
         tokens = 1000 + bias * 200 + repetition * 10 + self.rng.randint(0, 50)
@@ -291,6 +381,148 @@ class FakeProvider:
             'firstTry': success and bias == 0,
             'modelId': 'fake/test:free',
             'seed': None,
+        }
+
+
+class ClaudeCodeProvider:
+    """Bench agéntico vía Claude Code + OpenRouter (:free)."""
+
+    MIN_INTERVAL_S = 3.1  # respeta ~20 req/min entre celdas
+
+    def __init__(self, model_id: str, *, claude_bin: str = 'claude'):
+        assert_free_model(model_id)
+        self.model_id = model_id
+        self.claude_bin = claude_bin
+        self._last_call = 0.0
+        self.host_version = self._detect_version()
+
+    def _detect_version(self) -> str | None:
+        try:
+            proc = subprocess.run(
+                [self.claude_bin, '--version'], capture_output=True, text=True,
+                timeout=30, check=False)
+            out = (proc.stdout or proc.stderr or '').strip()
+            return out.splitlines()[0][:120] if out else None
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+
+    def _throttle(self) -> None:
+        elapsed = time.monotonic() - self._last_call
+        if elapsed < self.MIN_INTERVAL_S:
+            time.sleep(self.MIN_INTERVAL_S - elapsed)
+
+    def _prompt(self, task: dict) -> str:
+        title = task.get('title') or task.get('id')
+        cmd = ' '.join(task.get('testCommand') or ['python', '-m', 'unittest', 'test_fixture'])
+        return (
+            f'Fix the Python fixture in the current directory so `{cmd}` passes. '
+            f'Task: {title}. Edit only local fixture files. Do not print secrets.'
+        )
+
+    def run_cell(self, task: dict, variant: str, repetition: int,
+                 workdir: Path | None = None) -> dict:
+        if workdir is None:
+            return {
+                'success': False, 'pending': True, 'status': 'pending',
+                'iterations': None, 'retries': None, 'calls': None, 'tokens': None,
+                'costUsd': None, 'durationMs': None, 'cacheRate': None,
+                'firstTry': None, 'modelId': self.model_id, 'seed': None,
+                'hostVersion': self.host_version,
+            }
+        self._throttle()
+        env = os.environ.copy()
+        # Key solo desde entorno; no se imprime.
+        or_key = env.get('OPENROUTER_API_KEY') or env.get('ANTHROPIC_AUTH_TOKEN') or ''
+        env['ANTHROPIC_BASE_URL'] = 'https://openrouter.ai/api'
+        env['ANTHROPIC_AUTH_TOKEN'] = or_key
+        env['ANTHROPIC_API_KEY'] = ''
+        env['ANTHROPIC_DEFAULT_SONNET_MODEL'] = self.model_id
+        env['ANTHROPIC_DEFAULT_OPUS_MODEL'] = self.model_id
+        env['ANTHROPIC_DEFAULT_HAIKU_MODEL'] = self.model_id
+        env['CLAUDE_CODE_SUBAGENT_MODEL'] = self.model_id
+        cmd = [
+            self.claude_bin, '-p', self._prompt(task),
+            '--output-format', 'json',
+            '--allowedTools', 'Read,Edit,Bash',
+            '--permission-mode', 'auto',
+            '--permission-prompts', 'none',
+            '--model', self.model_id,
+        ]
+        started = time.monotonic()
+        self._last_call = started
+        try:
+            proc = subprocess.run(
+                cmd, cwd=str(workdir), env=env, capture_output=True, text=True,
+                timeout=600, check=False)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            return {
+                'success': False, 'pending': True, 'status': 'pending',
+                'iterations': None, 'retries': None, 'calls': None, 'tokens': None,
+                'costUsd': None, 'durationMs': None, 'cacheRate': None,
+                'firstTry': None, 'modelId': self.model_id, 'seed': None,
+                'hostVersion': self.host_version, 'errorClass': type(exc).__name__,
+            }
+        duration_ms = int((time.monotonic() - started) * 1000)
+        payload: dict = {}
+        raw_out = (proc.stdout or '').strip()
+        if raw_out:
+            try:
+                parsed = json.loads(raw_out)
+                if isinstance(parsed, dict):
+                    payload = parsed
+            except ValueError:
+                payload = {}
+        usage = payload.get('usage') if isinstance(payload.get('usage'), dict) else {}
+        model_usage = payload.get('modelUsage') if isinstance(payload.get('modelUsage'), dict) else {}
+        tokens = None
+        if usage:
+            parts = [
+                usage.get('input_tokens'), usage.get('output_tokens'),
+                usage.get('cache_read_input_tokens'), usage.get('cache_creation_input_tokens'),
+            ]
+            if any(isinstance(p, (int, float)) for p in parts):
+                tokens = int(sum(p or 0 for p in parts if isinstance(p, (int, float))))
+        if tokens is None and model_usage:
+            total = 0
+            found = False
+            for entry in model_usage.values():
+                if not isinstance(entry, dict):
+                    continue
+                found = True
+                total += int(entry.get('inputTokens') or 0)
+                total += int(entry.get('outputTokens') or 0)
+                total += int(entry.get('cacheReadInputTokens') or 0)
+                total += int(entry.get('cacheCreationInputTokens') or 0)
+            if found:
+                tokens = total
+        cost = payload.get('total_cost_usd')
+        if not isinstance(cost, (int, float)):
+            cost = None
+        test_cmd = list(task.get('testCommand') or ['python', '-m', 'unittest', 'test_fixture'])
+        test_ok = False
+        try:
+            tproc = subprocess.run(
+                test_cmd, cwd=str(workdir), capture_output=True, text=True,
+                timeout=60, check=False)
+            test_ok = tproc.returncode == 0
+        except (OSError, subprocess.TimeoutExpired):
+            test_ok = False
+        pending = proc.returncode != 0 and not test_ok and tokens is None
+        return {
+            'success': bool(test_ok),
+            'pending': bool(pending),
+            'status': 'pending' if pending else ('ok' if test_ok else 'fail'),
+            'iterations': 1,
+            'retries': 0,
+            'calls': 1,
+            'tokens': tokens,
+            'costUsd': float(cost) if cost is not None else 0.0,
+            'durationMs': duration_ms,
+            'cacheRate': None,
+            'firstTry': bool(test_ok),
+            'modelId': self.model_id,
+            'seed': None,
+            'hostVersion': self.host_version,
         }
 
 
@@ -345,12 +577,62 @@ def run_bench(
     schedule.sort(key=lambda x: (x[0]['id'], x[2], 0 if x[1] == 'base' else 1))
 
     cells: list[dict] = []
+    pending_rest = False
+    last_task_id: str | None = None
     with tempfile.TemporaryDirectory(prefix='microsdd-bench-') as tmp:
         tmp_path = Path(tmp)
         for task, variant, rep in schedule:
+            if pending_rest:
+                cells.append({
+                    'taskId': task['id'], 'variant': variant, 'repetition': rep,
+                    'success': False, 'pending': True, 'status': 'pending',
+                    'iterations': None, 'retries': None, 'calls': None,
+                    'tokens': None, 'costUsd': None, 'durationMs': None,
+                    'cacheRate': None, 'firstTry': None,
+                    'modelId': (model_list[0] if model_list else None), 'seed': None,
+                })
+                continue
+            if (usage_before is not None and api_key is not None
+                    and last_task_id is not None and task['id'] != last_task_id):
+                # Candado entre tareas: usage no debe subir; cuota restante.
+                key_data = fetch_openrouter_key(api_key)
+                assert_usage_unchanged(api_key, usage_before, data=key_data)
+                free = key_data.get('free_model_daily_requests')
+                if isinstance(free, dict) and 'remaining' in free:
+                    try:
+                        rem = _require_nonneg_int(
+                            free, 'remaining', label='free_model_daily_requests.remaining')
+                    except BenchError:
+                        raise
+                    if rem < 1:
+                        pending_rest = True
+                        cells.append({
+                            'taskId': task['id'], 'variant': variant, 'repetition': rep,
+                            'success': False, 'pending': True, 'status': 'pending',
+                            'iterations': None, 'retries': None, 'calls': None,
+                            'tokens': None, 'costUsd': None, 'durationMs': None,
+                            'cacheRate': None, 'firstTry': None,
+                            'modelId': (model_list[0] if model_list else None), 'seed': None,
+                        })
+                        continue
+            last_task_id = task['id']
             work = tmp_path / f"{task['id']}-{variant}-{rep}"
             copy_fixture(Path(task['_dir']), work)
-            result = provider.run_cell(task, variant, rep)
+            try:
+                try:
+                    result = provider.run_cell(task, variant, rep, workdir=work)
+                except TypeError:
+                    result = provider.run_cell(task, variant, rep)
+            except BenchError:
+                raise
+            except Exception:
+                result = {
+                    'success': False, 'pending': True, 'status': 'pending',
+                    'iterations': None, 'retries': None, 'calls': None,
+                    'tokens': None, 'costUsd': None, 'durationMs': None,
+                    'cacheRate': None, 'firstTry': None,
+                    'modelId': (model_list[0] if model_list else None), 'seed': None,
+                }
             cells.append({
                 'taskId': task['id'],
                 'variant': variant,
@@ -358,13 +640,19 @@ def run_bench(
                 **result,
             })
 
+    usage_after = None
     if usage_before is not None and api_key is not None:
-        assert_usage_unchanged(api_key, usage_before)
+        usage_after = assert_usage_unchanged(api_key, usage_before)
 
     report = aggregate_report(cells, cfg=cfg, claim=claim, cheap=cheap, seed=seed, n=n)
     report['models'] = model_list
     report['baselineStatus'] = cfg.get('baselineStatus', 'pending')
     report['usageBefore'] = usage_before
+    report['usageAfter'] = usage_after
+    report['pendingCells'] = [
+        {'taskId': c['taskId'], 'variant': c['variant'], 'repetition': c['repetition']}
+        for c in cells if c.get('pending')
+    ]
     report['risks'] = [
         f'OpenRouter :free: ~{FREE_RPM} req/min; {FREE_RPD_LOW} o {FREE_RPD_HIGH} req/día según créditos.',
         f'Candado: modelos :free; limit de key <= maxPaidLimitUsd '
@@ -399,16 +687,20 @@ def aggregate_report(
     non_inf_ok = True
     for tid in task_ids:
         parts = _by_variant(cells, tid)
-        b_succ = sum(1 for c in parts['base'] if c['success'])
-        t_succ = sum(1 for c in parts['treatment'] if c['success'])
-        nb, nt = len(parts['base']), len(parts['treatment'])
+        b_done = [c for c in parts['base'] if not c.get('pending')]
+        t_done = [c for c in parts['treatment'] if not c.get('pending')]
+        b_succ = sum(1 for c in b_done if c.get('success'))
+        t_succ = sum(1 for c in t_done if c.get('success'))
+        nb, nt = len(b_done), len(t_done)
         # No inferioridad: ninguna tarea ≥4/5 → ≤2/5.
         if nb >= 5 and b_succ >= 4 and t_succ <= 2:
             non_inf_ok = False
-        b_tok = [float(c['tokens']) for c in parts['base'] if c.get('tokens') is not None]
-        t_tok = [float(c['tokens']) for c in parts['treatment'] if c.get('tokens') is not None]
-        b_it = [float(c['iterations']) for c in parts['base']]
-        t_it = [float(c['iterations']) for c in parts['treatment']]
+        b_tok = [float(c['tokens']) for c in b_done if c.get('tokens') is not None]
+        t_tok = [float(c['tokens']) for c in t_done if c.get('tokens') is not None]
+        b_it = [float(c['iterations']) for c in parts['base']
+                if c.get('iterations') is not None and not c.get('pending')]
+        t_it = [float(c['iterations']) for c in parts['treatment']
+                if c.get('iterations') is not None and not c.get('pending')]
         d_tok = (median(t_tok) or 0) - (median(b_tok) or 0)
         ci_tok = bootstrap_ci_delta(b_tok, t_tok, seed=seed + hash(tid) % 1000,
                                    n_boot=int(cfg.get('bootstrap', 10000)))
@@ -432,15 +724,15 @@ def aggregate_report(
             'deltaTokensCI95': ci_tok,
         })
 
-    all_b = _by_variant(cells)['base']
-    all_t = _by_variant(cells)['treatment']
-    kb, kt = sum(1 for c in all_b if c['success']), sum(1 for c in all_t if c['success'])
+    all_b = [c for c in _by_variant(cells)['base'] if not c.get('pending')]
+    all_t = [c for c in _by_variant(cells)['treatment'] if not c.get('pending')]
+    kb, kt = sum(1 for c in all_b if c.get('success')), sum(1 for c in all_t if c.get('success'))
     nb, nt = len(all_b), len(all_t)
     rate_b, rate_t = (kb / nb if nb else 0.0), (kt / nt if nt else 0.0)
-    b_tok = [float(c['tokens']) for c in all_b]
-    t_tok = [float(c['tokens']) for c in all_t]
-    b_it = [float(c['iterations']) for c in all_b]
-    t_it = [float(c['iterations']) for c in all_t]
+    b_tok = [float(c['tokens']) for c in all_b if c.get('tokens') is not None]
+    t_tok = [float(c['tokens']) for c in all_t if c.get('tokens') is not None]
+    b_it = [float(c['iterations']) for c in all_b if c.get('iterations') is not None]
+    t_it = [float(c['iterations']) for c in all_t if c.get('iterations') is not None]
     d_tok = (median(t_tok) or 0) - (median(b_tok) or 0)
     ci_tok = bootstrap_ci_delta(b_tok, t_tok, seed=seed, n_boot=int(cfg.get('bootstrap', 10000)))
     d_it = (median(t_it) or 0) - (median(b_it) or 0)
@@ -646,37 +938,45 @@ def cmd_bench(argv: list[str]) -> int:
             provider = FakeProvider(seed=int(cfg.get('seed', 42)))
             skip = True
         elif provider_name == 'openrouter':
-            # Sin key real en este entorno: el candado aborta con mensaje claro.
-            provider = FakeProvider(seed=int(cfg.get('seed', 42)))  # placeholder
             skip = False
-            # Forzar chequeo aunque el provider sea stub
             try:
                 models = list(cfg.get('models') or [])
-                if models:
-                    for m in models:
-                        assert_free_model(m)
+                if not models:
+                    raise BenchError(
+                        'bench.config models vacío; indica IDs :free antes de openrouter.')
+                for m in models:
+                    assert_free_model(m)
+                api_key = os.environ.get('OPENROUTER_API_KEY')
+                if not api_key:
+                    raise BenchError(
+                        'OPENROUTER_API_KEY ausente; no se lanza la línea base real. '
+                        'Usa --provider fake para pruebas deterministas.')
                 n = int(cfg['nCheap'] if cheap else cfg['n'])
                 max_cap = cfg.get('maxPaidLimitUsd', DEFAULT_CONFIG['maxPaidLimitUsd'])
-                check_openrouter_free_lock(
-                    os.environ.get('OPENROUTER_API_KEY'),
-                    n * 5 * 2,
-                    max_paid_limit_usd=max_cap,
-                )
+                check_openrouter_free_lock(api_key, n * 5 * 2, max_paid_limit_usd=max_cap)
+                for m in models:
+                    verify_openrouter_model_pricing(api_key, m)
+                provider = ClaudeCodeProvider(models[0])
             except BenchError as exc:
                 print(f'ERROR: {exc}', flush=True)
                 return 1
-            print('ERROR: proveedor openrouter real no ejecutado (línea base pendiente; sin key).',
-                  flush=True)
-            return 1
         else:
             print(f'ERROR: provider desconocido {provider_name}', flush=True)
             return 1
-        report = run_bench(provider=provider, cheap=cheap, claim=claim, config=cfg, skip_key_check=skip)
+        try:
+            report = run_bench(
+                provider=provider, cheap=cheap, claim=claim, config=cfg, skip_key_check=skip)
+        except BenchError as exc:
+            print(f'ERROR: {exc}', flush=True)
+            return 1
         dest = out or (Path(os.environ.get('XDG_STATE_HOME')
                             or (Path.home() / '.local' / 'state')) / 'microsdd' / 'bench-last')
         if os.name == 'nt' and out is None:
             dest = Path(os.environ.get('LOCALAPPDATA') or (Path.home() / 'AppData' / 'Local')) / 'microsdd' / 'bench-last'
         write_report(report, dest)
+        sanitized = sanitize_report(report)
+        (dest / 'bench-report.sanitized.json').write_text(
+            json.dumps(sanitized, indent=2, ensure_ascii=True) + '\n', encoding='utf-8')
         safe_print(format_report_md(report))
         safe_print(f'Reporte escrito en {dest}')
         return 0 if report['verdict'] != 'RECHAZA' else 2

@@ -380,6 +380,48 @@ class BenchStatsTests(unittest.TestCase):
         self.assertEqual(len(tasks), 5)
         self.assertTrue(all(t.get('frozen') for t in tasks))
 
+    def test_sanitize_report_strips_sensitive_fields(self):
+        dirty = {
+            'schema': 'microsdd-bench-report/v1',
+            'verdict': 'NO CONCLUYENTE',
+            'prompt': 'SECRET PROMPT',
+            'session_id': 'sess-xyz',
+            'cells': [{
+                'taskId': '01', 'variant': 'base', 'repetition': 0,
+                'success': True, 'tokens': 10, 'prompt': 'no',
+                'session_id': 'x', 'workdir': '/tmp/secret',
+            }],
+        }
+        clean = self.b.sanitize_report(dirty)
+        self.assertNotIn('prompt', clean)
+        self.assertNotIn('session_id', clean)
+        self.assertEqual(clean['privacy'], 'strict-aggregate')
+        self.assertEqual(clean['cells'][0]['tokens'], 10)
+        self.assertNotIn('workdir', clean['cells'][0])
+        self.assertNotIn('prompt', clean['cells'][0])
+
+    def test_verify_model_pricing_requires_zero(self):
+        models = {
+            'data': [{
+                'id': 'nvidia/nemotron-3-super-120b-a12b:free',
+                'pricing': {'prompt': '0', 'completion': '0'},
+            }]
+        }
+        with mock.patch('urllib.request.urlopen', return_value=_resp(models)):
+            out = self.b.verify_openrouter_model_pricing(
+                'sk-test', 'nvidia/nemotron-3-super-120b-a12b:free')
+        self.assertEqual(out['id'], 'nvidia/nemotron-3-super-120b-a12b:free')
+        paid = {
+            'data': [{
+                'id': 'nvidia/nemotron-3-super-120b-a12b:free',
+                'pricing': {'prompt': '0.001', 'completion': '0'},
+            }]
+        }
+        with mock.patch('urllib.request.urlopen', return_value=_resp(paid)):
+            with self.assertRaises(self.b.BenchError):
+                self.b.verify_openrouter_model_pricing(
+                    'sk-test', 'nvidia/nemotron-3-super-120b-a12b:free')
+
 
 @unittest.skipUnless(METRICS_PATH.is_file() and BENCH_PATH.is_file(), 'metrics/bench ausentes')
 class MetricsBenchDispatchTests(unittest.TestCase):

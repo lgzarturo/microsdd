@@ -1,0 +1,147 @@
+# Línea base cheap (N=3) vía OpenRouter + Claude Code.
+# Solo workflow_dispatch o push a bench/baseline-m2-run.
+# Sin pull_request / pull_request_target. Secret: OPENROUTER_API_KEY.
+name: bench-baseline
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - bench/baseline-m2-run
+permissions:
+  contents: read
+jobs:
+  cheap-baseline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      ANTHROPIC_BASE_URL: https://openrouter.ai/api
+      ANTHROPIC_AUTH_TOKEN: ${{ secrets.OPENROUTER_API_KEY }}
+      ANTHROPIC_API_KEY: ""
+      BENCH_MODEL: nvidia/nemotron-3-super-120b-a12b:free
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Require OpenRouter secret
+        run: |
+          if [ -z "${OPENROUTER_API_KEY}" ]; then
+            echo "ERROR: secret OPENROUTER_API_KEY no expuesto en Actions."
+            exit 1
+          fi
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Claude Code
+        run: npm install -g @anthropic-ai/claude-code@2.1.197
+
+      - name: Verify Claude Code
+        run: claude --version
+
+      - name: Configure bench model
+        run: |
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+          p = Path('bench/config.json')
+          cfg = json.loads(p.read_text(encoding='utf-8'))
+          import os
+          model = os.environ['BENCH_MODEL']
+          cfg['models'] = [model]
+          cfg['baselineStatus'] = 'running-cheap'
+          p.write_text(json.dumps(cfg, indent=2) + '\n', encoding='utf-8')
+          print('model configured')
+          PY
+
+      - name: Candado pre-corrida + precio 0
+        run: |
+          python3 <<'PY'
+          import os, sys
+          sys.path.insert(0, '.microharness')
+          import bench as b
+          key = os.environ.get('OPENROUTER_API_KEY') or ''
+          model = os.environ['BENCH_MODEL']
+          b.assert_free_model(model)
+          data = b.check_openrouter_free_lock(key, 3 * 5 * 2, max_paid_limit_usd=5)
+          usage = b.read_usage(data)
+          b.verify_openrouter_model_pricing(key, model)
+          Path = __import__('pathlib').Path
+          out = Path('bench-out')
+          out.mkdir(exist_ok=True)
+          (out / 'usage-before.json').write_text(
+              __import__('json').dumps({'usage': usage}, indent=2) + '\n', encoding='utf-8')
+          print('lock ok')
+          PY
+
+      - name: Run cheap baseline
+        run: |
+          mkdir -p bench-out
+          python3 .microharness/metrics.py bench run --cheap --provider openrouter --out bench-out
+
+      - name: Candado post-corrida
+        run: |
+          python3 <<'PY'
+          import json, os, sys
+          from pathlib import Path
+          sys.path.insert(0, '.microharness')
+          import bench as b
+          key = os.environ.get('OPENROUTER_API_KEY') or ''
+          before = json.loads(Path('bench-out/usage-before.json').read_text(encoding='utf-8'))['usage']
+          after = b.assert_usage_unchanged(key, before)
+          Path('bench-out/usage-after.json').write_text(
+              json.dumps({'usage': after, 'usageBefore': before}, indent=2) + '\n',
+              encoding='utf-8')
+          print('usage unchanged')
+          PY
+
+      - name: Sanitize artifact (§7)
+        run: |
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+          import sys
+          sys.path.insert(0, '.microharness')
+          import bench as b
+          raw = json.loads(Path('bench-out/bench-report.json').read_text(encoding='utf-8'))
+          clean = b.sanitize_report(raw)
+          # Adjuntar usage snapshots sin keys
+          ub = json.loads(Path('bench-out/usage-before.json').read_text(encoding='utf-8'))
+          ua = {}
+          p_after = Path('bench-out/usage-after.json')
+          if p_after.is_file():
+              ua = json.loads(p_after.read_text(encoding='utf-8'))
+          clean['usageBefore'] = ub.get('usage')
+          clean['usageAfter'] = ua.get('usage', clean.get('usageAfter'))
+          clean['cheap'] = True
+          clean['date'] = clean.get('ts')
+          Path('bench-out/bench-report.sanitized.json').write_text(
+              json.dumps(clean, indent=2, ensure_ascii=True) + '\n', encoding='utf-8')
+          # Solo artefactos agregados sanitizados
+          for name in ('bench-report.json', 'bench-report.md', 'usage-before.json', 'usage-after.json'):
+              p = Path('bench-out') / name
+              if p.is_file() and name != 'bench-report.sanitized.json':
+                  # Conservamos md agregado sin rutas sensibles; reescribimos md sanitizado
+                  pass
+          md = b.format_report_md(clean)
+          Path('bench-out/bench-report.sanitized.md').write_text(md, encoding='utf-8')
+          print('sanitized')
+          PY
+
+      - name: Upload sanitized results
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-baseline-cheap
+          path: |
+            bench-out/bench-report.sanitized.json
+            bench-out/bench-report.sanitized.md
+            bench-out/usage-before.json
+            bench-out/usage-after.json
+          if-no-files-found: error
