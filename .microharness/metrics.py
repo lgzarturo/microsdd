@@ -339,7 +339,8 @@ def main(argv: list[str] | None = None) -> int:
         print('Telemetría local borrada.')
         return 0
     if cmd == 'schema-hash':
-        raw = (ROOT / 'schemas' / 'harness-telemetry.v1.json').read_bytes()
+        # Canon LF: en Windows el checkout puede traer CRLF sin eol=lf aplicado.
+        raw = (ROOT / 'schemas' / 'harness-telemetry.v1.json').read_bytes().replace(b'\r\n', b'\n')
         digest = hashlib.sha256(raw).hexdigest()
         print(digest)
         return 0 if digest == EXPECTED_SCHEMA_SHA256 else 1

@@ -128,9 +128,25 @@ def cross_events():
     ]
 
 
+def _state_env(state: Path) -> dict[str, str]:
+    """Home de estado fuera del repo: XDG en Unix, LOCALAPPDATA en Windows (§4)."""
+    if os.name == 'nt':
+        return {'LOCALAPPDATA': str(state)}
+    return {'XDG_STATE_HOME': str(state)}
+
+
+def _under(path: Path, root: Path) -> bool:
+    try:
+        path.resolve().relative_to(root.resolve())
+        return True
+    except ValueError:
+        return False
+
+
 class SchemaHashTests(unittest.TestCase):
     def test_schema_sha256_matches_codeconductor_m1(self):
-        raw = SCHEMA_PATH.read_bytes()
+        # Byte a byte con LF (eol=lf en .gitattributes); evita falso negativo por CRLF en Windows.
+        raw = SCHEMA_PATH.read_bytes().replace(b'\r\n', b'\n')
         digest = hashlib.sha256(raw).hexdigest()
         self.assertEqual(digest, EXPECTED_SCHEMA_SHA256)
         schema = json.loads(raw)
@@ -189,11 +205,11 @@ class AggregateCrossTests(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         state = Path(tmp.name) / 'state'
-        with mock.patch.dict(os.environ, {'XDG_STATE_HOME': str(state)}, clear=False):
+        with mock.patch.dict(os.environ, _state_env(state), clear=False):
             self.m.purge()
             self.m.emit('task.start', taskId='demo', runId='r-demo')
             path = self.m.runs_path()
-            self.assertTrue(str(path).startswith(str(state)))
+            self.assertTrue(_under(path, state), f'{path} no está bajo {state}')
             self.assertTrue(path.is_file())
             line = json.loads(path.read_text(encoding='utf-8').splitlines()[0])
             self.assertEqual(line['schema'], 'harness-telemetry/v1')
@@ -204,7 +220,7 @@ class AggregateCrossTests(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         state = Path(tmp.name) / 'state'
-        with mock.patch.dict(os.environ, {'XDG_STATE_HOME': str(state)}, clear=False):
+        with mock.patch.dict(os.environ, _state_env(state), clear=False):
             self.m.purge()
             self.m.handle_hook('SubagentStop', {
                 'session_id': 'sess-1',
