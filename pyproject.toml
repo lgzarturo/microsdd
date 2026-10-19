@@ -32,6 +32,8 @@ packages = ["src/microsdd"]
 ".microharness/python.cmd" = "microsdd/payload/.microharness/python.cmd"
 "CLAUDE.md" = "microsdd/payload/CLAUDE.md"
 ".claude/settings.json" = "microsdd/payload/.claude/settings.json"
+".microharness/metrics.py" = "microsdd/payload/.microharness/metrics.py"
+".microharness/pricing.json" = "microsdd/payload/.microharness/pricing.json"
 
 [tool.hatch.build.targets.sdist]
 include = [
@@ -45,8 +47,11 @@ include = [
   ".microharness/python.sh",
   ".microharness/python.ps1",
   ".microharness/python.cmd",
+  ".microharness/metrics.py",
+  ".microharness/pricing.json",
   "CLAUDE.md",
   ".claude/settings.json",
+  "schemas/harness-telemetry.v1.json",
   "src",
   "README.md",
   "pyproject.toml",

@@ -43,6 +43,13 @@ MANIFEST = {
     'CLAUDE.md': 'CLAUDE.microsdd.md',
     '.claude/settings.json': '.claude/settings.json',
 }
+# Solo con microsdd install --with-metrics (no van en MANIFEST ni en instalación por defecto).
+METRICS_MANIFEST = {
+    '.microharness/metrics.py': '.microharness/metrics.py',
+    '.microharness/pricing.json': '.microharness/pricing.json',
+}
+METRICS_HOOK_EVENTS = ('SubagentStop', 'SessionEnd')
+GITIGNORE_METRICS = '.microharness/metrics/'
 SETTINGS = '.claude/settings.json'
 SETTINGS_LOCAL = '.claude/settings.local.json'
 SETTINGS_LOCAL_DEFAULTS = {
@@ -292,7 +299,23 @@ def fingerprint(entry) -> str:
     return hashlib.sha256(json.dumps(entry, sort_keys=True).encode('utf-8')).hexdigest()
 
 
-def merge(current: dict, payload: dict) -> tuple[dict, dict]:
+def metrics_hook_entry(event_name: str) -> dict:
+    """Hook async para SubagentStop / SessionEnd (§1.3 microsdd)."""
+    return {
+        'hooks': [{
+            'type': 'command',
+            'command': 'uv',
+            'args': [
+                'run', '--no-project', '--quiet', '--python', '>=3.10',
+                '${CLAUDE_PROJECT_DIR}/.microharness/metrics.py', 'hook', event_name,
+            ],
+            'async': True,
+            'timeout': 60,
+        }]
+    }
+
+
+def merge(current: dict, payload: dict, *, with_metrics: bool = False) -> tuple[dict, dict]:
     new = copy.deepcopy(current)
     keys = {}
     for key in MERGE_KEYS:
@@ -305,7 +328,15 @@ def merge(current: dict, payload: dict) -> tuple[dict, dict]:
     pre = new.setdefault('hooks', {}).setdefault('PreToolUse', [])
     if entry not in pre:
         pre.append(copy.deepcopy(entry))
-    return new, {'keys': keys, 'hook': fingerprint(entry)}
+    metrics_hooks: dict[str, str] = {}
+    if with_metrics:
+        for event_name in METRICS_HOOK_EVENTS:
+            hook_entry = metrics_hook_entry(event_name)
+            bucket = new.setdefault('hooks', {}).setdefault(event_name, [])
+            if hook_entry not in bucket:
+                bucket.append(copy.deepcopy(hook_entry))
+            metrics_hooks[event_name] = fingerprint(hook_entry)
+    return new, {'keys': keys, 'hook': fingerprint(entry), 'metrics_hooks': metrics_hooks}
 
 
 def unmerge(current: dict, record: dict) -> dict:
@@ -320,9 +351,30 @@ def unmerge(current: dict, record: dict) -> dict:
         hooks['PreToolUse'] = [e for e in hooks['PreToolUse'] if fingerprint(e) != record['hook']]
         if not hooks['PreToolUse']:
             del hooks['PreToolUse']
-        if not hooks:
-            del new['hooks']
+    metrics_hooks = record.get('metrics_hooks') or {}
+    if metrics_hooks and isinstance(hooks, dict):
+        for event_name, fp in metrics_hooks.items():
+            if event_name not in hooks:
+                continue
+            hooks[event_name] = [e for e in hooks[event_name] if fingerprint(e) != fp]
+            if not hooks[event_name]:
+                del hooks[event_name]
+    if isinstance(hooks, dict) and not hooks:
+        del new['hooks']
     return new
+
+
+def ensure_gitignore_metrics(target: Path) -> bool:
+    """Añade `.microharness/metrics/` a .gitignore si falta. Devuelve True si escribió."""
+    path = target / '.gitignore'
+    line = GITIGNORE_METRICS
+    existing = path.read_text(encoding='utf-8') if path.is_file() else ''
+    lines = existing.splitlines()
+    if line in lines or any(x.strip() == line for x in lines):
+        return False
+    suffix = '' if not existing or existing.endswith('\n') else '\n'
+    path.write_text(existing + suffix + line + '\n', encoding='utf-8')
+    return True
 
 
 def backup(path: Path) -> None:
@@ -359,7 +411,8 @@ def write_record(target: Path, record: dict) -> None:
 
 
 def install_record(actions, previous: dict | None, applied: dict, claude_before: bytes,
-                    settings_local_added: list[str] | None = None) -> dict:
+                    settings_local_added: list[str] | None = None,
+                    with_metrics: bool = False) -> dict:
     labels = {dst: (label, content) for label, dst, _, content in actions}
     old = (previous or {}).get("settings", {})
     label, content = labels["CLAUDE.md"]
@@ -382,27 +435,48 @@ def install_record(actions, previous: dict | None, applied: dict, claude_before:
         "created": bool(prev_local.get("created")) or local_label == "crear",
         "keys_added": keys_added,
     }
+    settings = {"created": labels[SETTINGS][0] == "crear" or bool(old.get("created")),
+                "enabled": True,
+                "keys": {**applied["keys"], **old.get("keys", {})},
+                "hook": applied["hook"]}
+    if with_metrics or applied.get('metrics_hooks') or old.get('metrics_hooks'):
+        settings['metrics_hooks'] = applied.get('metrics_hooks') or old.get('metrics_hooks') or {}
     return {"schema_version": 1,
-            "settings": {"created": labels[SETTINGS][0] == "crear" or bool(old.get("created")),
-                         "enabled": True,
-                         "keys": {**applied["keys"], **old.get("keys", {})},
-                         "hook": applied["hook"]},
+            "settings": settings,
             "settings_local": settings_local,
-            "claude_md": claude_md}
+            "claude_md": claude_md,
+            "with_metrics": bool(with_metrics or (previous or {}).get('with_metrics'))}
 
 
-def plan(source: Path, target: Path, force: bool) -> list[tuple[str, str, Path | None, bytes | None]]:
+def plan(source: Path, target: Path, force: bool,
+         with_metrics: bool = False) -> list[tuple[str, str, Path | None, bytes | None]]:
     actions = []
     model, effort = target_runtime(target)
-    for src, dst in MANIFEST.items():
+    items = list(MANIFEST.items())
+    if with_metrics:
+        items += list(METRICS_MANIFEST.items())
+    for src, dst in items:
         data = payload_with_runtime(source, src, model, effort)
         current = target / dst
-        if dst == SETTINGS and current.is_file():
-            existing = load_settings(current)
-            merged, _ = merge(existing, json.loads(data.decode('utf-8')))
-            actions.append(('sin cambios', dst, None, None) if merged == existing
-                           else ('fusionar', dst, None, dump_json(merged)))
-        elif dst in AGENT_REL_PATHS and current.is_file() and not force:
+        if dst == SETTINGS:
+            if not current.is_file():
+                if with_metrics:
+                    merged, _ = merge({}, json.loads(data.decode('utf-8')), with_metrics=True)
+                    actions.append(('crear', dst, None, dump_json(merged)))
+                elif data != (source / src).read_bytes():
+                    actions.append(('crear', dst, None, data))
+                else:
+                    actions.append(('crear', dst, source / src, None))
+            else:
+                existing = load_settings(current)
+                merged, _ = merge(existing or {}, json.loads(data.decode('utf-8')),
+                                  with_metrics=with_metrics)
+                if merged == existing:
+                    actions.append(('sin cambios', dst, None, None))
+                else:
+                    actions.append(('fusionar', dst, None, dump_json(merged)))
+            continue
+        if dst in AGENT_REL_PATHS and current.is_file() and not force:
             # Alinea model/effort solo si el cuerpo del agente coincide con el payload.
             if current.read_bytes() == data:
                 actions.append(('sin cambios', dst, None, None))
@@ -448,7 +522,7 @@ def plan(source: Path, target: Path, force: bool) -> list[tuple[str, str, Path |
 
 
 def install(source: Path, target: Path, *, uv: list[str] | None, home: Path,
-            force: bool = False, dry_run: bool = False) -> int:
+            force: bool = False, dry_run: bool = False, with_metrics: bool = False) -> int:
     reconfigure = getattr(sys.stdout, 'reconfigure', None)
     if reconfigure:
         reconfigure(errors='replace')
@@ -468,8 +542,13 @@ def install(source: Path, target: Path, *, uv: list[str] | None, home: Path,
     if status.stdout.strip():
         print('ADVERTENCIA: el árbol de trabajo tiene cambios sin confirmar; se continúa.')
     source = Path(source)
+    if with_metrics:
+        missing = [src for src in METRICS_MANIFEST if not (source / src).is_file()]
+        if missing:
+            print('ERROR: --with-metrics requiere ' + ', '.join(missing) + '; no se escribió nada.')
+            return 1
     try:
-        actions = plan(source, target, force)
+        actions = plan(source, target, force, with_metrics=with_metrics)
         previous = read_record(target)
     except ValueError as err:
         print(f'ERROR: {err}; no se escribió nada.')
@@ -477,6 +556,8 @@ def install(source: Path, target: Path, *, uv: list[str] | None, home: Path,
     print('Plan:')
     for label, dst, _, _ in actions:
         print(f'  [{label}] {dst}')
+    if with_metrics:
+        print('  [opción] --with-metrics: metrics.py, pricing.json, hooks SubagentStop/SessionEnd')
     conflicts = [dst for label, dst, _, _ in actions if label == 'conflicto']
     if conflicts:
         print('ERROR: archivos propios modificados (conflicto); no se escribió nada. '
@@ -487,7 +568,8 @@ def install(source: Path, target: Path, *, uv: list[str] | None, home: Path,
         return 0
     model, effort = target_runtime(target)
     _, applied = merge(load_settings(target / SETTINGS) or {},
-                       json.loads(payload_with_runtime(source, SETTINGS, model, effort)))
+                       json.loads(payload_with_runtime(source, SETTINGS, model, effort)),
+                       with_metrics=with_metrics)
     _local_data = load_settings_local(target / SETTINGS_LOCAL)
     _, local_added = merge_settings_local(_local_data)
     claude = target / 'CLAUDE.md'
@@ -503,10 +585,13 @@ def install(source: Path, target: Path, *, uv: list[str] | None, home: Path,
             path.write_bytes(content)
         else:
             shutil.copyfile(src, path)
-        if dst == '.microharness/sdd.py' and os.name != 'nt':
+        if dst in ('.microharness/sdd.py', '.microharness/metrics.py') and os.name != 'nt':
             path.chmod(path.stat().st_mode | 0o111)
+    if with_metrics:
+        ensure_gitignore_metrics(target)
     write_record(target, install_record(actions, previous, applied, claude_before,
-                                       settings_local_added=local_added))
+                                       settings_local_added=local_added,
+                                       with_metrics=with_metrics))
     init = subprocess.run([sys.executable, '.microharness/sdd.py', 'init'], cwd=target, capture_output=True)
     if init.returncode != 0:
         print(f'ERROR: .microharness/sdd.py init falló (código {init.returncode}).')
@@ -552,9 +637,12 @@ def toggle(source: Path, target: Path, enable: bool) -> int:
     if enable:
         model, effort = target_runtime(target)
         payload = json.loads(payload_with_runtime(Path(source), SETTINGS, model, effort))
-        new, applied = merge(current or {}, payload)
+        with_metrics = bool((record or {}).get('with_metrics'))
+        new, applied = merge(current or {}, payload, with_metrics=with_metrics)
         state = {**state, 'enabled': True, 'keys': {**applied['keys'], **state.get('keys', {})},
                  'hook': applied['hook']}
+        if applied.get('metrics_hooks'):
+            state['metrics_hooks'] = applied['metrics_hooks']
     else:
         new = None if current is None else unmerge(current, state)
         state = {**state, 'enabled': False, 'keys': {}, 'hook': None}
@@ -647,6 +735,12 @@ def uninstall(source: Path, target: Path, force: bool = False) -> int:
     for dst, path in own:
         path.unlink()
         print(f'  [eliminar] {dst}')
+    if record.get('with_metrics'):
+        for dst in METRICS_MANIFEST.values():
+            path = target / dst
+            if path.is_file():
+                path.unlink()
+                print(f'  [eliminar] {dst}')
     legacy = target / LEGACY_SETTINGS
     if legacy.is_file():
         legacy.unlink()
@@ -690,6 +784,8 @@ def main(argv: list[str] | None = None) -> int:
     cmd.add_argument('--target', default='.', help=target_help)
     cmd.add_argument('--dry-run', action='store_true', help='Muestra el plan sin escribir.')
     cmd.add_argument('--force', action='store_true', help='Sobrescribe solo archivos propios del arnés.')
+    cmd.add_argument('--with-metrics', action='store_true',
+                     help='Instala metrics.py, pricing.json y hooks SubagentStop/SessionEnd (async).')
     cmd = sub.add_parser('uninstall', help=f'Quita MicroSDD según {INSTALL_RECORD} (solo el humano).')
     cmd.add_argument('--target', default='.', help=target_help)
     cmd.add_argument('--force', action='store_true', help='Elimina también archivos propios modificados.')
@@ -707,7 +803,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.command == 'install':
         return install(PAYLOAD, Path(args.target), uv=None, home=Path.home(),
-                       force=args.force, dry_run=args.dry_run)
+                       force=args.force, dry_run=args.dry_run, with_metrics=args.with_metrics)
     if args.command == 'worktree':
         if args.worktree_command != 'sync':
             parser.error('subcomando worktree no reconocido')
