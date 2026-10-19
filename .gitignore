@@ -6,3 +6,4 @@ __pycache__/
 .mutmut-cache/
 .microharness/memory.lock
 .microharness/rdd_runtime.json
+.microharness/metrics/

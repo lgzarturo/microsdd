@@ -85,6 +85,21 @@ EMPTY_MEMORY = {
     'tasks': {},
 }
 
+try:
+    import metrics as _metrics_mod
+except ImportError:
+    _metrics_mod = None
+
+
+def emit(event: str, **fields) -> None:
+    """Emite telemetría si `.microharness/metrics.py` está instalado; no-op si falta."""
+    if _metrics_mod is None:
+        return
+    try:
+        _metrics_mod.emit(event, **fields)
+    except Exception:
+        return
+
 
 def _example_sdd_command(suffix: str) -> str:
     if os.name == 'nt':
@@ -287,6 +302,7 @@ def config() -> dict:
         allowed = {
             'model', 'effort', 'profile', 'profiles', 'agent_may_approve',
             'odd_max_retries', 'odd_rewrite_percent', 'rdd_max_files', 'rdd_max_lines',
+            'metrics',
         }
         unknown = sorted(set(data) - allowed)
         if unknown:
@@ -299,6 +315,18 @@ def config() -> dict:
             raise ValueError('.microharness/config.json: profile debe ser una cadena no vacía')
         if 'agent_may_approve' in data and not isinstance(data['agent_may_approve'], bool):
             raise ValueError('.microharness/config.json: agent_may_approve debe ser un booleano')
+        if 'metrics' in data:
+            if not isinstance(data['metrics'], dict):
+                raise ValueError('.microharness/config.json: metrics debe ser un objeto')
+            metrics_allowed = {'local_dir', 'privacy'}
+            metrics_unknown = sorted(set(data['metrics']) - metrics_allowed)
+            if metrics_unknown:
+                raise ValueError(
+                    f'.microharness/config.json: metrics claves no admitidas: {", ".join(metrics_unknown)}')
+            if 'local_dir' in data['metrics'] and not isinstance(data['metrics']['local_dir'], bool):
+                raise ValueError('.microharness/config.json: metrics.local_dir debe ser un booleano')
+            if 'privacy' in data['metrics'] and data['metrics']['privacy'] not in ('standard', 'strict'):
+                raise ValueError('.microharness/config.json: metrics.privacy debe ser standard|strict')
         _positive_int(data, 'odd_max_retries', 1, 10)
         _positive_int(data, 'odd_rewrite_percent', 50, 100)
         _positive_int(data, 'rdd_max_files', 1, 200)
@@ -313,7 +341,7 @@ def config() -> dict:
                 merged[name.strip()] = _validate_profile_entry(name.strip(), prof)
             cfg['profiles'] = merged
         for key in ('agent_may_approve', 'odd_max_retries', 'odd_rewrite_percent',
-                    'rdd_max_files', 'rdd_max_lines'):
+                    'rdd_max_files', 'rdd_max_lines', 'metrics'):
             if key in data:
                 cfg[key] = data[key]
     profiles = cfg['profiles']
@@ -509,6 +537,7 @@ def new(slug: str) -> None:
         'events': [{'at': now(), 'event': 'creada'}],
     }
     dump(MEMORY, memory)
+    emit('task.start', taskId=slug, source={'usage': 'harness', 'reliability': 'medium'})
     print(f'Tarea creada: spec/{slug}/ (4 archivos).')
 
 
@@ -818,9 +847,17 @@ def validate(slug: str, run: bool = False, scope: bool = True) -> list[str]:
                                       f'detectadas: {detected} en {command}')
             except (OSError, subprocess.TimeoutExpired) as e:
                 errors.append(f'No se pudo ejecutar {command}: {e}')
+    emit(
+        'verification',
+        taskId=slug,
+        verification={
+            'gate': 'check-run' if run else 'check',
+            'passed': not errors,
+            'durationMs': None,
+        },
+        source={'usage': 'harness', 'reliability': 'high'},
+    )
     return errors
-
-
 
 
 def require_human_terminal(action: str) -> None:
@@ -955,11 +992,23 @@ def approve(slug: str, phase: str, by: str, evidence: str) -> None:
         spec['state'] = 'terminado'
     dump(MEMORY, memory)
     dump(path / 'spec.json', spec)
+    task = memory['tasks'][slug]
     if phase == 'spec':
+        emit('task.start', taskId=slug, loop={
+            'iteration': task.get('iterations', 0),
+            'retryReason': None,
+            'maxIterations': spec.get('max_iterations', 3),
+        }, source={'usage': 'harness', 'reliability': 'medium'})
         receipt = memory['tasks'][slug]['receipt']
         print(f'Aprobación declarada registrada (spec). Recibo RDD digest={receipt["digest"][:12]}… '
               f'({len(receipt["files"])} archivos). No es una firma ni autentica al usuario.')
     else:
+        emit('task.end', taskId=slug, loop={
+            'iteration': task.get('iterations', 0),
+            'retryReason': None,
+            'maxIterations': spec.get('max_iterations', 3),
+        }, outcome={'status': 'done', 'firstTry': task.get('iterations', 0) <= 1},
+             source={'usage': 'harness', 'reliability': 'medium'})
         print(f'Aprobación declarada registrada ({phase}). No es una firma ni autentica al usuario.')
 
 
@@ -1060,8 +1109,16 @@ def note(fact: str | None, decision: str | None, by: str | None, evidence: str,
         if for_phase == 'odd-retry':
             record_odd_retry(memory, for_task, fact, evidence)
             dump(MEMORY, memory)
-            print(f'Reintento ODD registrado ({memory["tasks"][for_task]["odd_retries"]}/'
-                  f'{config()["odd_max_retries"]}).')
+            attempt = memory['tasks'][for_task]['odd_retries']
+            limit = config()['odd_max_retries']
+            reason = evidence.strip()
+            emit('retry', taskId=for_task, loop={
+                'iteration': attempt, 'retryReason': reason, 'maxIterations': limit,
+            }, source={'usage': 'harness', 'reliability': 'medium'})
+            emit('iteration', taskId=for_task, loop={
+                'iteration': attempt, 'retryReason': None, 'maxIterations': limit,
+            }, source={'usage': 'harness', 'reliability': 'medium'})
+            print(f'Reintento ODD registrado ({attempt}/{limit}).')
             return
         observations = project.setdefault('observations', [])
         entry = {'at': now(), 'fact': fact, 'evidence': evidence}
@@ -1104,6 +1161,9 @@ def seal(slug: str, by: str, evidence: str) -> None:
     memory['tasks'][slug]['events'].append(
         {'at': now(), 'event': 'sellado_tests', 'by': by, 'evidence': evidence, 'files': list(hashes)})
     dump(MEMORY, memory)
+    emit('verification', taskId=slug, verification={
+        'gate': 'seal', 'passed': True, 'durationMs': None,
+    }, source={'usage': 'harness', 'reliability': 'high'})
     print(f'{len(hashes)} pruebas selladas. Versiona memory.json y conserva baseline Git protegido.')
 
 

@@ -396,7 +396,8 @@ class InstallerTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which('uv'), 'uv no disponible')
     def test_wheel_from_sdist_contains_payload_without_dependencies(self):
         project = self.base / 'proyecto'
-        for rel in ['pyproject.toml', 'README.md', 'LICENSE', *installer.MANIFEST]:
+        for rel in ['pyproject.toml', 'README.md', 'LICENSE',
+                    *installer.MANIFEST, *installer.METRICS_MANIFEST]:
             (project / rel).parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(SOURCE / rel, project / rel)
         shutil.copytree(SOURCE / 'src', project / 'src',
