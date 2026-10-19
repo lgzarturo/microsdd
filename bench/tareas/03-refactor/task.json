@@ -1,0 +1,14 @@
+{
+  "id": "03-refactor",
+  "title": "Refactor sin cambio de conducta",
+  "kind": "refactor",
+  "fixtureSha256": "01b260e4bb220aafac56bb7a9f125965d7a1e4bab7d620b992450cc3f18748ab",
+  "testCommand": [
+    "python",
+    "-m",
+    "unittest",
+    "test_fixture"
+  ],
+  "specDir": "spec",
+  "frozen": true
+}

@@ -1,0 +1,17 @@
+{
+  "n": 5,
+  "nCheap": 3,
+  "seed": 42,
+  "bootstrap": 10000,
+  "efficiencyDeltaPct": 10,
+  "qualityTokenCeilingPct": 15,
+  "claim": "efficiency",
+  "models": [],
+  "baselineStatus": "pending",
+  "notes": [
+    "Línea base real pendiente: requiere OPENROUTER_API_KEY y modelos :free.",
+    "Tope $0: el runner aborta si /api/v1/key muestra usage>0 o limit de pago.",
+    "[No verificado] Política de datos/retención de modelos :free.",
+    "Riesgo de cuota: 20 req/min; 50 o 1000 req/día según créditos OpenRouter."
+  ]
+}

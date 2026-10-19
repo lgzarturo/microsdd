@@ -7,3 +7,6 @@ __pycache__/
 .microharness/memory.lock
 .microharness/rdd_runtime.json
 .microharness/metrics/
+bench-last/
+bench-report.json
+bench-report.md

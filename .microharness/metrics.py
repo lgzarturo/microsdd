@@ -332,6 +332,8 @@ def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     if not args or args[0] in ('-h', '--help'):
         print('usage: metrics.py hook <SubagentStop|SessionEnd> | purge | schema-hash')
+        print('       metrics.py bench run|report …')
+        print('       metrics.py prompt-diff <dirA> <dirB>')
         return 0
     cmd = args[0]
     if cmd == 'purge':
@@ -354,6 +356,22 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         handle_hook(args[1], payload)
         return 0
+    if cmd == 'bench':
+        try:
+            import bench as _bench
+        except ImportError:
+            print('ERROR: falta .microharness/bench.py (instala con --with-metrics).',
+                  file=sys.stderr)
+            return 1
+        return _bench.cmd_bench(args[1:])
+    if cmd == 'prompt-diff':
+        try:
+            import bench as _bench
+        except ImportError:
+            print('ERROR: falta .microharness/bench.py (instala con --with-metrics).',
+                  file=sys.stderr)
+            return 1
+        return _bench.cmd_prompt_diff(args[1:])
     print('ERROR: subcomando no reconocido', file=sys.stderr)
     return 1
 

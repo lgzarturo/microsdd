@@ -1,0 +1,14 @@
+{
+  "id": "02-regla-nueva",
+  "title": "Regla nueva",
+  "kind": "feature",
+  "fixtureSha256": "b16beca2957afd5f5cc55d56162e530c09d9936ed6dab0697b603625177a157f",
+  "testCommand": [
+    "python",
+    "-m",
+    "unittest",
+    "test_fixture"
+  ],
+  "specDir": "spec",
+  "frozen": true
+}
