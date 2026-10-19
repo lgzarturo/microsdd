@@ -58,8 +58,13 @@ jobs:
           key = os.environ.get('OPENROUTER_API_KEY') or ''
           model = os.environ['BENCH_MODEL']
           b.assert_free_model(model)
-          data = b.check_openrouter_free_lock(key, 1, max_paid_limit_usd=5)
+          cfg = b.load_config()
+          max_turns, _ = b.request_budget(cfg)
+          est = b.planned_requests(cfg, 1)
+          data = b.check_openrouter_free_lock(key, est, max_paid_limit_usd=5)
           usage = b.read_usage(data)
+          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as fh:
+              fh.write(f'BENCH_MAX_TURNS={max_turns}\n')
           b.verify_openrouter_model_pricing(key, model)
           out = Path('smoke-out')
           out.mkdir(exist_ok=True)
@@ -77,6 +82,7 @@ jobs:
             --output-format json \
             --dangerously-skip-permissions \
             --model "${BENCH_MODEL}" \
+            --max-turns "${BENCH_MAX_TURNS}" \
             > smoke-out/raw-stdout.json 2> smoke-out/raw-stderr.txt
           ec=$?
           set -e
@@ -215,7 +221,9 @@ jobs:
           key = os.environ.get('OPENROUTER_API_KEY') or ''
           model = os.environ['BENCH_MODEL']
           b.assert_free_model(model)
-          data = b.check_openrouter_free_lock(key, 3 * 5 * 2, max_paid_limit_usd=5)
+          cfg = b.load_config()
+          est = b.planned_requests(cfg, int(cfg['nCheap']) * 5 * 2)
+          data = b.check_openrouter_free_lock(key, est, max_paid_limit_usd=5)
           usage = b.read_usage(data)
           b.verify_openrouter_model_pricing(key, model)
           out = Path('bench-out')

@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "id": "bench-request-budget",
+  "title": "Bench: presupuesto de solicitudes por turnos (--max-turns, corte por cuota y num_turns real)",
+  "state": "terminado",
+  "model": "claude-opus-5-5",
+  "effort": "medium",
+  "max_iterations": 3,
+  "method": {
+    "primary": "SDD",
+    "optional": [
+      "ODD"
+    ],
+    "notes": "ODD: T01-T10 son pasos quirúrgicos con prueba previa en tests/test_bench.py; validar cada uno con unittest y editar por diff."
+  },
+  "scope": {
+    "allowed_paths": [
+      ".microharness/bench.py",
+      "bench/config.json",
+      ".github/workflows/bench-baseline.yml",
+      "tests/test_bench.py",
+      ".claude/hooks/pretool.py",
+      "tests/test_bloquear_autoaprobacion.py"
+    ],
+    "excluded": [
+      "bench/baseline/**",
+      "bench/tareas/**",
+      "docs/**"
+    ]
+  },
+  "requirements": {
+    "acceptance_ids": [
+      "AC-01",
+      "AC-02",
+      "AC-03",
+      "AC-04",
+      "AC-05",
+      "AC-06",
+      "AC-07",
+      "AC-08",
+      "AC-09",
+      "AC-10",
+      "AC-11",
+      "AC-12",
+      "AC-13",
+      "AC-14"
+    ],
+    "preconditions": [
+      "PRE-01: rama del PR #15 (bench m2) con bench.py, config, workflow y tests actuales.",
+      "PRE-02: maxTurnsPerCell=6 y maxRequestsPerRun=200 decididos por el humano (vía líder), sin margen extra; cheap estima 180 <= 200, la completa 300 > 200 aborta antes de empezar.",
+      "PRE-03: pruebas sin red ni key real; /api/v1/key y subprocess simulados."
+    ]
+  },
+  "testing": {
+    "strategy": "tdd",
+    "commands": [
+      [
+        "python",
+        "-m",
+        "unittest",
+        "tests.test_bench"
+      ],
+      [
+        "python",
+        "-m",
+        "unittest",
+        "tests.test_bloquear_autoaprobacion"
+      ],
+      [
+        "python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tests"
+      ]
+    ],
+    "protected_tests": [
+      "tests/test_bench.py"
+    ],
+    "mutation": {
+      "enabled": false,
+      "command": [],
+      "reason": "Lógica de corte acotada y cubierta por AC-03..AC-07 con valores exactos; no hay herramienta de mutation en el repo."
+    }
+  }
+}

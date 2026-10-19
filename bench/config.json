@@ -11,12 +11,15 @@
   ],
   "baselineStatus": "cheap-partial",
   "maxPaidLimitUsd": 5,
+  "maxTurnsPerCell": 6,
+  "maxRequestsPerRun": 200,
   "notes": [
     "L\u00ednea base real pendiente: requiere OPENROUTER_API_KEY y modelos con sufijo exacto :free.",
     "Candado: limit de la key num\u00e9rico finito y <= maxPaidLimitUsd (por defecto 5). null/ilimitado o > tope aborta.",
     "Se guarda usage antes de la corrida; si usage sube (>0 delta) la corrida queda inv\u00e1lida.",
     "Campos ausentes, null donde se espera n\u00famero, tipo inesperado o no parseable: fail-closed.",
     "[No verificado] Pol\u00edtica de datos/retenci\u00f3n de modelos :free.",
-    "Riesgo de cuota: 20 req/min; 50 o 1000 req/d\u00eda seg\u00fan cr\u00e9ditos OpenRouter."
+    "Riesgo de cuota: 20 req/min; 50 o 1000 req/d\u00eda seg\u00fan cr\u00e9ditos OpenRouter.",
+    "Presupuesto por turnos: celdas x maxTurnsPerCell <= maxRequestsPerRun y <= remaining; corte por celda completa."
   ]
 }

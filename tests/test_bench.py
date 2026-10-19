@@ -257,6 +257,8 @@ class BenchStatsTests(unittest.TestCase):
         cfg['bootstrap'] = 50
         cfg['models'] = ['meta/llama:free']
         cfg['maxPaidLimitUsd'] = 5
+        cfg['maxTurnsPerCell'] = 1
+        cfg['maxRequestsPerRun'] = 30
         with mock.patch('urllib.request.urlopen', side_effect=fake_urlopen):
             with mock.patch.dict(os.environ, {'OPENROUTER_API_KEY': 'sk-test'}):
                 with self.assertRaises(self.b.BenchError) as ctx:
@@ -291,6 +293,8 @@ class BenchStatsTests(unittest.TestCase):
         cfg = self.b.load_config()
         cfg['bootstrap'] = 50
         cfg['models'] = ['meta/llama:free']
+        cfg['maxTurnsPerCell'] = 1
+        cfg['maxRequestsPerRun'] = 30
         with mock.patch('urllib.request.urlopen', return_value=_resp({'data': data})):
             with mock.patch.dict(os.environ, {'OPENROUTER_API_KEY': 'sk-test'}):
                 report = self.b.run_bench(
@@ -445,6 +449,250 @@ class BenchStatsTests(unittest.TestCase):
             with self.assertRaises(self.b.BenchError):
                 self.b.verify_openrouter_model_pricing(
                     'sk-test', 'nvidia/nemotron-3-super-120b-a12b:free')
+
+
+@unittest.skipUnless(BENCH_PATH.is_file(), 'bench.py ausente')
+class BenchRequestBudgetTests(unittest.TestCase):
+    """Presupuesto de solicitudes por turnos (spec bench-request-budget)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.b = load('microsdd_bench_budget_ut', BENCH_PATH)
+
+    def _cfg(self, **over):
+        cfg = dict(self.b.DEFAULT_CONFIG)
+        cfg['bootstrap'] = 50
+        cfg['models'] = ['meta/llama:free']
+        cfg['maxPaidLimitUsd'] = 5
+        cfg.update(over)
+        return cfg
+
+    def test_invalid_budget_config_raises_even_with_fake(self):
+        for key in ('maxTurnsPerCell', 'maxRequestsPerRun'):
+            for bad in ('8', 0, -1, True, None):
+                with self.subTest(key=key, bad=bad):
+                    cfg = self._cfg(**{key: bad})
+                    with self.assertRaises(self.b.BenchError):
+                        self.b.run_bench(
+                            provider=self.b.FakeProvider(seed=1), cheap=True,
+                            config=cfg, skip_key_check=True)
+
+    def test_default_budget_config_values_and_fake_run(self):
+        self.assertEqual(self.b.DEFAULT_CONFIG['maxTurnsPerCell'], 6)
+        self.assertEqual(self.b.DEFAULT_CONFIG['maxRequestsPerRun'], 200)
+        report = self.b.run_bench(
+            provider=self.b.FakeProvider(seed=1), cheap=True,
+            config=self._cfg(), skip_key_check=True)
+        self.assertEqual(len(report['cells']), 30)
+
+    def test_bench_config_json_declares_budget(self):
+        raw = json.loads((ROOT / 'bench' / 'config.json').read_text(encoding='utf-8'))
+        self.assertEqual(raw.get('maxTurnsPerCell'), 6)
+        self.assertEqual(raw.get('maxRequestsPerRun'), 200)
+        cfg = self.b.load_config()
+        self.assertEqual(self.b.request_budget(cfg), (6, 200))
+
+    # --- corrida real simulada ---
+
+    @staticmethod
+    def _key(remaining, usage=0):
+        return {'usage': usage, 'limit': 0, 'limit_remaining': 0,
+                'free_model_daily_requests': {'remaining': remaining}}
+
+    @staticmethod
+    def _stub(calls_value):
+        class Stub:
+            def __init__(self):
+                self.count = 0
+
+            def run_cell(self, task, variant, repetition, workdir=None):
+                self.count += 1
+                return {
+                    'success': True, 'pending': False, 'status': 'ok',
+                    'iterations': calls_value, 'retries': 0, 'calls': calls_value,
+                    'tokens': 100, 'costUsd': 0.0, 'durationMs': 1, 'cacheRate': 0.0,
+                    'firstTry': True, 'modelId': 'meta/llama:free', 'seed': None,
+                }
+        return Stub()
+
+    def _real_run(self, cfg, stub, remaining_seq):
+        """remaining_seq(i) -> remaining en la i-ésima lectura de /api/v1/key (0 = candado)."""
+        reads = {'n': 0}
+
+        def fake_urlopen(*_a, **_k):
+            i = reads['n']
+            reads['n'] += 1
+            return _resp({'data': self._key(remaining_seq(i))})
+
+        with mock.patch('urllib.request.urlopen', side_effect=fake_urlopen):
+            with mock.patch.dict(os.environ, {'OPENROUTER_API_KEY': 'sk-test'}):
+                return self.b.run_bench(
+                    provider=stub, cheap=True, claim='efficiency',
+                    config=cfg, skip_key_check=False)
+
+    def test_aborts_before_first_cell_when_estimate_exceeds_run_budget(self):
+        stub = self._stub(1)
+        cfg = self._cfg(maxTurnsPerCell=8, maxRequestsPerRun=200)
+        with self.assertRaises(self.b.BenchError):
+            self._real_run(cfg, stub, lambda i: 1000)
+        self.assertEqual(stub.count, 0)
+
+    def test_aborts_before_first_cell_when_estimate_exceeds_remaining(self):
+        stub = self._stub(1)
+        cfg = self._cfg(maxTurnsPerCell=8, maxRequestsPerRun=1000)
+        with self.assertRaises(self.b.BenchError):
+            self._real_run(cfg, stub, lambda i: 100)
+        self.assertEqual(stub.count, 0)
+
+    def test_default_budget_allows_cheap_run(self):
+        stub = self._stub(1)
+        self._real_run(self._cfg(), stub, lambda i: 1000)
+        self.assertGreaterEqual(stub.count, 1)
+
+    def test_planned_requests_formula(self):
+        cfg = self._cfg()
+        self.assertEqual(self.b.planned_requests(cfg, 30), 180)
+        with self.assertRaises(self.b.BenchError):
+            self.b.planned_requests(cfg, 50)
+
+    def test_cuts_when_remaining_runs_out(self):
+        stub = self._stub(4)
+        cfg = self._cfg(maxTurnsPerCell=4, maxRequestsPerRun=1000)
+        report = self._real_run(cfg, stub, lambda i: max(200 - 10 * i, 0))
+        self.assertEqual(stub.count, 20)
+        self.assertEqual(len(report['pendingCells']), 10)
+        self.assertEqual(report['requestsUsed'], 200)
+
+    def test_cuts_when_run_budget_runs_out(self):
+        stub = self._stub(4)
+        cfg = self._cfg(maxTurnsPerCell=4, maxRequestsPerRun=120)
+        report = self._real_run(cfg, stub, lambda i: 1000 - 6 * i)
+        self.assertEqual(stub.count, 20)
+        self.assertEqual(len(report['pendingCells']), 10)
+        self.assertEqual(report['requestsUsed'], 120)
+
+    def test_missing_calls_counts_turn_cap(self):
+        stub = self._stub(None)
+        cfg = self._cfg(maxTurnsPerCell=4, maxRequestsPerRun=120)
+        report = self._real_run(cfg, stub, lambda i: 1000)
+        self.assertEqual(stub.count, 30)
+        self.assertEqual(report['pendingCells'], [])
+        self.assertEqual(report['requestsUsed'], 120)
+
+    def test_report_exposes_request_budget_fields(self):
+        cfg = self._cfg(maxTurnsPerCell=4, maxRequestsPerRun=120)
+        report = self._real_run(cfg, self._stub(4), lambda i: 1000)
+        self.assertIsInstance(report['requestsUsed'], int)
+        self.assertEqual(report['requestBudget'], 120)
+        self.assertEqual(report['requestsEstimated'], 120)
+        self.assertEqual(report['maxTurnsPerCell'], 4)
+        clean = self.b.sanitize_report(report)
+        for key in ('requestsUsed', 'requestBudget', 'requestsEstimated', 'maxTurnsPerCell'):
+            self.assertEqual(clean[key], report[key])
+        md = self.b.format_report_md(report)
+        self.assertIn(f"requests: {report['requestsUsed']}/120", md)
+        self.assertTrue(any('ritmo interno de Claude Code' in r and 'no está controlado' in r
+                            for r in report['risks']))
+
+    def test_fake_report_has_null_requests_used(self):
+        report = self.b.run_bench(
+            provider=self.b.FakeProvider(seed=1), cheap=True,
+            config=self._cfg(), skip_key_check=True)
+        self.assertIsNone(report['requestsUsed'])
+        self.assertEqual(report['requestBudget'], 200)
+        self.assertEqual(report['maxTurnsPerCell'], 6)
+        self.assertIn('requests: None/200', self.b.format_report_md(report))
+
+    def test_min_interval_comment_does_not_promise_rpm(self):
+        src = BENCH_PATH.read_text(encoding='utf-8')
+        line = next(ln for ln in src.splitlines() if 'MIN_INTERVAL_S =' in ln)
+        self.assertNotIn('respeta', line)
+
+    # --- ClaudeCodeProvider con subprocess simulado ---
+
+    def _run_claude(self, payload, *, test_ok, max_turns=5):
+        cmds = []
+
+        def fake_run(cmd, *a, **k):
+            cmds.append(list(cmd))
+            if '--version' in cmd:
+                return mock.Mock(returncode=0, stdout='2.1.197 (Claude Code)', stderr='')
+            if '-p' in cmd:
+                return mock.Mock(returncode=0, stdout=json.dumps(payload), stderr='')
+            return mock.Mock(returncode=0 if test_ok else 1, stdout='', stderr='')
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        with mock.patch('subprocess.run', side_effect=fake_run):
+            prov = self.b.ClaudeCodeProvider('meta/llama:free', max_turns=max_turns)
+            task = {'id': '01', 'title': 't', 'testCommand': ['python', '-m', 'unittest']}
+            result = prov.run_cell(task, 'base', 0, workdir=Path(tmp.name))
+        return result, cmds
+
+    def test_claude_cmd_includes_max_turns(self):
+        payload = {'is_error': False, 'subtype': 'success', 'num_turns': 2,
+                   'usage': {'input_tokens': 10, 'output_tokens': 5}}
+        _result, cmds = self._run_claude(payload, test_ok=True, max_turns=5)
+        cmd = next(c for c in cmds if '-p' in c)
+        i = cmd.index('--max-turns')
+        self.assertEqual(cmd[i + 1], '5')
+
+    def test_num_turns_sets_calls_and_iterations(self):
+        base = {'is_error': False, 'subtype': 'success',
+                'usage': {'input_tokens': 10, 'output_tokens': 5}}
+        result, _ = self._run_claude(dict(base, num_turns=6), test_ok=True)
+        self.assertEqual(result['calls'], 6)
+        self.assertEqual(result['iterations'], 6)
+        for extra in ({}, {'num_turns': '6'}, {'num_turns': True}):
+            with self.subTest(extra=extra):
+                result, _ = self._run_claude(dict(base, **extra), test_ok=True)
+                self.assertIsNone(result['calls'])
+                self.assertIsNone(result['iterations'])
+
+    def test_error_max_turns_counts_as_completed_cell(self):
+        payload = {'is_error': True, 'subtype': 'error_max_turns', 'num_turns': 6,
+                   'usage': {'input_tokens': 10, 'output_tokens': 5}}
+        result, _ = self._run_claude(payload, test_ok=False)
+        self.assertIs(result['pending'], False)
+        self.assertEqual(result['status'], 'fail')
+        self.assertEqual(result['calls'], 6)
+
+    def test_cmd_bench_uses_turn_estimate_and_max_turns(self):
+        seen = {}
+
+        def fake_lock(api_key, n_total, **_k):
+            seen['n_total'] = n_total
+            return self._key(1000)
+
+        prov_cls = mock.Mock()
+        with mock.patch.object(self.b, 'load_config', return_value=self._cfg()), \
+                mock.patch.object(self.b, 'check_openrouter_free_lock', side_effect=fake_lock), \
+                mock.patch.object(self.b, 'verify_openrouter_model_pricing'), \
+                mock.patch.object(self.b, 'ClaudeCodeProvider', prov_cls), \
+                mock.patch.object(self.b, 'run_bench', side_effect=self.b.BenchError('stop')), \
+                mock.patch.dict(os.environ, {'OPENROUTER_API_KEY': 'sk-test'}):
+            code = self.b.cmd_bench(['run', '--cheap', '--provider', 'openrouter'])
+        self.assertEqual(code, 1)
+        self.assertEqual(seen['n_total'], 3 * 5 * 2 * 6)
+        self.assertEqual(prov_cls.call_args.kwargs.get('max_turns'), 6)
+
+    def test_remaining_missing_after_cell_is_fail_closed(self):
+        stub = self._stub(1)
+        reads = {'n': 0}
+
+        def fake_urlopen(*_a, **_k):
+            reads['n'] += 1
+            data = self._key(1000)
+            if reads['n'] > 1:
+                del data['free_model_daily_requests']
+            return _resp({'data': data})
+
+        with mock.patch('urllib.request.urlopen', side_effect=fake_urlopen):
+            with mock.patch.dict(os.environ, {'OPENROUTER_API_KEY': 'sk-test'}):
+                with self.assertRaises(self.b.BenchError):
+                    self.b.run_bench(provider=stub, cheap=True, config=self._cfg(),
+                                     skip_key_check=False)
+        self.assertEqual(stub.count, 1)
 
 
 @unittest.skipUnless(METRICS_PATH.is_file() and BENCH_PATH.is_file(), 'metrics/bench ausentes')

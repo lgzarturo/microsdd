@@ -35,6 +35,9 @@ DEFAULT_CONFIG = {
     'baselineStatus': 'pending',
     # Tope de limit de la key OpenRouter (USD/mes). Arturo: key real con $5.
     'maxPaidLimitUsd': 5,
+    # Presupuesto de solicitudes HTTP al modelo (turnos agénticos), no celdas.
+    'maxTurnsPerCell': 6,
+    'maxRequestsPerRun': 200,
 }
 # Límites OpenRouter :free (documentados; riesgo de corte).
 FREE_RPM = 20
@@ -59,6 +62,28 @@ def load_config(path: Path | None = None) -> dict:
             raise BenchError('bench/config.json debe ser un objeto')
         cfg.update(data)
     return cfg
+
+
+def request_budget(cfg: dict) -> tuple[int, int]:
+    """Valida maxTurnsPerCell/maxRequestsPerRun (int >= 1, no bool). Fail-closed."""
+    out = []
+    for key in ('maxTurnsPerCell', 'maxRequestsPerRun'):
+        val = cfg.get(key)
+        if type(val) is not int or val < 1:
+            raise BenchError(f'{key} inválido: {val!r} (entero >= 1).')
+        out.append(val)
+    return out[0], out[1]
+
+
+def planned_requests(cfg: dict, cells: int) -> int:
+    """Estimación de solicitudes = celdas × maxTurnsPerCell; aborta si supera maxRequestsPerRun."""
+    max_turns, max_requests = request_budget(cfg)
+    estimated = int(cells) * max_turns
+    if estimated > max_requests:
+        raise BenchError(
+            f'Solicitudes estimadas {estimated} ({cells} celdas x {max_turns} turnos) '
+            f'superan maxRequestsPerRun={max_requests}; no se lanza la corrida.')
+    return estimated
 
 
 def list_tasks() -> list[dict]:
@@ -147,7 +172,10 @@ def check_openrouter_free_lock(
     max_paid_limit_usd: float = 5.0,
     data: dict | None = None,
 ) -> dict:
-    """Candado :free + limit finito ≤ tope. Fail-closed. Devuelve data de /key."""
+    """Candado :free + limit finito ≤ tope. Fail-closed. Devuelve data de /key.
+
+    n_total = solicitudes estimadas al modelo (celdas × maxTurnsPerCell), no celdas.
+    """
     if type(n_total) is not int or n_total < 1:
         raise BenchError(f'n_total inválido: {n_total!r}')
     if not isinstance(max_paid_limit_usd, (int, float)) or isinstance(max_paid_limit_usd, bool):
@@ -398,13 +426,17 @@ def _scrub_secrets(text: str) -> str:
 class ClaudeCodeProvider:
     """Bench agéntico vía Claude Code + OpenRouter (:free)."""
 
-    MIN_INTERVAL_S = 3.1  # respeta ~20 req/min entre celdas
+    MIN_INTERVAL_S = 3.1  # pausa entre celdas; no controla el ritmo interno de Claude Code
     CELL_TIMEOUT_S = 900
 
-    def __init__(self, model_id: str, *, claude_bin: str = 'claude'):
+    def __init__(self, model_id: str, *, claude_bin: str = 'claude',
+                 max_turns: int = DEFAULT_CONFIG['maxTurnsPerCell']):
         assert_free_model(model_id)
+        if type(max_turns) is not int or max_turns < 1:
+            raise BenchError(f'max_turns inválido: {max_turns!r}')
         self.model_id = model_id
         self.claude_bin = claude_bin
+        self.max_turns = max_turns
         self._last_call = 0.0
         self.host_version = self._detect_version()
 
@@ -477,6 +509,7 @@ class ClaudeCodeProvider:
             '--dangerously-skip-permissions',
             '--allowedTools', 'Read,Edit,Bash',
             '--model', self.model_id,
+            '--max-turns', str(self.max_turns),
         ]
         started = time.monotonic()
         self._last_call = started
@@ -538,21 +571,25 @@ class ClaudeCodeProvider:
             test_ok = tproc.returncode == 0
         except (OSError, subprocess.TimeoutExpired):
             test_ok = False
+        # Tope de turnos alcanzado: celda completada; la prueba del fixture decide.
+        max_turns_hit = subtype == 'error_max_turns'
         # Fallo inmediato de Claude (login, flags, 429, …) → pending + diagnóstico.
-        if proc.returncode != 0 or is_error is True or not payload:
+        if not max_turns_hit and (proc.returncode != 0 or is_error is True or not payload):
             return self._pending_diag(
                 exit_code=proc.returncode, stderr=stderr_trunc, subtype=subtype,
                 is_error=is_error if isinstance(is_error, bool) else True,
                 duration_ms=duration_ms,
             )
-        pending = not test_ok and tokens is None
+        num_turns = payload.get('num_turns')
+        turns = num_turns if type(num_turns) is int and num_turns >= 0 else None
+        pending = not test_ok and tokens is None and not max_turns_hit
         return {
             'success': bool(test_ok),
             'pending': bool(pending),
             'status': 'pending' if pending else ('ok' if test_ok else 'fail'),
-            'iterations': 1,
+            'iterations': turns,
             'retries': 0,
-            'calls': 1,
+            'calls': turns,
             'tokens': tokens,
             'costUsd': float(cost) if cost is not None else 0.0,
             'durationMs': duration_ms,
@@ -578,6 +615,17 @@ def copy_fixture(task_dir: Path, dest: Path) -> None:
         dest.mkdir(parents=True)
 
 
+def _pending_cell(task: dict, variant: str, rep: int, model_id: str | None) -> dict:
+    return {
+        'taskId': task['id'], 'variant': variant, 'repetition': rep,
+        'success': False, 'pending': True, 'status': 'pending',
+        'iterations': None, 'retries': None, 'calls': None,
+        'tokens': None, 'costUsd': None, 'durationMs': None,
+        'cacheRate': None, 'firstTry': None,
+        'modelId': model_id, 'seed': None,
+    }
+
+
 def run_bench(
     *,
     provider: Any,
@@ -588,6 +636,7 @@ def run_bench(
     skip_key_check: bool = False,
 ) -> dict:
     cfg = config or load_config()
+    max_turns, max_requests = request_budget(cfg)
     claim = claim or cfg.get('claim') or 'efficiency'
     n = int(cfg['nCheap'] if cheap else cfg['n'])
     seed = int(cfg.get('seed', 42))
@@ -595,15 +644,21 @@ def run_bench(
     model_list = models if models is not None else list(cfg.get('models') or [])
     api_key: str | None = None
     usage_before: float | None = None
+    estimated: int | None = None
+    remaining: int | None = None
     if not skip_key_check and not isinstance(provider, FakeProvider):
         for mid in model_list:
             assert_free_model(mid)
-        n_total = n * len(tasks) * 2  # base + treatment intercalados
+        # base + treatment intercalados; estimación por turnos, no por celdas.
+        estimated = planned_requests(cfg, n * len(tasks) * 2)
         api_key = os.environ.get('OPENROUTER_API_KEY')
         max_cap = cfg.get('maxPaidLimitUsd', DEFAULT_CONFIG['maxPaidLimitUsd'])
         key_data = check_openrouter_free_lock(
-            api_key, n_total, max_paid_limit_usd=max_cap)
+            api_key, estimated, max_paid_limit_usd=max_cap)
         usage_before = read_usage(key_data)
+        remaining = _require_nonneg_int(
+            key_data['free_model_daily_requests'], 'remaining',
+            label='free_model_daily_requests.remaining')
         if not model_list:
             raise BenchError('bench.config models vacío; línea base pendiente de IDs :free.')
 
@@ -618,46 +673,21 @@ def run_bench(
     # Re-intercalar aproximadamente A/B manteniendo pares por tarea.
     schedule.sort(key=lambda x: (x[0]['id'], x[2], 0 if x[1] == 'base' else 1))
 
+    model_id = model_list[0] if model_list else None
+    real = usage_before is not None and api_key is not None
+    requests_used: int | None = 0 if real else None
     cells: list[dict] = []
     pending_rest = False
-    last_task_id: str | None = None
     with tempfile.TemporaryDirectory(prefix='microsdd-bench-') as tmp:
         tmp_path = Path(tmp)
         for task, variant, rep in schedule:
+            if real and not pending_rest:
+                # Corte por celda completa: no cabe otra celda con el tope de turnos.
+                if min(max_requests - requests_used, remaining) < max_turns:
+                    pending_rest = True
             if pending_rest:
-                cells.append({
-                    'taskId': task['id'], 'variant': variant, 'repetition': rep,
-                    'success': False, 'pending': True, 'status': 'pending',
-                    'iterations': None, 'retries': None, 'calls': None,
-                    'tokens': None, 'costUsd': None, 'durationMs': None,
-                    'cacheRate': None, 'firstTry': None,
-                    'modelId': (model_list[0] if model_list else None), 'seed': None,
-                })
+                cells.append(_pending_cell(task, variant, rep, model_id))
                 continue
-            if (usage_before is not None and api_key is not None
-                    and last_task_id is not None and task['id'] != last_task_id):
-                # Candado entre tareas: usage no debe subir; cuota restante.
-                key_data = fetch_openrouter_key(api_key)
-                assert_usage_unchanged(api_key, usage_before, data=key_data)
-                free = key_data.get('free_model_daily_requests')
-                if isinstance(free, dict) and 'remaining' in free:
-                    try:
-                        rem = _require_nonneg_int(
-                            free, 'remaining', label='free_model_daily_requests.remaining')
-                    except BenchError:
-                        raise
-                    if rem < 1:
-                        pending_rest = True
-                        cells.append({
-                            'taskId': task['id'], 'variant': variant, 'repetition': rep,
-                            'success': False, 'pending': True, 'status': 'pending',
-                            'iterations': None, 'retries': None, 'calls': None,
-                            'tokens': None, 'costUsd': None, 'durationMs': None,
-                            'cacheRate': None, 'firstTry': None,
-                            'modelId': (model_list[0] if model_list else None), 'seed': None,
-                        })
-                        continue
-            last_task_id = task['id']
             work = tmp_path / f"{task['id']}-{variant}-{rep}"
             copy_fixture(Path(task['_dir']), work)
             try:
@@ -668,19 +698,27 @@ def run_bench(
             except BenchError:
                 raise
             except Exception:
-                result = {
-                    'success': False, 'pending': True, 'status': 'pending',
-                    'iterations': None, 'retries': None, 'calls': None,
-                    'tokens': None, 'costUsd': None, 'durationMs': None,
-                    'cacheRate': None, 'firstTry': None,
-                    'modelId': (model_list[0] if model_list else None), 'seed': None,
-                }
+                result = _pending_cell(task, variant, rep, model_id)
             cells.append({
                 'taskId': task['id'],
                 'variant': variant,
                 'repetition': rep,
                 **result,
             })
+            if real:
+                # Relectura por celda: usage no sube; remaining fail-closed.
+                key_data = fetch_openrouter_key(api_key)
+                assert_usage_unchanged(api_key, usage_before, data=key_data)
+                free = key_data.get('free_model_daily_requests')
+                if not isinstance(free, dict) or not free:
+                    raise BenchError(
+                        '/api/v1/key: free_model_daily_requests ausente tras la celda (fail-closed).')
+                new_remaining = _require_nonneg_int(
+                    free, 'remaining', label='free_model_daily_requests.remaining')
+                calls = result.get('calls')
+                turns = calls if type(calls) is int else max_turns
+                requests_used += max(remaining - new_remaining, turns)
+                remaining = new_remaining
 
     usage_after = None
     if usage_before is not None and api_key is not None:
@@ -691,6 +729,10 @@ def run_bench(
     report['baselineStatus'] = cfg.get('baselineStatus', 'pending')
     report['usageBefore'] = usage_before
     report['usageAfter'] = usage_after
+    report['requestsUsed'] = requests_used
+    report['requestBudget'] = max_requests
+    report['requestsEstimated'] = estimated
+    report['maxTurnsPerCell'] = max_turns
     report['pendingCells'] = [
         {'taskId': c['taskId'], 'variant': c['variant'], 'repetition': c['repetition']}
         for c in cells if c.get('pending')
@@ -702,6 +744,9 @@ def run_bench(
         'usage no debe subir durante la corrida.',
         '[No verificado] Política de datos y retención de modelos :free de OpenRouter.',
         'Semilla Claude Code: seed=null (sin flag documentado).',
+        f'Presupuesto por turnos: maxTurnsPerCell={max_turns}, maxRequestsPerRun={max_requests}. '
+        f'El ritmo interno de Claude Code (~{FREE_RPM} req/min) no está controlado; '
+        '[No verificado] llamadas de fondo o reintentos no medidos pueden consumir cuota.',
     ]
     return report
 
@@ -858,6 +903,7 @@ def format_report_md(report: dict) -> str:
         f"- tokens delta: {report['tokens']['delta']} IC95 {report['tokens']['ci95']}",
         f"- iterations delta: {report['iterations']['delta']} IC95 {report['iterations']['ci95']}",
         f"- costUsdTotal: {report.get('costUsdTotal')}",
+        f"- requests: {report.get('requestsUsed')}/{report.get('requestBudget')}",
         f"- baselineStatus: {report.get('baselineStatus')}",
         '',
         '| task | base success | treat success | delta tokens | IC95 |',
@@ -1003,11 +1049,13 @@ def cmd_bench(argv: list[str]) -> int:
                         'OPENROUTER_API_KEY ausente; no se lanza la línea base real. '
                         'Usa --provider fake para pruebas deterministas.')
                 n = int(cfg['nCheap'] if cheap else cfg['n'])
+                max_turns, _ = request_budget(cfg)
                 max_cap = cfg.get('maxPaidLimitUsd', DEFAULT_CONFIG['maxPaidLimitUsd'])
-                check_openrouter_free_lock(api_key, n * 5 * 2, max_paid_limit_usd=max_cap)
+                check_openrouter_free_lock(
+                    api_key, planned_requests(cfg, n * 5 * 2), max_paid_limit_usd=max_cap)
                 for m in models:
                     verify_openrouter_model_pricing(api_key, m)
-                provider = ClaudeCodeProvider(models[0])
+                provider = ClaudeCodeProvider(models[0], max_turns=max_turns)
             except BenchError as exc:
                 print(f'ERROR: {exc}', flush=True)
                 return 1
