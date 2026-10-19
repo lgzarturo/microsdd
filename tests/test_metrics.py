@@ -145,8 +145,8 @@ def _under(path: Path, root: Path) -> bool:
 
 class SchemaHashTests(unittest.TestCase):
     def test_schema_sha256_matches_codeconductor_m1(self):
-        # Byte a byte con LF (eol=lf en .gitattributes); evita falso negativo por CRLF en Windows.
-        raw = SCHEMA_PATH.read_bytes().replace(b'\r\n', b'\n')
+        # Bytes reales del checkout; `.gitattributes` fuerza eol=lf (falla si deja de ser LF).
+        raw = SCHEMA_PATH.read_bytes()
         digest = hashlib.sha256(raw).hexdigest()
         self.assertEqual(digest, EXPECTED_SCHEMA_SHA256)
         schema = json.loads(raw)
