@@ -1,0 +1,247 @@
+{
+  "schema_version": 1,
+  "project": {
+    "observations": [
+      {
+        "at": "2026-10-19T18:18:44+00:00",
+        "fact": "Arturo aprueba la spec bench-request-budget con maxTurnsPerCell=6 y maxRequestsPerRun=200",
+        "evidence": "Respuesta a AskUserQuestion Aprobacion: Si, apruebo (con el ajuste Bajar a 6 turnos)",
+        "id": "n1",
+        "for_task": "bench-request-budget",
+        "for_phase": "spec",
+        "used_at": "2026-10-19T18:18:47+00:00"
+      },
+      {
+        "at": "2026-10-19T18:23:21+00:00",
+        "fact": "Arturo re-aprueba la spec bench-request-budget con la ampliacion del hook (REQ-11, AC-14, T00)",
+        "evidence": "Respuesta a AskUserQuestion Re-aprobar: Si, re-apruebo",
+        "id": "n2",
+        "for_task": "bench-request-budget",
+        "for_phase": "spec",
+        "used_at": "2026-10-19T18:23:24+00:00"
+      },
+      {
+        "at": "2026-10-19T18:48:59+00:00",
+        "fact": "Arturo aprueba el cierre de bench-request-budget, el commit propuesto y el push a cursor/bench-baseline-m2-0213",
+        "evidence": "Respuesta a AskUserQuestion Cierre: Apruebo cierre y push",
+        "id": "n3",
+        "for_task": "bench-request-budget",
+        "for_phase": "close",
+        "used_at": "2026-10-19T18:49:32+00:00"
+      },
+      {
+        "at": "2026-10-21T02:25:43+00:00",
+        "fact": "Spec loop-autonomo-testigo aprobada por el programador",
+        "evidence": "si",
+        "id": "n4",
+        "for_task": "loop-autonomo-testigo",
+        "for_phase": "spec",
+        "used_at": "2026-10-21T02:25:46+00:00"
+      },
+      {
+        "at": "2026-10-21T02:34:54+00:00",
+        "fact": "Programador aprueba ampliación de alcance con test_bloquear_autoaprobacion.py y test_hook_fail_closed.py",
+        "evidence": "si",
+        "id": "n5",
+        "for_task": "loop-autonomo-testigo",
+        "for_phase": "spec",
+        "used_at": "2026-10-21T02:34:58+00:00"
+      }
+    ],
+    "decisions": [
+      {
+        "at": "2026-10-19T18:13:47+00:00",
+        "by": "Arturo",
+        "decision": "bench: maxRequestsPerRun=200, maxTurnsPerCell=8; arreglo sobre la rama del PR 15",
+        "evidence": "respuestas 2. 200 solicitudes maximo. 3. si 8 turnos. 4. Si debes arreglarlo sobre el PR 15"
+      },
+      {
+        "at": "2026-10-19T18:17:46+00:00",
+        "by": "Arturo",
+        "decision": "bench: maxTurnsPerCell=6 (reemplaza 8) para que 30 celdas x 6 = 180 quepan en maxRequestsPerRun=200",
+        "evidence": "Respuesta a AskUserQuestion Presupuesto: Bajar a 6 turnos"
+      },
+      {
+        "at": "2026-10-19T18:21:47+00:00",
+        "by": "Arturo",
+        "decision": "Autoriza que el lider agregue .microharness/bench.py y .microharness/metrics.py a HARNESS_EDITABLE en .claude/hooks/pretool.py, dentro de bench-request-budget y con re-aprobacion del alcance",
+        "evidence": "Respuesta a AskUserQuestion Hook: Autorizo tocar el hook (Recommended)"
+      }
+    ],
+    "progress": [
+      {
+        "at": "2026-10-19T18:39:19+00:00",
+        "text": "T00 bench-request-budget: pruebas AC-14 añadidas en tests/test_bloquear_autoaprobacion.py; sin fase RED porque el cambio de HARNESS_EDITABLE (2250d91) fue previo",
+        "evidence": "python -m unittest tests.test_bloquear_autoaprobacion: Ran 19 tests OK"
+      },
+      {
+        "at": "2026-10-19T18:43:25+00:00",
+        "text": "bench-request-budget T01-T10 implementados en TDD; workflow con planned_requests y --max-turns",
+        "evidence": "tests.test_bench Ran 50 OK; tests.test_bloquear_autoaprobacion Ran 19 OK; discover Ran 384 OK skipped=4; yaml.safe_load ok"
+      }
+    ],
+    "discoveries": [
+      {
+        "at": "2026-10-19T18:19:48+00:00",
+        "text": "El hook PreToolUse bloquea Edit sobre .microharness/bench.py aunque esta en scope.allowed_paths de bench-request-budget; T01 GREEN no se puede aplicar sin autorizacion humana",
+        "evidence": "PreToolUse:Edit hook error: Ningun agente edita .microharness/ (memoria y configuracion); la memoria solo cambia con sdd.py."
+      },
+      {
+        "at": "2026-10-19T18:23:59+00:00",
+        "text": "bench-request-budget T00: ningun agente puede aplicar el cambio de HARNESS_EDITABLE; el hook bloquea al lider (no modifica codigo) y al implementador (.claude/). Lo aplica el humano.",
+        "evidence": "PreToolUse:Edit hook error: El lider no modifica codigo; delega al implementador."
+      }
+    ]
+  },
+  "tasks": {
+    "bench-request-budget": {
+      "approvals": {
+        "spec": {
+          "by": "Arturo",
+          "evidence": "@note:n2",
+          "at": "2026-10-19T18:23:24+00:00",
+          "fingerprint": "8e3503254b4c88bba46f8b2127f92ed87c358b2ba4c41805a0f5b95bc9d4a582"
+        },
+        "close": {
+          "by": "Arturo",
+          "evidence": "@note:n3",
+          "at": "2026-10-19T18:49:32+00:00"
+        }
+      },
+      "sealed_tests": {},
+      "review": "APROBADO",
+      "review_fingerprint": "42fad7c3525ec8ed7c8539e1d199e366bd033cefd90cc4445bbf109b0b9a7270",
+      "iterations": 1,
+      "odd_retries": 0,
+      "receipt": {
+        "at": "2026-10-19T18:23:24+00:00",
+        "allowed_paths": [
+          ".microharness/bench.py",
+          "bench/config.json",
+          ".github/workflows/bench-baseline.yml",
+          "tests/test_bench.py",
+          ".claude/hooks/pretool.py",
+          "tests/test_bloquear_autoaprobacion.py"
+        ],
+        "files": {
+          ".claude/hooks/pretool.py": "496107327bbb81fe59d52aa106f6ee8f6b91faf1872865c0076ca6dcb6680e29",
+          ".github/workflows/bench-baseline.yml": "9d146d24919bacc4f11cedddf38d80ccb0f049aaae8ca4562fff9461f069b8b4",
+          ".microharness/bench.py": "6c2c4772034167d951e212a321d0a1875bc6d5ff72f64c1871abcfed50d4db93",
+          "bench/config.json": "dc02e81cf9b3f0c21c4df6357e16b621bba53cc27aa8baf9fa4dfe48a8690247",
+          "tests/test_bench.py": "da191091871edfbe5b7185823c6e08b7d63c9a965afee828724a129a79c2005c",
+          "tests/test_bloquear_autoaprobacion.py": "241cee562f78af0c54ad09c030b03961b14c62bb41156bfd634459e4a6c16103"
+        },
+        "digest": "4b65ffdd46c146216e676b9436d921b65113bd426d1369441b3f73da50693132"
+      },
+      "events": [
+        {
+          "at": "2026-10-19T18:11:10+00:00",
+          "event": "creada"
+        },
+        {
+          "at": "2026-10-19T18:18:47+00:00",
+          "event": "aprobación_spec",
+          "by": "Arturo"
+        },
+        {
+          "at": "2026-10-19T18:23:24+00:00",
+          "event": "aprobación_spec",
+          "by": "Arturo"
+        },
+        {
+          "at": "2026-10-19T18:48:13+00:00",
+          "event": "revisión",
+          "verdict": "APROBADO",
+          "evidence": "Revisor independiente: APROBADO CON OBSERVACIONES, sin bloqueantes. check --run OK: test_bench 50 OK, test_bloquear_autoaprobacion 19 OK, discover 384 OK (skipped=4). Commit humano 2250d91 = 2 lineas exactas en HARNESS_EDITABLE. No verificado: parseo YAML del workflow y variante sin modulo (hook bloquea)."
+        },
+        {
+          "at": "2026-10-19T18:49:32+00:00",
+          "event": "aprobación_close",
+          "by": "Arturo"
+        }
+      ]
+    },
+    "loop-autonomo-testigo": {
+      "approvals": {
+        "spec": {
+          "by": "Arturo López",
+          "evidence": "@note:n5",
+          "at": "2026-10-21T02:34:58+00:00",
+          "fingerprint": "df1f395c6aa410895b40e5809b1ffba0e0cc7c096add0e4223a0fefe2df7782f"
+        },
+        "close": {
+          "by": "lider",
+          "evidence": "Loop autónomo completado: lease íntegro, tests sellados, revisión APROBADO, gates en verde",
+          "at": "2026-10-21T02:36:24+00:00"
+        }
+      },
+      "sealed_tests": {
+        "tests/test_lease_autonomo.py": "688bbd315d8a0e6fb44cd3f4e918b9fbb72d3262e811e9f29153de3c45c8825f"
+      },
+      "review": "APROBADO",
+      "review_fingerprint": "cfaf2959c4a449d20072c5660ae5cf936518c62c1b8817c783c891149d575331",
+      "iterations": 1,
+      "odd_retries": 0,
+      "receipt": {
+        "at": "2026-10-21T02:34:58+00:00",
+        "allowed_paths": [
+          ".microharness/sdd.py",
+          ".claude/hooks/pretool.py",
+          ".claude/agents/lider.md",
+          "tests/test_lease_autonomo.py",
+          "tests/test_bloquear_autoaprobacion.py",
+          "tests/test_hook_fail_closed.py"
+        ],
+        "files": {
+          ".claude/agents/lider.md": "196b2da5ced19e84ba2a4a1bfaa50bbfaeb26b694fe9784fcf7672785766c985",
+          ".claude/hooks/pretool.py": "985026814fbc8aaa8e5bcbd29ca9643b888569f8b4952374d6dce0c4f4fb4c47",
+          ".microharness/sdd.py": "6ef3e3294d063164e06dd2d604cd926144b116f38261967b28028406391f6b37",
+          "tests/test_bloquear_autoaprobacion.py": "e36e8b4f36b1dd33ab673121f62d46b70f3a48640ae1568bba35ce5ad0d6456d",
+          "tests/test_hook_fail_closed.py": "e39448ac0432e82925d83106a410c41be38ec0fac9ce783a3e7200a3a676c026"
+        },
+        "digest": "8169bf10c6e60ddc91d8b80fc620c7639d5a1d3937cfb4837f6d65a2fd007935"
+      },
+      "events": [
+        {
+          "at": "2026-10-21T02:23:59+00:00",
+          "event": "creada"
+        },
+        {
+          "at": "2026-10-21T02:25:46+00:00",
+          "event": "aprobación_spec",
+          "by": "Arturo López"
+        },
+        {
+          "at": "2026-10-21T02:34:58+00:00",
+          "event": "aprobación_spec",
+          "by": "Arturo López"
+        },
+        {
+          "at": "2026-10-21T02:35:02+00:00",
+          "event": "sellado_tests",
+          "by": "lider",
+          "evidence": "Pruebas de aceptación AC-01..AC-06 verificadas y congeladas (11 tests)",
+          "files": [
+            "tests/test_lease_autonomo.py"
+          ]
+        },
+        {
+          "at": "2026-10-21T02:36:22+00:00",
+          "event": "revisión",
+          "verdict": "APROBADO",
+          "evidence": "AC-01..AC-06 cubiertos en tests/test_lease_autonomo.py (11 OK); check --run verde (55 OK); discover 400 OK skipped=4; diff confinado a 6 archivos del alcance; ac01/ac02/fail-closed actualizados al contrato AC-06 aprobado"
+        },
+        {
+          "at": "2026-10-21T02:36:24+00:00",
+          "event": "aprobación_close",
+          "by": "lider"
+        }
+      ],
+      "witness": {
+        "path": "spec/loop-autonomo-testigo/testigo.md",
+        "sha256": "43d5ca7952bdb5336eae4662f903c0b64d097722fc581c320ec6dd2eb815ae8c",
+        "at": "2026-10-21T02:36:24+00:00"
+      }
+    }
+  }
+}
