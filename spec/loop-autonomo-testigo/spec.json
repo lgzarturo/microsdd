@@ -1,0 +1,79 @@
+{
+  "effort": "medium",
+  "id": "loop-autonomo-testigo",
+  "max_iterations": 3,
+  "method": {
+    "notes": "RDD: al aprobar la spec se congela el recibo con hashes de .microharness/sdd.py, .claude/hooks/pretool.py y lider.md; el hook rechaza ediciones fuera del recibo y aplica kill switch.",
+    "optional": [
+      "RDD"
+    ],
+    "primary": "SDD"
+  },
+  "model": "claude-opus-5-5",
+  "requirements": {
+    "acceptance_ids": [
+      "AC-01",
+      "AC-02",
+      "AC-03",
+      "AC-04",
+      "AC-05",
+      "AC-06"
+    ],
+    "preconditions": [
+      "Repo en main limpio; suite base 384 tests OK (skipped=4).",
+      "Sin tareas en estado proceso."
+    ]
+  },
+  "schema_version": 1,
+  "scope": {
+    "allowed_paths": [
+      ".microharness/sdd.py",
+      ".claude/hooks/pretool.py",
+      ".claude/agents/lider.md",
+      "tests/test_lease_autonomo.py",
+      "tests/test_bloquear_autoaprobacion.py",
+      "tests/test_hook_fail_closed.py"
+    ],
+    "excluded": [
+      ".microharness/memory.json",
+      ".microharness/bench.py",
+      ".microharness/metrics.py",
+      ".microharness/pricing.json",
+      "src/microsdd/installer.py"
+    ]
+  },
+  "state": "terminado",
+  "testing": {
+    "commands": [
+      [
+        "python",
+        "-m",
+        "unittest",
+        "tests.test_lease_autonomo"
+      ],
+      [
+        "python",
+        "-m",
+        "unittest",
+        "tests.test_agent_may_approve"
+      ],
+      [
+        "python",
+        "-m",
+        "unittest",
+        "tests.test_bloquear_autoaprobacion"
+      ]
+    ],
+    "min_tests": 10,
+    "mutation": {
+      "command": [],
+      "enabled": false,
+      "reason": "Lógica de autorización cubierta con pruebas de comportamiento; sin herramienta de mutación en el repo."
+    },
+    "protected_tests": [
+      "tests/test_lease_autonomo.py"
+    ],
+    "strategy": "tdd"
+  },
+  "title": "Loop autónomo del líder con lease por fingerprint y testigo quirúrgico"
+}

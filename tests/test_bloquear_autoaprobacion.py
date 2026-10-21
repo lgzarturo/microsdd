@@ -27,8 +27,14 @@ LAUNCHERS = (
 UV_VARIANTS = ("uv run --no-project --quiet --python '>=3.10'",
                'uv run --no-project --python ">=3.10"',
                'uv run --no-project --python 3.12')
-APPROVE_ARGS = ('approve x spec --by P --evidence ok', 'approve x close --by P --evidence ok',
-                'seal x --by P --evidence ok', 'allow-test-command custom --evidence ok')
+# Contrato loop-autonomo-testigo: el hook sigue exigiendo @note para approve-spec
+# y allow-test-command, pero deja pasar seal y approve-close del líder (sdd.py
+# exige el lease activo, fail-closed). Los no-líderes siguen denegados en todo.
+HOOK_GATED_ALWAYS = ('approve x spec --by P --evidence ok',
+                     'allow-test-command custom --evidence ok')
+LEADER_AUTONOMOUS = ('approve x close --by P --evidence ok',
+                     'seal x --by P --evidence ok')
+APPROVE_ARGS = HOOK_GATED_ALWAYS + LEADER_AUTONOMOUS
 
 
 def load(name, path):
@@ -42,25 +48,31 @@ def shell_event(agent, tool, command):
     return {'agent_type': agent, 'tool_name': tool, 'tool_input': {'command': command}}
 
 
+def sdd_spelling_variants(args):
+    return [
+        f'python3 ./{SDD} {args}',
+        f'python3 {REPO / SDD} {args}',
+        f'python3.12 {SDD} {args}',
+        f'{SDD} {args}',
+        f'python3 -m microharness.sdd {args}',
+        f'cd .microharness && python3 sdd.py {args}',
+        f'F={SDD}; python3 $F {args}',
+        f'python3 "$PWD/{SDD}" {args}',
+        f'uv run {SDD} {args}',
+        f'python3 .microharness\\sdd.py {args}',
+        f'python3 .MicroHarness/sdd.py {args}',
+        f'python3 .microharness/SDD.PY {args}',
+        f'.microharness/python.ps1 {SDD} {args}',
+        f'cmd /c .microharness/python.cmd {SDD} {args}',
+    ]
+
+
+def bypass_seal_variants():
+    return sdd_spelling_variants('seal x --by P --evidence ok')
+
+
 def bypass_commands():
-    commands = []
-    for args in ('approve x spec --by P --evidence ok', 'seal x --by P --evidence ok'):
-        commands += [
-            f'python3 ./{SDD} {args}',
-            f'python3 {REPO / SDD} {args}',
-            f'python3.12 {SDD} {args}',
-            f'{SDD} {args}',
-            f'python3 -m microharness.sdd {args}',
-            f'cd .microharness && python3 sdd.py {args}',
-            f'F={SDD}; python3 $F {args}',
-            f'python3 "$PWD/{SDD}" {args}',
-            f'uv run {SDD} {args}',
-            f'python3 .microharness\\sdd.py {args}',
-            f'python3 .MicroHarness/sdd.py {args}',
-            f'python3 .microharness/SDD.PY {args}',
-            f'.microharness/python.ps1 {SDD} {args}',
-            f'cmd /c .microharness/python.cmd {SDD} {args}',
-        ]
+    commands = sdd_spelling_variants('approve x spec --by P --evidence ok')
     check = f'sh .microharness/python.sh {SDD} check x'
     commands += [f'{check} && rm -rf src', f'{check}; rm -rf src', f'{check};rm -rf src',
                  f'{check}#;rm -rf src', f'{check} #; rm -rf src',
@@ -115,9 +127,70 @@ class ShellPolicyTests(unittest.TestCase):
     def test_ac01_bypass_variants_denied(self):
         self.assert_denied(bypass_commands())
 
-    def test_ac02_approve_and_seal_denied_with_every_launcher(self):
+    def test_ac01b_seal_variants_denied_for_non_leaders(self):
+        for agent in ('autor', 'implementador'):
+            for tool in SHELLS:
+                for command in bypass_seal_variants():
+                    with self.subTest(agent=agent, tool=tool, command=command):
+                        self.assertIsNotNone(self.hook.run(shell_event(agent, tool, command)))
+
+    def test_ac01b_seal_evasive_forms_denied_for_lider(self):
+        # Contrato loop-autonomo-testigo: el hook deja pasar seal del líder solo en
+        # formas de lanzador reconocidas (sdd.py exige el lease); las evasivas
+        # (sin lanzador, unparseables) siguen denegadas también al líder.
+        ok = 'seal x --by P --evidence ok'
+        evasive = (
+            f'python3.12 {SDD} {ok}',
+            f'{SDD} {ok}',
+            f'python3 -m microharness.sdd {ok}',
+            f'cd .microharness && python3 sdd.py {ok}',
+            f'F={SDD}; python3 $F {ok}',
+            f'python3 "$PWD/{SDD}" {ok}',
+            f'uv run {SDD} {ok}',
+            f'python3 .microharness\\sdd.py {ok}',
+        )
+        for tool in SHELLS:
+            for command in evasive:
+                with self.subTest(tool=tool, command=command):
+                    self.assertIsNotNone(self.hook.run(shell_event('lider', tool, command)))
+
+    def test_ac01b_seal_launcher_forms_allowed_for_lider(self):
+        # Mismo contrato: formas reconocidas pasan el hook; sdd.py exige el lease.
+        ok = 'seal x --by P --evidence ok'
+        recognized = (
+            f'python3 ./{SDD} {ok}',
+            f'python3 {REPO / SDD} {ok}',
+            f'python3 .MicroHarness/sdd.py {ok}',
+            f'python3 .microharness/SDD.PY {ok}',
+            f'.microharness/python.ps1 {SDD} {ok}',
+            f'cmd /c .microharness/python.cmd {SDD} {ok}',
+        )
+        for tool in SHELLS:
+            for command in recognized:
+                with self.subTest(tool=tool, command=command):
+                    self.assertIsNone(self.hook.run(shell_event('lider', tool, command)))
+
+    def test_ac02_gated_spec_and_allow_test_denied_with_every_launcher(self):
         self.assert_denied([f'{launcher} {SDD} {args}'
-                            for launcher in LAUNCHERS + UV_VARIANTS for args in APPROVE_ARGS])
+                            for launcher in LAUNCHERS + UV_VARIANTS for args in HOOK_GATED_ALWAYS])
+
+    def test_ac02_autonomous_close_and_seal_denied_for_non_leaders(self):
+        for agent in ('autor', 'implementador'):
+            for tool in SHELLS:
+                for launcher in LAUNCHERS + UV_VARIANTS:
+                    for args in LEADER_AUTONOMOUS:
+                        command = f'{launcher} {SDD} {args}'
+                        with self.subTest(agent=agent, tool=tool, command=command):
+                            self.assertIsNotNone(self.hook.run(shell_event(agent, tool, command)))
+
+    def test_ac02_autonomous_close_and_seal_allowed_for_lider(self):
+        # Contrato loop-autonomo-testigo: el hook deja pasar; sdd.py exige el lease.
+        for tool in SHELLS:
+            for launcher in LAUNCHERS + UV_VARIANTS:
+                for args in LEADER_AUTONOMOUS:
+                    command = f'{launcher} {SDD} {args}'
+                    with self.subTest(tool=tool, command=command):
+                        self.assertIsNone(self.hook.run(shell_event('lider', tool, command)))
 
     def test_ac03_allowed_subcommands_with_every_launcher(self):
         allowed = ('init', 'new fix-x', 'check fix-x', 'check fix-x --run', 'check fix-x --no-scope',

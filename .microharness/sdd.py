@@ -72,6 +72,7 @@ TEST_COMMANDS = (
 INTEGRITY_FIELDS = (
     (('approvals', 'spec'), ('aprobación_spec',)),
     (('approvals', 'close'), ('aprobación_close', 'aprobación_spec')),
+    (('witness',), ('aprobación_close',)),
     (('sealed_tests',), ('sellado_tests',)),
     (('review',), ('revisión', 'aprobación_spec')),
     (('review_fingerprint',), ('revisión', 'aprobación_spec')),
@@ -528,6 +529,7 @@ def new(slug: str) -> None:
     memory = normalize_project(load(MEMORY))
     memory['tasks'][slug] = {
         'approvals': {'spec': None, 'close': None},
+        'witness': None,
         'sealed_tests': {},
         'review': None,
         'review_fingerprint': None,
@@ -885,7 +887,32 @@ def agent_may_approve_enabled() -> bool:
     return bool(config().get('agent_may_approve', True))
 
 
-def maybe_require_human_terminal(action: str, evidence: str) -> None:
+def has_active_spec_lease(slug: str) -> bool:
+    """True si la spec fue aprobada por el humano, está en proceso y su fingerprint no cambió."""
+    try:
+        path, spec, memory = task_files(slug)
+    except Exception:
+        return False
+    if spec.get('state') != 'proceso':
+        return False
+    approval = memory.get('tasks', {}).get(slug, {}).get('approvals', {}).get('spec')
+    if not isinstance(approval, dict) or not approval.get('fingerprint'):
+        return False
+    return approval['fingerprint'] == spec_fingerprint(path, spec)
+
+
+def maybe_require_human_terminal(action: str, evidence: str, slug: str | None = None,
+                                 phase: str | None = None, by: str = '') -> None:
+    # Autorización inicial (approve spec) y allow-test-command: siempre humano o @note.
+    if action == 'allow-test-command' or (action == 'approve' and phase == 'spec'):
+        if agent_may_approve_enabled() and note_ref_id(evidence):
+            return
+        require_human_terminal(action)
+        return
+    # Loop autónomo: el líder transiciona seal/approve-close con lease íntegro.
+    if (action in ('seal', 'approve') and slug and by.strip().lower() == 'lider'
+            and agent_may_approve_enabled() and has_active_spec_lease(slug)):
+        return
     if agent_may_approve_enabled() and note_ref_id(evidence):
         return
     require_human_terminal(action)
@@ -946,10 +973,61 @@ def _reject_if_memory_corrupt() -> None:
         raise ValueError('Memoria corrupta o alterada; no se escribe: ' + '; '.join(errors))
 
 
+def write_witness(path: Path, spec: dict, task_mem: dict) -> dict:
+    """Genera spec/<slug>/testigo.md con la evidencia quirúrgica y devuelve su sello."""
+    slug = spec['id']
+    patterns = spec.get('scope', {}).get('allowed_paths', [])
+    approvals = task_mem.get('approvals', {}) or {}
+    spec_app = approvals.get('spec', {}) or {}
+    close_app = approvals.get('close', {}) or {}
+    receipt = task_mem.get('receipt') or {}
+    sealed = task_mem.get('sealed_tests') or {}
+    final_code_fp = code_fingerprint(patterns)
+
+    touched: list[str] = []
+    for rel in diff_files():
+        try:
+            if not path_allowed(rel, patterns):
+                continue
+        except ValueError:
+            continue
+        target = ROOT / rel
+        current = hash_file(target)[:12] if target.is_file() else 'deleted'
+        base = (receipt.get('files', {}).get(rel) or 'new')[:12]
+        touched.append(f'- `{rel}`: `{base}` → `{current}`')
+
+    sealed_lines = [f'- `{k}`: `{v[:16]}…`' for k, v in sorted(sealed.items())] \
+        or ['- (sin tests protegidos declarados)']
+    ac_ids = ', '.join(spec.get('requirements', {}).get('acceptance_ids', []))
+
+    content = (
+        f'# Testigo Quirúrgico: {slug}\n\n'
+        f'- **Estado:** `terminado`\n'
+        f'- **Criterios de Aceptación cubiertos:** {ac_ids}\n'
+        f'- **Iteraciones del Loop:** {task_mem.get("iterations", 1)} / {spec.get("max_iterations", 3)} '
+        f'(Reintentos ODD: {task_mem.get("odd_retries", 0)})\n\n'
+        f'## 1. Sellos Criptográficos (SHA-256)\n'
+        f'- **Spec Fingerprint (Contrato Humano):** `{spec_app.get("fingerprint", "N/A")}`\n'
+        f'- **Autorización Inicial:** por `{spec_app.get("by", "N/A")}` en `{spec_app.get("at", "N/A")}` '
+        f'({spec_app.get("evidence", "")})\n'
+        f'- **Recibo RDD Base (`receipt.digest`):** `{receipt.get("digest", "N/A")}`\n'
+        f'- **Sello de Código Final (`code_fingerprint`):** `{final_code_fp}`\n'
+        f'- **Cierre:** por `{close_app.get("by", "N/A")}` en `{close_app.get("at", "N/A")}` '
+        f'({close_app.get("evidence", "")})\n\n'
+        f'## 2. Pruebas Selladas (`sealed_tests`)\n'
+        + '\n'.join(sealed_lines) + '\n\n'
+        f'## 3. Perímetro Quirúrgico Aplicado (`allowed_paths`)\n'
+        + ('\n'.join(touched) if touched else '- Sin cambios en árbol de trabajo respecto a HEAD') + '\n'
+    )
+    witness_path = path / 'testigo.md'
+    witness_path.write_text(content, encoding='utf-8')
+    return {'path': f'spec/{slug}/testigo.md', 'sha256': hash_file(witness_path), 'at': now()}
+
+
 @memory_lock()
 def approve(slug: str, phase: str, by: str, evidence: str) -> None:
     # Se registra una declaración, no una identidad autenticada. Requiere decisión humana explícita.
-    maybe_require_human_terminal('approve', evidence)
+    maybe_require_human_terminal('approve', evidence, slug=slug, phase=phase, by=by)
     _reject_if_memory_corrupt()
     path, spec, memory = task_files(slug)
     if not by.strip() or not evidence.strip():
@@ -989,6 +1067,7 @@ def approve(slug: str, phase: str, by: str, evidence: str) -> None:
     if phase == 'spec':
         spec['state'] = 'proceso'
     else:
+        memory['tasks'][slug]['witness'] = write_witness(path, spec, memory['tasks'][slug])
         spec['state'] = 'terminado'
     dump(MEMORY, memory)
     dump(path / 'spec.json', spec)
@@ -1139,7 +1218,7 @@ def note(fact: str | None, decision: str | None, by: str | None, evidence: str,
 
 @memory_lock()
 def seal(slug: str, by: str, evidence: str) -> None:
-    maybe_require_human_terminal('seal', evidence)
+    maybe_require_human_terminal('seal', evidence, slug=slug, by=by)
     _reject_if_memory_corrupt()
     _, spec, memory = task_files(slug)
     tests = spec['testing']['protected_tests']
@@ -1271,7 +1350,10 @@ def main() -> int:
     args = p.parse_args()
     try:
         if args.command in ('approve', 'seal', 'allow-test-command'):
-            maybe_require_human_terminal(args.command, getattr(args, 'evidence', '') or '')
+            maybe_require_human_terminal(args.command, getattr(args, 'evidence', '') or '',
+                                         slug=getattr(args, 'slug', None),
+                                         phase=getattr(args, 'phase', None),
+                                         by=getattr(args, 'by', '') or '')
         if args.command == 'init': ensure_init()
         elif args.command == 'new': new(args.slug)
         elif args.command == 'check':

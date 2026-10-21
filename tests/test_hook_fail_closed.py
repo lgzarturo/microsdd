@@ -93,11 +93,14 @@ class HookFailClosedScriptTests(unittest.TestCase):
         self.assertIn(HINT, output['permissionDecisionReason'])
 
     def test_script_allows_lider_bash(self):
-        # AC-04: el líder con un comando inocuo no recibe salida.
+        # AC-04 + loop-autonomo-testigo AC-06: el líder con un comando inocuo
+        # recibe allow explícito (evita el prompt de confirmación del cliente).
         result = self.run_hook({'agent_type': 'lider', 'tool_name': 'Bash',
                                 'tool_input': {'command': 'git status'}})
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout, '')
+        output = json.loads(result.stdout)['hookSpecificOutput']
+        self.assertEqual(output['hookEventName'], 'PreToolUse')
+        self.assertEqual(output['permissionDecision'], 'allow')
 
 
 if __name__ == '__main__':

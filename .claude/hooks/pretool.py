@@ -330,11 +330,21 @@ def gated_with_note_evidence(cmd: str) -> bool:
     return bool(NOTE_EVIDENCE_CMD_RE.search(cmd))
 
 
-def deny_or_allow_gated(cmd: str, cwd: str | None, agent: str = '') -> str | None:
-    if agent_may_approve(cwd) and gated_with_note_evidence(cmd):
-        if agent == 'lider':
-            return None
+def deny_or_allow_gated(cmd: str, cwd: str | None, agent: str = '',
+                        toks: list[str] | None = None) -> str | None:
+    if not agent_may_approve(cwd):
+        return msg_approve()
+    if agent != 'lider':
         return msg_gated_lider_only()
+    # Loop autónomo: seal y approve-close del líder pasan el hook sin @note;
+    # sdd.py exige el lease activo (fail-closed sin él).
+    args = sdd_args(toks or []) or []
+    is_autonomous_step = (
+        (len(args) >= 2 and args[0] == 'seal') or
+        (len(args) >= 3 and args[0] == 'approve' and args[2] == 'close')
+    )
+    if is_autonomous_step or gated_with_note_evidence(cmd):
+        return None
     return msg_approve()
 
 
@@ -617,11 +627,11 @@ def guard_segment(cmd: str, cwd: str | None = None, agent: str = '') -> str | No
         if toks is not None:
             sub = find_sdd_subcommand(toks)
             if sub in GATED_SUBCOMMANDS:
-                return deny_or_allow_gated(cmd, cwd, agent)
+                return deny_or_allow_gated(cmd, cwd, agent, toks)
             args = sdd_args(toks)
             if args is not None:
                 if args and args[0] in GATED_SUBCOMMANDS:
-                    return deny_or_allow_gated(cmd, cwd, agent)
+                    return deny_or_allow_gated(cmd, cwd, agent, toks)
                 if args and args[0] in SDD_ALLOWED:
                     return None
                 return msg_protected()
@@ -811,10 +821,14 @@ if __name__ == '__main__':
         for stream in (sys.stdin, sys.stdout):
             if hasattr(stream, 'reconfigure'):
                 stream.reconfigure(encoding='utf-8')
-        reason = run(json.load(sys.stdin))
+        event = json.load(sys.stdin)
+        reason = run(event)
         if reason:
             print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PreToolUse',
                 'permissionDecision': 'deny', 'permissionDecisionReason': reason}}, ensure_ascii=False))
+        elif (event.get('agent_type') or '') in ('lider', 'autor', 'implementador'):
+            print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PreToolUse',
+                'permissionDecision': 'allow'}}, ensure_ascii=False))
     except Exception as err:
         print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PreToolUse',
             'permissionDecision': 'deny', 'permissionDecisionReason': f'Guardia inválida: {err}'}}))
