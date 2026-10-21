@@ -1,0 +1,62 @@
+{
+  "effort": "medium",
+  "id": "release-v1-5-0",
+  "max_iterations": 3,
+  "method": {
+    "notes": "RDD: el recibo congela CHANGELOG.md, sdd.py, pyproject.toml y test_model_profiles.py al aprobar la spec; el hook rechaza ediciones fuera del recibo.",
+    "optional": [
+      "RDD"
+    ],
+    "primary": "SDD"
+  },
+  "model": "claude-opus-5-5",
+  "requirements": {
+    "acceptance_ids": [
+      "AC-01",
+      "AC-02",
+      "AC-03",
+      "AC-04"
+    ],
+    "preconditions": [
+      "Rama main, HEAD a6f07d6 (archival 1.5.0 commiteado), árbol limpio.",
+      "Último tag v1.4.0; release propose propone 1.5.0.",
+      "Sin tareas en proceso."
+    ]
+  },
+  "schema_version": 1,
+  "scope": {
+    "allowed_paths": [
+      "CHANGELOG.md",
+      ".microharness/sdd.py",
+      "pyproject.toml",
+      "tests/test_model_profiles.py",
+      "tests/test_sdd.py"
+    ],
+    "excluded": [
+      ".microharness/memory.json",
+      "historial/",
+      "src/",
+      ".claude/"
+    ]
+  },
+  "state": "terminado",
+  "testing": {
+    "commands": [
+      [
+        "python",
+        "-m",
+        "unittest",
+        "tests.test_model_profiles"
+      ]
+    ],
+    "min_tests": 10,
+    "mutation": {
+      "command": [],
+      "enabled": false,
+      "reason": "Bump de versión y changelog; sin lógica de riesgo."
+    },
+    "protected_tests": [],
+    "strategy": "after"
+  },
+  "title": "Release 1.5.0: bump de versión, CHANGELOG y tag v1.5.0"
+}

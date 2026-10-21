@@ -2,6 +2,25 @@
 
 Formato y reglas: `assets/proceso-versionado.md` (R-04). Entradas derivadas de los asuntos de commit; se omiten los commits de merge, que no aportan cambios propios (su contenido figura en los commits integrados).
 
+## [1.5.0] - 2026-10-21
+
+### Añadido
+- `sdd`: loop autónomo del líder con lease por fingerprint de spec (`seal` y `approve close` sin `@note` bajo lease íntegro) y testigo quirúrgico `spec/<slug>/testigo.md` sellado al cerrar
+- `bench`: provider Claude Code/OpenRouter y workflow cheap
+- `bench`: m2 — suite de 5 tareas, runner fake y prompt-diff
+- `metrics`: módulo opcional harness-telemetry/v1 y hooks async
+
+### Corregido
+- `bench`: presupuesto de solicitudes por turnos y corte por cuota
+- `hook`: permite al implementador editar bench.py y metrics.py
+- `bench`: test CLI acepta baselineStatus cheap-partial
+- `bench`: veredicto sin datos, diagnóstico Claude y smoke Actions
+- `bench`: candado OpenRouter con limit ≤$5 y delta de usage
+- `bench`: reporte ASCII-compatible con cp1252
+- `bench`: evita Unicode en el reporte por consola Windows
+- `metrics`: hashea bytes reales del esquema (sin normalizar CRLF)
+- `metrics`: compatibilidad Windows en hash del esquema y estado
+
 ## [1.4.0] - 2026-10-17
 
 ### Añadido

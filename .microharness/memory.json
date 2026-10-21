@@ -1,10 +1,100 @@
 {
   "schema_version": 1,
   "project": {
-    "observations": [],
+    "observations": [
+      {
+        "at": "2026-10-21T02:53:44+00:00",
+        "fact": "Spec release-v1-5-0 y versión 1.5.0 aprobadas por el programador",
+        "evidence": "si aprobado",
+        "id": "n1",
+        "for_task": "release-v1-5-0",
+        "for_phase": "spec",
+        "used_at": "2026-10-21T02:53:47+00:00"
+      },
+      {
+        "at": "2026-10-21T02:57:46+00:00",
+        "fact": "Programador aprueba ampliación con tests/test_sdd.py (pin de versión)",
+        "evidence": "si",
+        "id": "n2",
+        "for_task": "release-v1-5-0",
+        "for_phase": "spec",
+        "used_at": "2026-10-21T02:57:46+00:00"
+      }
+    ],
     "decisions": [],
     "progress": [],
     "discoveries": []
   },
-  "tasks": {}
+  "tasks": {
+    "release-v1-5-0": {
+      "approvals": {
+        "spec": {
+          "by": "Arturo López",
+          "evidence": "@note:n2",
+          "at": "2026-10-21T02:57:46+00:00",
+          "fingerprint": "874871ed3c79a8346604ec4e8873f3a15bdbaa037bf3430121a714fc85b8abb4"
+        },
+        "close": {
+          "by": "lider",
+          "evidence": "Release 1.5.0 verificado: versión, changelog y suite en verde",
+          "at": "2026-10-21T03:00:37+00:00"
+        }
+      },
+      "witness": {
+        "path": "spec/release-v1-5-0/testigo.md",
+        "sha256": "f14f859a273daf6350a840fa5ab897dd1f3173a3d5e346c44e55a80bd78992e7",
+        "at": "2026-10-21T03:00:37+00:00"
+      },
+      "sealed_tests": {},
+      "review": "APROBADO",
+      "review_fingerprint": "bea5df6d3f2d127f40ebd1ba14a3892c077c11aac586327889a2b271a99710d3",
+      "iterations": 1,
+      "odd_retries": 0,
+      "receipt": {
+        "at": "2026-10-21T02:57:46+00:00",
+        "allowed_paths": [
+          "CHANGELOG.md",
+          ".microharness/sdd.py",
+          "pyproject.toml",
+          "tests/test_model_profiles.py",
+          "tests/test_sdd.py"
+        ],
+        "files": {
+          ".microharness/sdd.py": "04ac8c7690b7968053224ec6ce8761d1dfdb15b258c98e844d0531b23265fb69",
+          "CHANGELOG.md": "ca2ff864148cf342139ca4865be989d75cae0491227866625dd20e60cabcb64e",
+          "pyproject.toml": "7edc019acc84a9a6028db61f016141bc80b166bbeeb3d6397b5ce3a27bdf5d4c",
+          "tests/test_model_profiles.py": "cdaa42cd6785ee291f71242ba01f60a3707c1e6ada8bb7dfb2ad2a5911669f7f",
+          "tests/test_sdd.py": "3ff0f7ca4ed005d292c9870e2e13ffe7d5d45fdc8174d965656bbcf9ed19dd84"
+        },
+        "digest": "bc3fe58a65d616c2fe941a1b2ab98dbee8a09d45d49c369d4ecdd6127212f51f"
+      },
+      "events": [
+        {
+          "at": "2026-10-21T02:50:05+00:00",
+          "event": "creada"
+        },
+        {
+          "at": "2026-10-21T02:53:47+00:00",
+          "event": "aprobación_spec",
+          "by": "Arturo López"
+        },
+        {
+          "at": "2026-10-21T02:57:46+00:00",
+          "event": "aprobación_spec",
+          "by": "Arturo López"
+        },
+        {
+          "at": "2026-10-21T03:00:36+00:00",
+          "event": "revisión",
+          "verdict": "APROBADO",
+          "evidence": "--version 1.5.0; CHANGELOG 4+9 entradas; check --run verde; discover 400 OK skipped=4; diff confinado al alcance"
+        },
+        {
+          "at": "2026-10-21T03:00:37+00:00",
+          "event": "aprobación_close",
+          "by": "lider"
+        }
+      ]
+    }
+  }
 }
