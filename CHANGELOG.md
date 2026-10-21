@@ -2,6 +2,14 @@
 
 Formato y reglas: `assets/proceso-versionado.md` (R-04). Entradas derivadas de los asuntos de commit; se omiten los commits de merge, que no aportan cambios propios (su contenido figura en los commits integrados).
 
+## [1.5.3] - 2026-10-21
+
+### Corregido
+- `hook`: reconoce rutas absolutas de Windows (`X:\...`) en comandos shell; `windows-latest` vuelve a verde en CI
+
+### Documentación / SemVer
+- Nota: el tag `v1.5.2` se publicó sobre el commit de archivado sin bump (código en `1.5.1`); este release publica el contenido como `1.5.3` sin mover el tag.
+
 ## [1.5.1] - 2026-10-21
 
 ### Corregido

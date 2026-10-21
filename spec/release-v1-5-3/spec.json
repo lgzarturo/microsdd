@@ -1,0 +1,70 @@
+{
+  "effort": "medium",
+  "id": "release-v1-5-3",
+  "max_iterations": 3,
+  "method": {
+    "notes": "RDD: el recibo congela CHANGELOG.md, sdd.py, metrics.py, pyproject.toml, uv.lock y los tests de versión al aprobar la spec.",
+    "optional": [
+      "RDD"
+    ],
+    "primary": "SDD"
+  },
+  "model": "claude-opus-5-5",
+  "requirements": {
+    "acceptance_ids": [
+      "AC-01",
+      "AC-02",
+      "AC-03",
+      "AC-04"
+    ],
+    "preconditions": [
+      "Rama main, HEAD bba0259 (archival 1.5.2 pusheado), árbol limpio, CI verde.",
+      "Último tag v1.5.2 publicado; humano confirma PATCH 1.5.3.",
+      "Sin tareas en proceso."
+    ]
+  },
+  "schema_version": 1,
+  "scope": {
+    "allowed_paths": [
+      "CHANGELOG.md",
+      ".microharness/sdd.py",
+      ".microharness/metrics.py",
+      "pyproject.toml",
+      "uv.lock",
+      "tests/test_model_profiles.py",
+      "tests/test_sdd.py"
+    ],
+    "excluded": [
+      ".microharness/memory.json",
+      "historial/",
+      "src/",
+      ".claude/"
+    ]
+  },
+  "state": "terminado",
+  "testing": {
+    "commands": [
+      [
+        "python",
+        "-m",
+        "unittest",
+        "tests.test_model_profiles"
+      ],
+      [
+        "python",
+        "-m",
+        "unittest",
+        "tests.test_metrics"
+      ]
+    ],
+    "min_tests": 10,
+    "mutation": {
+      "command": [],
+      "enabled": false,
+      "reason": "Bump de versión y changelog; sin lógica de riesgo."
+    },
+    "protected_tests": [],
+    "strategy": "after"
+  },
+  "title": "Release 1.5.3: corrección del tag prematuro v1.5.2, bump y CHANGELOG"
+}
