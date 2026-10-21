@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "project": {
+    "observations": [
+      {
+        "at": "2026-10-21T04:15:07+00:00",
+        "fact": "Programador ordena release de corrección 1.5.3 con orden spec, bump, commit, limpiar arnés, commit, tag y release",
+        "evidence": "si, pero debe ser spec, bump, commit, limpiar arnes, commit, tag y release",
+        "id": "n1",
+        "for_task": "release-v1-5-3",
+        "for_phase": "spec",
+        "used_at": "2026-10-21T04:15:09+00:00"
+      }
+    ],
+    "decisions": [],
+    "progress": [],
+    "discoveries": []
+  },
+  "tasks": {
+    "release-v1-5-3": {
+      "approvals": {
+        "spec": {
+          "by": "Arturo López",
+          "evidence": "@note:n1",
+          "at": "2026-10-21T04:15:09+00:00",
+          "fingerprint": "651ce83944ca9186fe620d19f5dd359f27b5d3b16752a44cd2b4de2063208cac"
+        },
+        "close": {
+          "by": "lider",
+          "evidence": "Release 1.5.3 verificado: versión, changelog, uv.lock y suite en verde",
+          "at": "2026-10-21T04:16:02+00:00"
+        }
+      },
+      "witness": {
+        "path": "spec/release-v1-5-3/testigo.md",
+        "sha256": "e28b3b167ddd1358a3c6316d99710537ac2c9885a83b9091e890b7965be30c20",
+        "at": "2026-10-21T04:16:02+00:00"
+      },
+      "sealed_tests": {},
+      "review": "APROBADO",
+      "review_fingerprint": "ea4b77d3163f637d6719623d934a37c43e66e2fc5e9b5b96824368096c2d9c63",
+      "iterations": 1,
+      "odd_retries": 0,
+      "receipt": {
+        "at": "2026-10-21T04:15:09+00:00",
+        "allowed_paths": [
+          "CHANGELOG.md",
+          ".microharness/sdd.py",
+          ".microharness/metrics.py",
+          "pyproject.toml",
+          "uv.lock",
+          "tests/test_model_profiles.py",
+          "tests/test_sdd.py"
+        ],
+        "files": {
+          ".microharness/metrics.py": "1b80f08ecc491c476c01fa6b5b9955b59aa07832c227f7f11357e77045fe2502",
+          ".microharness/sdd.py": "30775eef8f9a27bf88cf0b2ac2b18158386fd9d3fd1f0d996d136bc3c873e089",
+          "CHANGELOG.md": "45e450eeae5d11b7e511ad27c7ab98b0d063eace61b2f43b8f5b0213555f7f05",
+          "pyproject.toml": "29f9cac81898f9795b825eafbf39523476a074519fa53320bc75de3634a3ca73",
+          "tests/test_model_profiles.py": "126456d14f44c5cbc4c8a5f93aa0ab692841b9ac2eea7fac2cf7c2906918335d",
+          "tests/test_sdd.py": "a3bb93a8615b6f46aa29cd815c6027e7bf3dada2a597b6118b77e5a206ff2e72",
+          "uv.lock": "0f7e759bbebafeabe0d1bd7b3d58394253d1c6eaf1eb05bfd9270eea09cd9ca3"
+        },
+        "digest": "42c055e56a02c167e51f28411629faf3c63ce800aea3e34af9ec7696a3059cc8"
+      },
+      "events": [
+        {
+          "at": "2026-10-21T04:14:48+00:00",
+          "event": "creada"
+        },
+        {
+          "at": "2026-10-21T04:15:09+00:00",
+          "event": "aprobación_spec",
+          "by": "Arturo López"
+        },
+        {
+          "at": "2026-10-21T04:16:01+00:00",
+          "event": "revisión",
+          "verdict": "APROBADO",
+          "evidence": "--version 1.5.3; HARNESS_VERSION 1.5.3; uv.lock regenerado; CHANGELOG [1.5.3] Corregido + nota v1.5.2; check --run verde; discover 402 OK skipped=4; diff confinado al alcance"
+        },
+        {
+          "at": "2026-10-21T04:16:02+00:00",
+          "event": "aprobación_close",
+          "by": "lider"
+        }
+      ]
+    }
+  }
+}
