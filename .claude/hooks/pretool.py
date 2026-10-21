@@ -393,7 +393,20 @@ def is_sdd_script_token(t: str) -> bool:
     return norm_path_token(t).endswith('microharness/sdd.py')
 
 
+_WIN_ABS_PATH_RE = re.compile(r'(?<![A-Za-z0-9_])[A-Za-z]:\\[^ \t\n\r\'";|&<>()$`]*')
+
+
+def _slashes_for_win_abs(cmd: str) -> str:
+    r"""Reescribe `\` → `/` solo dentro de rutas absolutas Windows (`X:\...`).
+
+    El resto del comando queda intacto: la relativa con backslash
+    (`.microharness\sdd.py`) sigue siendo rechazada como evasiva.
+    """
+    return _WIN_ABS_PATH_RE.sub(lambda m: m.group(0).replace('\\', '/'), cmd)
+
+
 def split_segments(cmd: str) -> list[str] | None:
+    cmd = _slashes_for_win_abs(cmd)
     if re.search(r'[$`\\\n\r\u2018-\u201e]', cmd):
         return None
     segments: list[str] = []
@@ -436,6 +449,7 @@ def split_segments(cmd: str) -> list[str] | None:
 
 
 def tokens(cmd: str) -> list[str] | None:
+    cmd = _slashes_for_win_abs(cmd)
     if re.search(r'[$`\\\n\r\u2018-\u201e]', cmd):
         return None
     lexer = shlex.shlex(cmd, posix=True, punctuation_chars=True)

@@ -170,6 +170,25 @@ class ShellPolicyTests(unittest.TestCase):
                 with self.subTest(tool=tool, command=command):
                     self.assertIsNone(self.hook.run(shell_event('lider', tool, command)))
 
+    def test_ac01b_seal_win_abs_path_allowed_for_lider(self):
+        # Regresión CI windows-latest: la ruta absoluta con backslash es
+        # forma reconocida (allow líder, deny no-líderes). Rutas literales:
+        # corre igual en Linux y en Windows.
+        ok = 'seal x --by P --evidence ok'
+        absolute = (
+            'python3 C:\\repo\\.microharness\\sdd.py ' + ok,
+            'python3 D:\\a\\b\\.microharness\\sdd.py ' + ok,
+        )
+        for tool in SHELLS:
+            for command in absolute:
+                with self.subTest(tool=tool, command=command):
+                    self.assertIsNone(self.hook.run(shell_event('lider', tool, command)))
+        for agent in ('autor', 'implementador'):
+            for tool in SHELLS:
+                for command in absolute:
+                    with self.subTest(agent=agent, tool=tool, command=command):
+                        self.assertIsNotNone(self.hook.run(shell_event(agent, tool, command)))
+
     def test_ac02_gated_spec_and_allow_test_denied_with_every_launcher(self):
         self.assert_denied([f'{launcher} {SDD} {args}'
                             for launcher in LAUNCHERS + UV_VARIANTS for args in HOOK_GATED_ALWAYS])

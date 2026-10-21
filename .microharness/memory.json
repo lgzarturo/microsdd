@@ -10,6 +10,15 @@
         "for_task": "release-v1-5-1",
         "for_phase": "spec",
         "used_at": "2026-10-21T03:12:34+00:00"
+      },
+      {
+        "at": "2026-10-21T03:22:39+00:00",
+        "fact": "Programador ordena corregir el fallo de windows-latest en CI para que pasen las pruebas",
+        "evidence": "unittest de windows-latest esta fallando en github actions... para que lo puedas corregir y que pasen las pruebas",
+        "id": "n2",
+        "for_task": "fix-hook-winpath",
+        "for_phase": "spec",
+        "used_at": "2026-10-21T03:22:41+00:00"
       }
     ],
     "decisions": [],
@@ -81,6 +90,65 @@
         },
         {
           "at": "2026-10-21T03:14:31+00:00",
+          "event": "aprobación_close",
+          "by": "lider"
+        }
+      ]
+    },
+    "fix-hook-winpath": {
+      "approvals": {
+        "spec": {
+          "by": "Arturo López",
+          "evidence": "@note:n2",
+          "at": "2026-10-21T03:22:41+00:00",
+          "fingerprint": "e25b5d5546a7df4808a509cbfe842b20790702dda50593cf37293a90722634c2"
+        },
+        "close": {
+          "by": "lider",
+          "evidence": "Fix hook winpath verificado: sonda, regresion y suite en verde",
+          "at": "2026-10-21T03:24:16+00:00"
+        }
+      },
+      "witness": {
+        "path": "spec/fix-hook-winpath/testigo.md",
+        "sha256": "90e854ef119770a9ad912b39d60dc9ce44ce68b4cb4dfd1d7292ff88df1d7063",
+        "at": "2026-10-21T03:24:16+00:00"
+      },
+      "sealed_tests": {},
+      "review": "APROBADO",
+      "review_fingerprint": "0bbaa059108a27e2e3fc87e740eba0b6850dc8f2f514caf89a7b26810eea5698",
+      "iterations": 1,
+      "odd_retries": 0,
+      "receipt": {
+        "at": "2026-10-21T03:22:41+00:00",
+        "allowed_paths": [
+          ".claude/hooks/pretool.py",
+          "tests/test_bloquear_autoaprobacion.py"
+        ],
+        "files": {
+          ".claude/hooks/pretool.py": "985026814fbc8aaa8e5bcbd29ca9643b888569f8b4952374d6dce0c4f4fb4c47",
+          "tests/test_bloquear_autoaprobacion.py": "e36e8b4f36b1dd33ab673121f62d46b70f3a48640ae1568bba35ce5ad0d6456d"
+        },
+        "digest": "9984cea738c3fda84cfd24797a6349fb7287359d657dc93f02da38c724c769b5"
+      },
+      "events": [
+        {
+          "at": "2026-10-21T03:22:24+00:00",
+          "event": "creada"
+        },
+        {
+          "at": "2026-10-21T03:22:41+00:00",
+          "event": "aprobación_spec",
+          "by": "Arturo López"
+        },
+        {
+          "at": "2026-10-21T03:24:12+00:00",
+          "event": "revisión",
+          "verdict": "APROBADO",
+          "evidence": "sonda 6/6 verde; regresion test_ac01b_seal_win_abs_path_allowed_for_lider verde; check --run verde; discover 402 OK skipped=4; bordes UNC/$/cadenas/relativa verificados; diff confinado a pretool.py y su test"
+        },
+        {
+          "at": "2026-10-21T03:24:16+00:00",
           "event": "aprobación_close",
           "by": "lider"
         }
