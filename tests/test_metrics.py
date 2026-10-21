@@ -5,6 +5,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -153,6 +154,17 @@ class SchemaHashTests(unittest.TestCase):
         self.assertEqual(schema['$schema'], 'https://json-schema.org/draft/2020-12/schema')
         self.assertEqual(schema['$id'], 'harness-telemetry/v1')
         self.assertEqual(schema['required'], ['schema', 'ts', 'harness', 'runId', 'event'])
+
+
+@unittest.skipUnless(METRICS_PATH.is_file(), 'metrics.py no presente')
+class HarnessVersionTests(unittest.TestCase):
+    def test_harness_version_matches_package_version(self):
+        # La telemetría debe anunciar la versión del paquete (regresión 1.5.1: HARNESS_VERSION rezagado en 1.4.0).
+        m = load_module('microsdd_metrics_version_under_test', METRICS_PATH)
+        source = SDD_PATH.read_text(encoding='utf-8')
+        declared = re.search(r"^__version__ = '([^']+)'", source, flags=re.M)
+        self.assertIsNotNone(declared)
+        self.assertEqual(m.HARNESS_VERSION, declared.group(1))
 
 
 @unittest.skipUnless(METRICS_PATH.is_file(), 'metrics.py no presente')

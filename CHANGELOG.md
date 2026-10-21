@@ -2,6 +2,11 @@
 
 Formato y reglas: `assets/proceso-versionado.md` (R-04). Entradas derivadas de los asuntos de commit; se omiten los commits de merge, que no aportan cambios propios (su contenido figura en los commits integrados).
 
+## [1.5.1] - 2026-10-21
+
+### Corregido
+- `metrics`: `HARNESS_VERSION` rezagado en `1.4.0`; ahora coherente con la versión del paquete (`1.5.1`)
+
 ## [1.5.0] - 2026-10-21
 
 ### Añadido

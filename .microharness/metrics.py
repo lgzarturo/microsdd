@@ -14,7 +14,7 @@ from typing import Any
 
 SCHEMA = 'harness-telemetry/v1'
 HARNESS_NAME = 'microsdd'
-HARNESS_VERSION = '1.4.0'
+HARNESS_VERSION = '1.5.1'
 EXPECTED_SCHEMA_SHA256 = (
     '3adfba482e42fb956d9486bf5e28ffb5818643c71372b0ce11c9be0e9fe44d5a'
 )
