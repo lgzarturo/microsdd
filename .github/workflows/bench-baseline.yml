@@ -17,18 +17,20 @@ permissions:
   contents: read
 env:
   CLAUDE_CODE_VERSION: "2.1.197"
-  # Intentos previos (CodeConductor smoke) cuentan hacia el tope de 100.
-  BENCH_PRIOR_REQUESTS: "4"
+  # Acumulado: CC smoke (4) + intento fallido 39789864222 (llegó a 8).
+  BENCH_PRIOR_REQUESTS: "8"
   BENCH_PAID_FALLBACK: openai/gpt-oss-20b
+  # Relanzamiento: :free ya 429 en run previo; no gastar más sondas free.
+  BENCH_SKIP_FREE: "1"
 jobs:
   smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     outputs:
-      model: ${{ steps.probe.outputs.model }}
-      model_kind: ${{ steps.probe.outputs.model_kind }}
-      pricing_prompt: ${{ steps.probe.outputs.pricing_prompt }}
-      pricing_completion: ${{ steps.probe.outputs.pricing_completion }}
+      model: ${{ steps.smoke_all.outputs.model }}
+      model_kind: ${{ steps.smoke_all.outputs.model_kind }}
+      pricing_prompt: ${{ steps.smoke_all.outputs.pricing_prompt }}
+      pricing_completion: ${{ steps.smoke_all.outputs.pricing_completion }}
     env:
       # Key solo para Python/candado y el proxy; Claude no la hereda.
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
@@ -67,21 +69,28 @@ jobs:
             exit 1
           }
 
-      - name: Candado pre-sonda + elegir modelo
-        id: probe
+      # Un solo proxy para sonda + smoke (evita Address already in use entre steps).
+      - name: Probe modelo + smoke claude
+        id: smoke_all
         run: |
           mkdir -p smoke-out
           STATE="${RUNNER_TEMP}/or-proxy-count.json"
+          HOME_TMP="${RUNNER_TEMP}/claude-home-smoke"
+          mkdir -p "$HOME_TMP"
           PRIOR="${BENCH_PRIOR_REQUESTS:-0}"
           python3 .microharness/or_proxy.py --max 100 --state "$STATE" --port 8765 \
             --initial-count "$PRIOR" --rpm 20 &
           PROXY_PID=$!
-          cleanup() { kill "$PROXY_PID" 2>/dev/null || true; }
+          cleanup() { kill "$PROXY_PID" 2>/dev/null || true; wait "$PROXY_PID" 2>/dev/null || true; }
           trap cleanup EXIT
-          for i in 1 2 3 4 5 6 7 8 9 10; do
+          for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
             if curl -sf "http://127.0.0.1:8765/health" >/dev/null; then break; fi
             sleep 0.2
           done
+          curl -sf "http://127.0.0.1:8765/health" >/dev/null || {
+            echo "ERROR: proxy no levantó en :8765"
+            exit 1
+          }
           python3 <<'PY'
           import json, os, sys, urllib.error, urllib.request
           from pathlib import Path
@@ -93,7 +102,6 @@ jobs:
           max_turns, _ = b.request_budget(cfg)
           max_cap = float(cfg.get('maxPaidLimitUsd', 10))
           max_spend = float(cfg.get('maxSpendUsd', 5))
-          # Candado de key (sin exigir cuota :free aún; la sonda decide).
           data = b.check_openrouter_spend_lock(
               key, 1, max_paid_limit_usd=max_cap, max_spend_usd=max_spend,
               require_free_quota=False)
@@ -107,6 +115,7 @@ jobs:
               'poolside/laguna-s-2.1:free',
           ]
           paid_fallback = os.environ.get('BENCH_PAID_FALLBACK') or b.DEFAULT_PAID_FALLBACK_MODEL
+          skip_free = (os.environ.get('BENCH_SKIP_FREE') or '').strip() in ('1', 'true', 'yes')
 
           def call_messages(model):
               body = json.dumps({
@@ -140,21 +149,27 @@ jobs:
           probes = []
           chosen = None
           kind = None
-          for mid in free_candidates:
-              # Máx. 3 sondas :free.
-              result = call_messages(mid)
-              probes.append({'model': mid, 'kind': 'free', **result})
-              if result.get('ok'):
-                  try:
-                      b.verify_openrouter_model_pricing(key, mid, allow_paid=False)
-                  except b.BenchError as exc:
-                      probes[-1]['pricingError'] = str(exc)[:200]
-                      continue
-                  chosen = mid
-                  kind = 'free'
-                  break
+          if not skip_free:
+              for mid in free_candidates:
+                  result = call_messages(mid)
+                  probes.append({'model': mid, 'kind': 'free', **result})
+                  if result.get('ok'):
+                      try:
+                          b.verify_openrouter_model_pricing(key, mid, allow_paid=False)
+                      except b.BenchError as exc:
+                          probes[-1]['pricingError'] = str(exc)[:200]
+                          continue
+                      chosen = mid
+                      kind = 'free'
+                      break
+          else:
+              probes.append({
+                  'model': '(skipped)', 'kind': 'free', 'ok': False,
+                  'status': None, 'note': 'BENCH_SKIP_FREE=1; :free ya 429 en intento previo',
+              })
 
           if chosen is None:
+              # Preflight pago (1 req) antes de Claude.
               result = call_messages(paid_fallback)
               probes.append({'model': paid_fallback, 'kind': 'paid', **result})
               if not result.get('ok'):
@@ -172,13 +187,13 @@ jobs:
               match = b.verify_openrouter_model_pricing(key, chosen, allow_paid=False)
               prices = match.get('_parsedPricing') or {'prompt': 0.0, 'completion': 0.0}
 
-          # pricing OpenRouter suele ser USD por token; reportar por 1M.
           p_prompt = float(prices.get('prompt') or 0.0) * 1_000_000
           p_completion = float(prices.get('completion') or 0.0) * 1_000_000
           out = {
               'probes': probes,
               'chosen': chosen,
               'kind': kind,
+              'skipFree': skip_free,
               'pricingPer1M': {'prompt': p_prompt, 'completion': p_completion},
               'pricingRaw': prices,
           }
@@ -195,24 +210,13 @@ jobs:
               fh.write(f'BENCH_MAX_TURNS={max_turns}\n')
           print('chosen', chosen, kind, 'pricing/1M', p_prompt, p_completion)
           PY
-          cp "$STATE" smoke-out/or-proxy-count.json || true
+          # GITHUB_ENV no aplica dentro del mismo step; leer probe.json.
+          BENCH_MODEL="$(python3 -c "import json; print(json.load(open('smoke-out/probe.json'))['chosen'])")"
+          BENCH_MODEL_KIND="$(python3 -c "import json; print(json.load(open('smoke-out/probe.json'))['kind'])")"
+          BENCH_MAX_TURNS="$(python3 -c "import sys; sys.path.insert(0,'.microharness'); import bench as b; print(b.request_budget(b.load_config())[0])")"
+          export BENCH_MODEL BENCH_MODEL_KIND BENCH_MAX_TURNS
+          echo "smoke model=${BENCH_MODEL} kind=${BENCH_MODEL_KIND} turns=${BENCH_MAX_TURNS}"
 
-      - name: Smoke claude -p di hola
-        id: smoke_run
-        run: |
-          mkdir -p smoke-out
-          STATE="${RUNNER_TEMP}/or-proxy-count.json"
-          HOME_TMP="${RUNNER_TEMP}/claude-home-smoke"
-          mkdir -p "$HOME_TMP"
-          # Reusar contador de la sonda (acumulado).
-          python3 .microharness/or_proxy.py --max 100 --state "$STATE" --port 8765 --rpm 20 &
-          PROXY_PID=$!
-          cleanup() { kill "$PROXY_PID" 2>/dev/null || true; }
-          trap cleanup EXIT
-          for i in 1 2 3 4 5 6 7 8 9 10; do
-            if curl -sf "http://127.0.0.1:8765/health" >/dev/null; then break; fi
-            sleep 0.2
-          done
           set +e
           env -u OPENROUTER_API_KEY \
             HOME="$HOME_TMP" \
@@ -271,17 +275,20 @@ jobs:
               result_txt = payload.get('error') if isinstance(payload.get('error'), str) else ''
               if not result_txt and isinstance(payload.get('error'), dict):
                   result_txt = json.dumps(payload.get('error'), ensure_ascii=True)[:400]
+          probe = {}
+          if out.joinpath('probe.json').is_file():
+              probe = json.loads(out.joinpath('probe.json').read_text(encoding='utf-8'))
           diag = {
               'ok': exit_code == 0 and payload.get('is_error') is not True and bool(payload),
               'exitCode': exit_code,
               'subtype': payload.get('subtype') if isinstance(payload.get('subtype'), str) else None,
               'isError': payload.get('is_error') if isinstance(payload.get('is_error'), bool) else None,
               'stderrTruncated': b._scrub_secrets(stderr)[:800],
-              'resultTruncated': b._scrub_secrets(str(result_txt or ''))[:800],
+              'resultTruncated': b._scrub_secrets(str(result_txt or ''))[:400],
               'payloadKeys': sorted(payload.keys())[:40] if payload else [],
               'hasPayload': bool(payload),
-              'model': os.environ.get('BENCH_MODEL'),
-              'modelKind': os.environ.get('BENCH_MODEL_KIND'),
+              'model': os.environ.get('BENCH_MODEL') or probe.get('chosen'),
+              'modelKind': os.environ.get('BENCH_MODEL_KIND') or probe.get('kind'),
               'hostVersion': None,
           }
           try:
