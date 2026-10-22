@@ -7,21 +7,21 @@
   "qualityTokenCeilingPct": 15,
   "claim": "efficiency",
   "models": [
-    "openai/gpt-oss-20b"
+    "deepseek/deepseek-v4-flash"
   ],
-  "baselineStatus": "cheap-partial",
+  "baselineStatus": "pending",
   "maxPaidLimitUsd": 10,
-  "maxSpendUsd": 5,
+  "maxSpendUsd": 0.49,
   "spendApproachRatio": 0.8,
   "maxTurnsPerCell": 3,
   "maxRequestsPerRun": 100,
   "notes": [
-    "L\u00ednea base: OPENROUTER_API_KEY; modelos :free o pago econ\u00f3mico con tools.",
-    "Candado de gasto: delta usage \u2264 maxSpendUsd ($5/repo); aborta al acercarse (ratio 0.8).",
-    "Techo del campo limit de la key: maxPaidLimitUsd ($10 cr\u00e9ditos). null/ilimitado aborta.",
-    "Proxy: tope 100 solo POST mensajes reenviados; rate limit 20/min espera/cola (no 429). Key solo en el proxy.",
-    "Sonda \u22643 :free; si fallan \u2192 openai/gpt-oss-20b (pago econ\u00f3mico + tools).",
-    "Matriz nueva 22 oct: maxTurnsPerCell=3 \u2192 30\u00d73=90 \u2264 100. Sin mezclar celdas viejas.",
-    "Baseline nemotron 16/14 archivado (no comparable)."
+    "Baseline 22 oct 9:51 Cancún: deepseek/deepseek-v4-flash (~$0.091/$0.182 por 1M).",
+    "Presupuesto NUEVO de este repo: 100 requests (contador reiniciado; prior=0).",
+    "Candado gasto: usage delta ≤ maxSpendUsd=$0.49 (fail-closed; aborta al acercarse ratio 0.8).",
+    "Total ambos repos (microsdd+CC) ≤ $0.99; este repo $0.49.",
+    "Proxy 0755fde+: solo POST mensajes cuentan; rpm 20/min espera/cola; key solo en proxy.",
+    "Sonda: 1 celda 01-correccion-localizada / base; si falla → no matriz.",
+    "Matriz si sonda OK: N=3 balanceado (30 celdas). gpt-oss-20b archivado, no mezclar."
   ]
 }

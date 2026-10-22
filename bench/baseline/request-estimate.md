@@ -1,35 +1,20 @@
-# Estimación y plan — matriz nueva (22 oct)
+# Estimación — baseline DeepSeek (22 oct 9:51 Cancún)
 
-## Presupuesto
+## Presupuesto NUEVO (reiniciado)
 
-| Concepto | Requests |
+| Concepto | Valor |
 |---|---|
-| Tope duro repo (proxy) | 100 |
-| Rate limit proxy | 20/min espera/cola (no rechaza con 429) |
-| Qué cuenta | Solo POST `/v1/messages` y `/v1/chat/completions` reenviados |
-| Ya contados (prior conservador) | ~4–5 |
-| Restante | ~95 |
-| Matriz cheap N=3 | 30 celdas |
-| `maxTurnsPerCell` | **3** → estimación 30×3 = **90** ≤ 100 |
-| Gasto máximo | **$5** / repo (delta usage; aborta al ≥80%) |
+| Tope HTTP repo | **100** (contador desde 0; prior=0) |
+| Candado gasto | **$0.49** usage Δ (aborta ≥80% = $0.392) |
+| Ambos repos | ≤ $0.99 total (este repo $0.49) |
+| Modelo | `deepseek/deepseek-v4-flash` ≈ $0.091 / $0.182 /1M |
+| Sonda | 1 celda × ≤3 turnos ≈ 1–5 HTTP |
+| Matriz N=3 | 30 celdas × 3 turnos = 90 ≤ resto tras sonda |
 
-Si el proxy o la cuota `:free` (cuando aplica) no dan para otra celda → resto `pending`.
-Sin minN en ambos brazos → veredicto **NO CONCLUYENTE**.
+gpt-oss-20b (98/100, Δ≈$0.035) **archivado**; no fusionar celdas.
 
-## Modelo
+## Flujo
 
-Candidatos `:free` con `tools`/`tool_choice` (excl. familia nemotron rota), máx. 3 sondas:
-
-1. `google/gemma-4-31b-it:free`
-2. `google/gemma-4-26b-a4b-it:free`
-3. `poolside/laguna-s-2.1:free`
-
-Si todos fallan (404/cuota/agotado): fallback pago económico con tools —
-
-- `openai/gpt-oss-20b` — ~$0.018 / $0.09 por 1M tokens (prompt/completion); tool use.
-  Mismo ID preferido para alinear con CodeConductor cuando sea viable.
-
-## No mezclar
-
-Celdas de `archive-nemotron-cheap-partial-2026-10-19/` **fuera** del reporte
-nuevo. Sin `priorReport` / sin fusionar las 16 viejas.
+1. Sonda: `01-correccion-localizada` / `base` / rep 0.
+2. Si `success` falso → **parar** y reportar (sin matriz).
+3. Si éxito → cheap N=3 balanceado por brazo en Actions.

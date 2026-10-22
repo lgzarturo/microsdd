@@ -36,13 +36,13 @@ DEFAULT_CONFIG = {
     'baselineStatus': 'pending',
     # Techo del campo `limit` de la key (créditos en cuenta; Arturo: $10).
     'maxPaidLimitUsd': 10,
-    # Candado de gasto por repo: delta usage antes/después (Arturo: $5).
-    'maxSpendUsd': 5,
+    # Candado de gasto por repo: delta usage (Arturo 22 oct 9:51: $0.49).
+    'maxSpendUsd': 0.49,
     # Fracción del tope a partir de la cual se aborta ("se acerca").
     'spendApproachRatio': 0.8,
     # Presupuesto de solicitudes HTTP al modelo (turnos agénticos), no celdas.
     # Tope duro por repo (OpenRouter): 100; el proxy local rechaza el 101+.
-    # maxTurnsPerCell=3 → cheap 30×3=90 ≤ 100 (matriz nueva 22 oct).
+    # maxTurnsPerCell=3 → cheap 30×3=90 ≤ 100.
     'maxTurnsPerCell': 3,
     'maxRequestsPerRun': 100,
 }
@@ -50,8 +50,8 @@ DEFAULT_CONFIG = {
 FREE_RPM = 20
 FREE_RPD_LOW = 50  # < 10 créditos comprados
 FREE_RPD_HIGH = 1000
-# Fallback pago económico con tool use (alineable con CodeConductor).
-DEFAULT_PAID_FALLBACK_MODEL = 'openai/gpt-oss-20b'
+# Modelo baseline pago (Arturo 22 oct 9:51 Cancún).
+DEFAULT_PAID_FALLBACK_MODEL = 'deepseek/deepseek-v4-flash'
 
 
 class BenchError(Exception):
@@ -202,7 +202,7 @@ def check_openrouter_spend_lock(
     n_total: int,
     *,
     max_paid_limit_usd: float = 10.0,
-    max_spend_usd: float = 5.0,
+    max_spend_usd: float = 0.49,
     require_free_quota: bool = False,
     data: dict | None = None,
 ) -> dict:
@@ -270,7 +270,7 @@ def assert_spend_within_cap(
     api_key: str,
     usage_before: float,
     *,
-    max_spend_usd: float = 5.0,
+    max_spend_usd: float = 0.49,
     approach_ratio: float = 0.8,
     data: dict | None = None,
 ) -> float:

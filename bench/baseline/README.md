@@ -1,23 +1,18 @@
 # Línea base
 
-> **Estado: `cheap-partial` (matriz nueva).** Nemotron 16/14 archivado; no comparable.
+> **Estado: pendiente (matriz DeepSeek).** gpt-oss-20b cheap-partial archivado en
+> `archive-gpt-oss-20b-cheap-partial-2026-10-22/` — **no comparable**.
 
-## Cheap (N=3) — 2026-10-22 (run 39790751254)
+## Baseline DeepSeek (22 oct 2026, 9:51 Cancún)
 
 | Campo | Valor |
 |---|---|
-| Modelo | `openai/gpt-oss-20b` (pago; `:free` en 429) |
-| Precio | ~$0.018 / $0.09 por 1M (prompt/completion) |
-| Run | https://github.com/lgzarturo/microsdd/actions/runs/39790751254 |
-| Veredicto | `NO CONCLUYENTE` |
-| Celdas válidas / pendientes | 25 / 5 (de 30) |
-| Éxito | base 0/14 · treatment 0/11 |
-| Requests | 98 / 100 |
-| `usage` delta | ≈ $0.0347 (candado $5 OK) |
-| Archivos | `bench-report.sanitized.*`, `usage-*.json`, `or-proxy-count.json`, `smoke.sanitized.json`, `probe.sanitized.json` |
+| Modelo | `deepseek/deepseek-v4-flash` |
+| Precio | ~$0.091 / $0.182 por 1M (prompt/completion) |
+| Tope HTTP | **100 nuevos** (contador reiniciado; documentado) |
+| Candado | gasto máx. **$0.49**/repo (usage Δ; fail-closed) |
+| Sonda | 1 celda `01-correccion-localizada` / `base`; sin éxito → no matriz |
+| Matriz | N=3 balanceado si sonda OK |
+| Proxy | `0755fde+` (solo POST mensajes; rpm espera/cola) |
 
-## Candado (Arturo 22 oct)
-
-- Gasto máximo **$5/repo** (usage antes/después; aborta al acercarse).
-- Tope **100** HTTP acumulado (solo POST mensajes en head del PR; este run usó proxy previo).
-- Key solo en el proxy.
+Ver `request-estimate.md`.
