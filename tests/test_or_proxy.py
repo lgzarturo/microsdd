@@ -169,7 +169,12 @@ class ProxyServerTests(unittest.TestCase):
         self.assertEqual(resp.status, 200)
         self.assertEqual(json.loads(raw), {'ok': True})
         self.assertEqual(len(self.upstream_hits), 1)
-        self.assertEqual(self.upstream_hits[0]['body'], payload)
+        forwarded = json.loads(self.upstream_hits[0]['body'].decode('utf-8'))
+        original = json.loads(payload.decode('utf-8'))
+        self.assertEqual(forwarded.get('model'), original.get('model'))
+        self.assertEqual(forwarded.get('messages'), original.get('messages'))
+        # El proxy inyecta provider.allow_fallbacks si el cliente no lo envió.
+        self.assertEqual(forwarded.get('provider', {}).get('allow_fallbacks'), True)
 
     def test_third_request_rejected_when_max_2(self):
         self._post()

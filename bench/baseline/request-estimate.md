@@ -41,4 +41,14 @@ Tope por celda con `--max-turns 6`: hasta 6 turnos del modelo pedido, más llama
 6. Cortar si el contador del proxy o `remaining` no da para otra celda completa (`maxTurnsPerCell`). Abort mid-celda → resto `pending` + `write_report`.
 7. **minN desbloqueado ≠ veredicto favorable:** cumplir `nb/nt >= expected` solo deja de forzar `NO CONCLUYENTE` por submuestreo; efficiency/IC95 pueden seguir inconclusos o rechazar.
 
-Presupuesto esperado del relleno: **~42** + smoke (~4) + prior CC (4) ≈ **50**; peor caso controlado por proxy en **100**.
+Presupuesto esperado del relleno: **~42** + smoke (~4); peor caso controlado por proxy en **100**.
+(Nota: `BENCH_PRIOR_REQUESTS=4` en el workflow es un margen conservador; los 4 del smoke CC cuentan en el tope de CodeConductor, no en el de microsdd.)
+
+## Bloqueo 22 oct (relleno no lanzado)
+
+Preflight vía proxy a OpenRouter (Anthropic `/v1/messages` y OpenAI `/v1/chat/completions`) para `nvidia/nemotron-3-super-120b-a12b:free` devolvió **404** del proveedor **Nvidia**:
+
+`Function 'ac74040f-9fc9-4c5e-ac74-279ba5161d69': Not found for account '…'` (`is_byok: false`).
+
+Runs: 39778368334, 39778590793, 39778769610, 39778989197, 39779161583.
+Claude Code pin 2.1.197 OK; el fallo es backend NVIDIA, no el arnés. Sin cambio de modelo (las 16 celdas válidas usan este ID). Reintentar cuando Nvidia/OpenRouter recuperen el endpoint.
