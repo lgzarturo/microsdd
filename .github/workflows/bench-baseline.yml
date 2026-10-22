@@ -107,12 +107,18 @@ jobs:
           done
           set +e
           # Sin OPENROUTER_API_KEY en el proceso Claude; cwd y HOME en temp.
+          # Fijar todos los slots de modelo al :free (evita helper/haiku de pago
+          # o IDs que OpenRouter resuelve como Function not found).
           env -u OPENROUTER_API_KEY \
             HOME="$HOME_TMP" \
             USERPROFILE="$HOME_TMP" \
             ANTHROPIC_BASE_URL="http://127.0.0.1:8765" \
             ANTHROPIC_AUTH_TOKEN="microsdd-proxy-local" \
             ANTHROPIC_API_KEY="" \
+            ANTHROPIC_DEFAULT_SONNET_MODEL="${BENCH_MODEL}" \
+            ANTHROPIC_DEFAULT_OPUS_MODEL="${BENCH_MODEL}" \
+            ANTHROPIC_DEFAULT_HAIKU_MODEL="${BENCH_MODEL}" \
+            CLAUDE_CODE_SUBAGENT_MODEL="${BENCH_MODEL}" \
             CI=true \
             CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \
             claude -p "di hola" \

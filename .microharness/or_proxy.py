@@ -192,17 +192,23 @@ class _ProxyHandler(BaseHTTPRequestHandler):
             self.server.abort_reason = str(exc)
             self._reject(400, str(exc))
             return
+        # Key real solo aquí (Authorization + x-api-key Anthropic-style).
         headers = {
             'Authorization': f'Bearer {api_key}',
+            'x-api-key': api_key,
             'User-Agent': self.headers.get('User-Agent') or 'microsdd-or-proxy/0',
             'Content-Type': self.headers.get('Content-Type') or 'application/json',
             'Accept': self.headers.get('Accept') or 'application/json',
         }
-        # Propagar cabeceras útiles sin reenviar Authorization del cliente.
-        for hop in ('anthropic-version', 'anthropic-beta', 'x-title', 'http-referer'):
-            val = self.headers.get(hop)
-            if val:
-                headers[hop] = val
+        # Propagar cabeceras del cliente excepto auth/hop-by-hop (token local no sale).
+        skip = {
+            'host', 'content-length', 'transfer-encoding', 'connection',
+            'authorization', 'x-api-key', 'proxy-authorization',
+        }
+        for key, val in self.headers.items():
+            if key.lower() in skip or not val:
+                continue
+            headers.setdefault(key, val)
         req = urllib.request.Request(url, data=body, headers=headers, method=method)
         try:
             with urllib.request.urlopen(req, timeout=self.server.upstream_timeout) as resp:
