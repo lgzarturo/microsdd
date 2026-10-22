@@ -19,7 +19,7 @@
     "Línea base: OPENROUTER_API_KEY; modelos :free o pago económico con tools.",
     "Candado de gasto: delta usage ≤ maxSpendUsd ($5/repo); aborta al acercarse (ratio 0.8).",
     "Techo del campo limit de la key: maxPaidLimitUsd ($10 créditos). null/ilimitado aborta.",
-    "Proxy: tope 100 HTTP acumulado; rate limit 20 req/min fail-closed. Key solo en el proxy.",
+    "Proxy: tope 100 solo POST mensajes reenviados; rate limit 20/min espera/cola (no 429). Key solo en el proxy.",
     "Sonda ≤3 :free; si fallan → openai/gpt-oss-20b (pago económico + tools).",
     "Matriz nueva 22 oct: maxTurnsPerCell=3 → 30×3=90 ≤ 100. Sin mezclar celdas viejas.",
     "Baseline nemotron 16/14 archivado (no comparable)."
