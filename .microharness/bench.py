@@ -42,9 +42,11 @@ DEFAULT_CONFIG = {
     'spendApproachRatio': 0.8,
     # Presupuesto de solicitudes HTTP al modelo (turnos agénticos), no celdas.
     # Tope duro por repo (OpenRouter): 100; el proxy local rechaza el 101+.
-    # maxTurnsPerCell=3 → cheap 30×3=90 ≤ 100.
-    'maxTurnsPerCell': 3,
+    # maxTurns=6 (loop agéntico); 30×6=180 > 100 → allowPartialRun corta con pending.
+    'maxTurnsPerCell': 6,
     'maxRequestsPerRun': 100,
+    # Si la estimación supera el tope, lanzar igual y marcar resto pending al cortar.
+    'allowPartialRun': True,
 }
 # Límites OpenRouter :free / proxy (documentados; riesgo de corte).
 FREE_RPM = 20
@@ -84,14 +86,20 @@ def request_budget(cfg: dict) -> tuple[int, int]:
     return out[0], out[1]
 
 
-def planned_requests(cfg: dict, cells: int) -> int:
-    """Estimación de solicitudes = celdas × maxTurnsPerCell; aborta si supera maxRequestsPerRun."""
+def planned_requests(cfg: dict, cells: int, *, strict: bool | None = None) -> int:
+    """Estimación = celdas × maxTurnsPerCell.
+
+    Si supera maxRequestsPerRun: aborta salvo allowPartialRun (o strict=False),
+    para poder lanzar y dejar pending al cortar por el proxy.
+    """
     max_turns, max_requests = request_budget(cfg)
     estimated = int(cells) * max_turns
     if estimated > max_requests:
-        raise BenchError(
-            f'Solicitudes estimadas {estimated} ({cells} celdas x {max_turns} turnos) '
-            f'superan maxRequestsPerRun={max_requests}; no se lanza la corrida.')
+        allow_partial = bool(cfg.get('allowPartialRun', False)) if strict is None else (not strict)
+        if not allow_partial:
+            raise BenchError(
+                f'Solicitudes estimadas {estimated} ({cells} celdas x {max_turns} turnos) '
+                f'superan maxRequestsPerRun={max_requests}; no se lanza la corrida.')
     return estimated
 
 
@@ -871,8 +879,9 @@ def run_bench(
                 schedule.append((task, 'base', rep))
                 schedule.append((task, 'treatment', rep))
         rng.shuffle(schedule)
-        # Re-intercalar aproximadamente A/B manteniendo pares por tarea.
-        schedule.sort(key=lambda x: (x[0]['id'], x[2], 0 if x[1] == 'base' else 1))
+        # Intercalado por repetición: r0 todas las tareas×brazos, luego r1, luego r2.
+        # Si el tope 100 corta, lo ejecutado queda balanceado entre brazos/tareas.
+        schedule.sort(key=lambda x: (x[2], x[0]['id'], 0 if x[1] == 'base' else 1))
         n_schedule = len(schedule)
 
     if not skip_key_check and not isinstance(provider, FakeProvider):

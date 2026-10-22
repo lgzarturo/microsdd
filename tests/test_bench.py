@@ -551,8 +551,9 @@ class BenchRequestBudgetTests(unittest.TestCase):
                             config=cfg, skip_key_check=True)
 
     def test_default_budget_config_values_and_fake_run(self):
-        self.assertEqual(self.b.DEFAULT_CONFIG['maxTurnsPerCell'], 3)
+        self.assertEqual(self.b.DEFAULT_CONFIG['maxTurnsPerCell'], 6)
         self.assertEqual(self.b.DEFAULT_CONFIG['maxRequestsPerRun'], 100)
+        self.assertIs(self.b.DEFAULT_CONFIG['allowPartialRun'], True)
         report = self.b.run_bench(
             provider=self.b.FakeProvider(seed=1), cheap=True,
             config=self._cfg(), skip_key_check=True)
@@ -560,10 +561,11 @@ class BenchRequestBudgetTests(unittest.TestCase):
 
     def test_bench_config_json_declares_budget(self):
         raw = json.loads((ROOT / 'bench' / 'config.json').read_text(encoding='utf-8'))
-        self.assertEqual(raw.get('maxTurnsPerCell'), 3)
+        self.assertEqual(raw.get('maxTurnsPerCell'), 6)
         self.assertEqual(raw.get('maxRequestsPerRun'), 100)
+        self.assertIs(raw.get('allowPartialRun'), True)
         cfg = self.b.load_config()
-        self.assertEqual(self.b.request_budget(cfg), (3, 100))
+        self.assertEqual(self.b.request_budget(cfg), (6, 100))
         self.assertEqual(cfg.get('baselineStatus'), 'pending')
 
     # --- corrida real simulada ---
@@ -606,32 +608,44 @@ class BenchRequestBudgetTests(unittest.TestCase):
 
     def test_aborts_before_first_cell_when_estimate_exceeds_run_budget(self):
         stub = self._stub(1)
-        cfg = self._cfg(maxTurnsPerCell=8, maxRequestsPerRun=200)
+        cfg = self._cfg(maxTurnsPerCell=8, maxRequestsPerRun=200, allowPartialRun=False)
         with self.assertRaises(self.b.BenchError):
             self._real_run(cfg, stub, lambda i: 1000)
         self.assertEqual(stub.count, 0)
 
     def test_aborts_before_first_cell_when_estimate_exceeds_remaining(self):
         stub = self._stub(1)
-        cfg = self._cfg(maxTurnsPerCell=8, maxRequestsPerRun=1000)
+        cfg = self._cfg(maxTurnsPerCell=8, maxRequestsPerRun=1000, allowPartialRun=False)
         with self.assertRaises(self.b.BenchError):
             self._real_run(cfg, stub, lambda i: 100)
         self.assertEqual(stub.count, 0)
 
     def test_default_budget_allows_cheap_run(self):
-        # Con maxTurns=3, 30×3=90 ≤ 100; cheap cabe.
-        stub = self._stub(1)
-        self._real_run(self._cfg(), stub, lambda i: 1000)
+        # allowPartialRun: 30×6=180 > 100 → lanza; con 6 calls/celda corta ~16 celdas.
+        stub = self._stub(6)
+        report = self._real_run(self._cfg(), stub, lambda i: 1000)
         self.assertGreaterEqual(stub.count, 1)
+        self.assertLess(stub.count, 30)
+        self.assertGreater(len(report['pendingCells']), 0)
+        self.assertEqual(report['requestsUsed'], 96)  # 16×6; headroom < 6 para la 17ª
 
     def test_planned_requests_formula(self):
+        # Default allowPartialRun=True: 30×6=180 no aborta.
         cfg = self._cfg()
-        self.assertEqual(self.b.planned_requests(cfg, 30), 90)
+        self.assertEqual(self.b.planned_requests(cfg, 30), 180)
+        strict = self._cfg(allowPartialRun=False, maxTurnsPerCell=3)
+        self.assertEqual(self.b.planned_requests(strict, 30), 90)
         with self.assertRaises(self.b.BenchError):
-            self.b.planned_requests(cfg, 34)  # 102 > 100
-        cfg6 = self._cfg(maxTurnsPerCell=6)
+            self.b.planned_requests(strict, 34)  # 102 > 100
         with self.assertRaises(self.b.BenchError):
-            self.b.planned_requests(cfg6, 30)  # 180 > 100
+            self.b.planned_requests(
+                self._cfg(maxTurnsPerCell=6, allowPartialRun=False), 30)
+        # strict=False fuerza parcial aunque allowPartialRun sea False.
+        self.assertEqual(
+            self.b.planned_requests(
+                self._cfg(maxTurnsPerCell=6, allowPartialRun=False), 30,
+                strict=False),
+            180)
 
     def test_cuts_when_remaining_runs_out(self):
         stub = self._stub(4)
@@ -678,8 +692,46 @@ class BenchRequestBudgetTests(unittest.TestCase):
             config=self._cfg(), skip_key_check=True)
         self.assertIsNone(report['requestsUsed'])
         self.assertEqual(report['requestBudget'], 100)
-        self.assertEqual(report['maxTurnsPerCell'], 3)
+        self.assertEqual(report['maxTurnsPerCell'], 6)
         self.assertIn('requests: None/100', self.b.format_report_md(report))
+
+    def test_schedule_interleaved_by_repetition(self):
+        # Orden: r0 todas tareas×brazos, luego r1, luego r2.
+        seen: list[tuple] = []
+
+        class Spy:
+            def run_cell(self, task, variant, repetition, workdir=None):
+                seen.append((repetition, task['id'], variant))
+                return {
+                    'success': True, 'pending': False, 'status': 'ok',
+                    'iterations': 1, 'retries': 0, 'calls': 1,
+                    'tokens': 1, 'costUsd': 0.0, 'durationMs': 1,
+                    'cacheRate': 0.0, 'firstTry': True,
+                    'modelId': 'meta/llama:free', 'seed': None,
+                }
+
+        cfg = self._cfg(maxTurnsPerCell=1, maxRequestsPerRun=1000,
+                        allowPartialRun=False)
+        with mock.patch('urllib.request.urlopen',
+                        side_effect=lambda *_a, **_k: _resp(
+                            {'data': self._key(1000)})):
+            with mock.patch.dict(os.environ, {'OPENROUTER_API_KEY': 'sk-test'}):
+                self.b.run_bench(
+                    provider=Spy(), cheap=True, config=cfg, skip_key_check=False)
+        self.assertEqual(len(seen), 30)
+        reps = [r for r, _t, _v in seen]
+        self.assertEqual(reps, [0] * 10 + [1] * 10 + [2] * 10)
+        # Dentro de cada rep: pares (task, base)/(task, treatment) por taskId.
+        for block in (seen[0:10], seen[10:20], seen[20:30]):
+            pairs = [
+                (block[i][1], block[i][2], block[i + 1][1], block[i + 1][2])
+                for i in range(0, 10, 2)
+            ]
+            for t_base, v_base, t_treat, v_treat in pairs:
+                self.assertEqual(t_base, t_treat)
+                self.assertEqual(v_base, 'base')
+                self.assertEqual(v_treat, 'treatment')
+            self.assertEqual([p[0] for p in pairs], sorted(p[0] for p in pairs))
 
     def test_min_interval_comment_does_not_promise_rpm(self):
         src = BENCH_PATH.read_text(encoding='utf-8')
@@ -800,7 +852,7 @@ class BenchRequestBudgetTests(unittest.TestCase):
             seen['n_total'] = n_total
             return self._key(1000)
 
-        # maxTurns=3 → 30×3=90; presupuesto 200 solo para ejercitar cableado.
+        # maxTurns=6 → 30×6=180; presupuesto 200 solo para ejercitar cableado.
         cfg = self._cfg(maxRequestsPerRun=200)
         prov_cls = mock.Mock()
         fake_proxy = mock.Mock()
@@ -816,19 +868,47 @@ class BenchRequestBudgetTests(unittest.TestCase):
                 mock.patch.dict(os.environ, {'OPENROUTER_API_KEY': 'sk-test'}):
             code = self.b.cmd_bench(['run', '--cheap', '--provider', 'openrouter'])
         self.assertEqual(code, 1)
-        self.assertEqual(seen['n_total'], 3 * 5 * 2 * 3)
-        self.assertEqual(prov_cls.call_args.kwargs.get('max_turns'), 3)
+        self.assertEqual(seen['n_total'], 3 * 5 * 2 * 6)
+        self.assertEqual(prov_cls.call_args.kwargs.get('max_turns'), 6)
         self.assertIs(prov_cls.call_args.kwargs.get('proxy'), fake_proxy)
         fake_proxy.start.assert_called()
         fake_proxy.stop.assert_called()
 
     def test_cmd_bench_cheap_aborts_when_estimate_exceeds_100(self):
-        # Con maxTurns=6 (forzado) la cheap 30×6=180 > 100 aborta.
-        cfg = self._cfg(maxTurnsPerCell=6, maxRequestsPerRun=100)
+        # Sin allowPartialRun, 30×6=180 > 100 aborta antes de gastar.
+        cfg = self._cfg(maxTurnsPerCell=6, maxRequestsPerRun=100, allowPartialRun=False)
         with mock.patch.object(self.b, 'load_config', return_value=cfg), \
                 mock.patch.dict(os.environ, {'OPENROUTER_API_KEY': 'sk-test'}):
             code = self.b.cmd_bench(['run', '--cheap', '--provider', 'openrouter'])
         self.assertEqual(code, 1)
+
+    def test_cmd_bench_partial_allows_estimate_over_100(self):
+        # Con allowPartialRun, 180 > 100 no aborta en planned_requests.
+        seen = {}
+
+        def fake_lock(api_key, n_total, **_k):
+            seen['n_total'] = n_total
+            return self._key(1000)
+
+        cfg = self._cfg(maxTurnsPerCell=6, maxRequestsPerRun=100, allowPartialRun=True)
+        prov_cls = mock.Mock()
+        fake_proxy = mock.Mock()
+        fake_proxy.assert_readable = mock.Mock(return_value={'count': 0, 'max': 100})
+        fake_mod = mock.Mock(
+            OpenRouterCountingProxy=mock.Mock(return_value=fake_proxy))
+        with mock.patch.object(self.b, 'load_config', return_value=cfg), \
+                mock.patch.object(self.b, 'check_openrouter_spend_lock',
+                                  side_effect=fake_lock), \
+                mock.patch.object(self.b, 'verify_openrouter_model_pricing'), \
+                mock.patch.object(self.b, '_load_or_proxy', return_value=fake_mod), \
+                mock.patch.object(self.b, 'ClaudeCodeProvider', prov_cls), \
+                mock.patch.object(self.b, 'run_bench',
+                                  side_effect=self.b.BenchError('stop')), \
+                mock.patch.dict(os.environ, {'OPENROUTER_API_KEY': 'sk-test'}):
+            code = self.b.cmd_bench(['run', '--cheap', '--provider', 'openrouter'])
+        self.assertEqual(code, 1)
+        self.assertEqual(seen['n_total'], 180)
+        self.assertEqual(prov_cls.call_args.kwargs.get('max_turns'), 6)
 
     def test_remaining_missing_after_cell_is_fail_closed(self):
         stub = self._stub(1)
@@ -841,7 +921,7 @@ class BenchRequestBudgetTests(unittest.TestCase):
                 del data['free_model_daily_requests']
             return _resp({'data': data})
 
-        cfg = self._cfg(maxRequestsPerRun=200)  # 30×3 cabe; el fallo es remaining ausente
+        cfg = self._cfg(maxRequestsPerRun=200)  # 30×6=180 ≤ 200; el fallo es remaining ausente
         with mock.patch('urllib.request.urlopen', side_effect=fake_urlopen):
             with mock.patch.dict(os.environ, {'OPENROUTER_API_KEY': 'sk-test'}):
                 report = self.b.run_bench(

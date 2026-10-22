@@ -3,7 +3,8 @@
 # Secret: OPENROUTER_API_KEY. Claude Code pin 2.1.197.
 #
 # Presupuesto NUEVO: 100 requests (prior=0) · candado $0.49 usage Δ.
-# Proxy 0755fde+: solo POST mensajes; rpm 20/min espera; key solo aquí.
+# maxTurnsPerCell=6; allowPartialRun (30×6=180 > 100 → pending al cortar).
+# Matriz intercalada por rep (r0…r1…r2). Proxy: solo POST; rpm espera.
 # Sonda: 1 celda 01/base. Sin éxito → no matriz. Con éxito → N=3.
 name: bench-baseline
 on:
@@ -78,8 +79,9 @@ jobs:
           cfg['maxSpendUsd'] = 0.49
           cfg['spendApproachRatio'] = 0.8
           cfg['maxPaidLimitUsd'] = 10
-          cfg['maxTurnsPerCell'] = 3
+          cfg['maxTurnsPerCell'] = 6
           cfg['maxRequestsPerRun'] = 100
+          cfg['allowPartialRun'] = True
           cfg['requestsAlreadyUsed'] = 0
           cfg.pop('priorReport', None)
           cfg['onlyCells'] = [{
@@ -93,7 +95,7 @@ jobs:
           with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as fh:
               fh.write(f'BENCH_PROXY_STATE={state}\n')
               fh.write('BENCH_PRIOR_REQUESTS=0\n')
-          print('probe onlyCells', cfg['onlyCells'], 'model', model)
+          print('probe onlyCells', cfg['onlyCells'], 'model', model, 'maxTurns', 6)
           PY
 
       - name: Candado + precio DeepSeek
@@ -317,8 +319,9 @@ jobs:
           cfg['maxSpendUsd'] = 0.49
           cfg['spendApproachRatio'] = 0.8
           cfg['maxPaidLimitUsd'] = 10
-          cfg['maxTurnsPerCell'] = 3
+          cfg['maxTurnsPerCell'] = 6
           cfg['maxRequestsPerRun'] = 100
+          cfg['allowPartialRun'] = True  # 30×6=180 > 100 → pending al cortar
           cfg.pop('priorReport', None)
           cfg.pop('onlyCells', None)  # matriz completa N=3
           prior = 0
@@ -333,12 +336,12 @@ jobs:
               out_state = Path(os.environ.get('RUNNER_TEMP', '/tmp')) / 'or-proxy-count.json'
               out_state.write_text(json.dumps({'count': 0, 'max': 100}) + '\n', encoding='utf-8')
           cfg['requestsAlreadyUsed'] = prior
-          # Cabe 30×3=90? Si prior alto, planned_requests en candado abortará.
           p.write_text(json.dumps(cfg, indent=2) + '\n', encoding='utf-8')
           with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as fh:
               fh.write(f'BENCH_PROXY_STATE={out_state}\n')
               fh.write(f'BENCH_PRIOR_REQUESTS={prior}\n')
-          print('matrix N=3 prior', prior, 'model', os.environ['BENCH_MODEL'])
+          print('matrix N=3 prior', prior, 'model', os.environ['BENCH_MODEL'],
+                'maxTurns=6 allowPartial=True')
           PY
 
       - name: Candado pre-matriz ($0.49)
@@ -351,12 +354,9 @@ jobs:
           key = os.environ.get('OPENROUTER_API_KEY') or ''
           model = os.environ['BENCH_MODEL']
           cfg = b.load_config()
+          # allowPartialRun: estima 180 pero no aborta; el proxy corta en 100.
           est = b.planned_requests(cfg, 30)
           prior = int(os.environ.get('BENCH_PRIOR_REQUESTS') or '0')
-          # Cabe en el tope acumulado?
-          if prior + est > 100:
-              raise SystemExit(
-                  f'no cabe matriz: prior={prior} + est={est} > 100')
           max_cap = float(cfg.get('maxPaidLimitUsd', 10))
           max_spend = float(cfg.get('maxSpendUsd', 0.49))
           data = b.check_openrouter_spend_lock(
@@ -373,8 +373,10 @@ jobs:
                   'pricingCompletionPer1M': os.environ.get('BENCH_PRICING_COMPLETION'),
                   'estimatedRequests': est, 'priorRequests': prior,
                   'maxSpendUsd': max_spend,
+                  'allowPartialRun': True,
+                  'maxTurnsPerCell': 6,
               }, indent=2) + '\n', encoding='utf-8')
-          print('lock ok est', est, 'prior', prior)
+          print('lock ok est', est, 'prior', prior, 'partial', True)
           PY
 
       - name: Run cheap N=3
