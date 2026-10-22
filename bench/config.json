@@ -9,19 +9,19 @@
   "models": [
     "deepseek/deepseek-v4-flash"
   ],
-  "baselineStatus": "pending",
+  "baselineStatus": "probe-failed",
   "maxPaidLimitUsd": 10,
   "maxSpendUsd": 0.49,
   "spendApproachRatio": 0.8,
   "maxTurnsPerCell": 3,
   "maxRequestsPerRun": 100,
   "notes": [
-    "Baseline 22 oct 9:51 Cancún: deepseek/deepseek-v4-flash (~$0.091/$0.182 por 1M).",
+    "Baseline 22 oct 9:51 Canc\u00fan: deepseek/deepseek-v4-flash (~$0.091/$0.182 por 1M).",
     "Presupuesto NUEVO de este repo: 100 requests (contador reiniciado; prior=0).",
-    "Candado gasto: usage delta ≤ maxSpendUsd=$0.49 (fail-closed; aborta al acercarse ratio 0.8).",
-    "Total ambos repos (microsdd+CC) ≤ $0.99; este repo $0.49.",
+    "Candado gasto: usage delta \u2264 maxSpendUsd=$0.49 (fail-closed; aborta al acercarse ratio 0.8).",
+    "Total ambos repos (microsdd+CC) \u2264 $0.99; este repo $0.49.",
     "Proxy 0755fde+: solo POST mensajes cuentan; rpm 20/min espera/cola; key solo en proxy.",
-    "Sonda: 1 celda 01-correccion-localizada / base; si falla → no matriz.",
+    "Sonda: 1 celda 01-correccion-localizada / base; si falla \u2192 no matriz.",
     "Matriz si sonda OK: N=3 balanceado (30 celdas). gpt-oss-20b archivado, no mezclar."
   ]
 }
