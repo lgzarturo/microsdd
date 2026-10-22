@@ -105,42 +105,52 @@ jobs:
             if curl -sf "http://127.0.0.1:8765/health" >/dev/null; then break; fi
             sleep 0.2
           done
-          # Preflight: 1 request Anthropic-messages vía proxy (sin tools) para
-          # distinguir outage NVIDIA/OpenRouter vs fallo de Claude Code.
+          # Preflight: Anthropic /messages y OpenAI /chat/completions vía proxy.
           python3 <<'PY'
           import json, os, urllib.error, urllib.request
           from pathlib import Path
-          model = os.environ['BENCH_MODEL']
-          body = json.dumps({
-              'model': model,
-              'max_tokens': 16,
-              'messages': [{'role': 'user', 'content': 'di hola'}],
-          }).encode()
-          req = urllib.request.Request(
-              'http://127.0.0.1:8765/v1/messages',
-              data=body,
-              headers={
+
+          def call(path, payload, extra_headers=None):
+              body = json.dumps(payload).encode()
+              headers = {
                   'Authorization': 'Bearer microsdd-proxy-local',
                   'Content-Type': 'application/json',
-                  'anthropic-version': '2023-06-01',
-              },
-              method='POST',
-          )
-          out = {'ok': False}
-          try:
-              with urllib.request.urlopen(req, timeout=120) as resp:
-                  raw = resp.read()[:800]
-                  out = {'ok': True, 'status': resp.status, 'bodyTruncated': raw.decode('utf-8', 'replace')}
-          except urllib.error.HTTPError as exc:
-              raw = (exc.read() if exc.fp else b'')[:800]
-              out = {'ok': False, 'status': exc.code, 'bodyTruncated': raw.decode('utf-8', 'replace')}
-          except Exception as exc:
-              out = {'ok': False, 'status': None, 'error': type(exc).__name__ + ': ' + str(exc)[:200]}
+              }
+              if extra_headers:
+                  headers.update(extra_headers)
+              req = urllib.request.Request(
+                  'http://127.0.0.1:8765' + path, data=body, headers=headers, method='POST')
+              try:
+                  with urllib.request.urlopen(req, timeout=120) as resp:
+                      raw = resp.read()[:800]
+                      return {'ok': True, 'status': resp.status,
+                              'bodyTruncated': raw.decode('utf-8', 'replace')}
+              except urllib.error.HTTPError as exc:
+                  raw = (exc.read() if exc.fp else b'')[:800]
+                  return {'ok': False, 'status': exc.code,
+                          'bodyTruncated': raw.decode('utf-8', 'replace')}
+              except Exception as exc:
+                  return {'ok': False, 'status': None,
+                          'error': type(exc).__name__ + ': ' + str(exc)[:200]}
+
+          model = os.environ['BENCH_MODEL']
+          out = {
+              'anthropic': call('/v1/messages', {
+                  'model': model, 'max_tokens': 16,
+                  'messages': [{'role': 'user', 'content': 'di hola'}],
+              }, {'anthropic-version': '2023-06-01'}),
+              'openai': call('/v1/chat/completions', {
+                  'model': model, 'max_tokens': 16,
+                  'messages': [{'role': 'user', 'content': 'di hola'}],
+              }),
+          }
           Path('smoke-out/preflight.json').write_text(
               json.dumps(out, indent=2, ensure_ascii=True) + '\n', encoding='utf-8')
-          print('preflight', json.dumps(out, ensure_ascii=True)[:500])
-          if not out.get('ok'):
-              raise SystemExit('preflight OpenRouter vía proxy falló (modelo/backend)')
+          print('preflight', json.dumps(out, ensure_ascii=True)[:800])
+          if not (out['anthropic'].get('ok') or out['openai'].get('ok')):
+              raise SystemExit(
+                  'preflight: backend NVIDIA/OpenRouter caído para el modelo :free '
+                  '(Function not found). No se lanza Claude.')
           PY
           set +e
           # Sin OPENROUTER_API_KEY en el proceso Claude; cwd y HOME en temp.

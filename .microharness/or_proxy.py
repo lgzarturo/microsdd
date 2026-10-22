@@ -192,6 +192,20 @@ class _ProxyHandler(BaseHTTPRequestHandler):
             self.server.abort_reason = str(exc)
             self._reject(400, str(exc))
             return
+        # Permitir fallbacks de proveedor en OpenRouter (NVIDIA Function-not-found).
+        if body and method in ('POST', 'PUT', 'PATCH'):
+            ctype = (self.headers.get('Content-Type') or '').lower()
+            if 'json' in ctype:
+                try:
+                    parsed = json.loads(body.decode('utf-8'))
+                except (UnicodeDecodeError, ValueError):
+                    parsed = None
+                if isinstance(parsed, dict) and 'provider' not in parsed:
+                    parsed['provider'] = {
+                        'allow_fallbacks': True,
+                        'require_parameters': False,
+                    }
+                    body = json.dumps(parsed, separators=(',', ':')).encode('utf-8')
         # Key real solo aquí (Authorization + x-api-key Anthropic-style).
         headers = {
             'Authorization': f'Bearer {api_key}',
