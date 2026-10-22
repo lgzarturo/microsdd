@@ -16,6 +16,8 @@
 
 Tareas 04 y 05 quedaron pendientes (cuota/restantes); varias celdas de 03 con `isError`.
 
+Estimación y plan de relleno (14 pendientes, tope 100 HTTP/repo): ver `request-estimate.md`.
+
 ## Candado (regla Arturo)
 
 - Solo modelos con sufijo exacto `:free`.

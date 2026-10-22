@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import math
 import os
@@ -36,8 +37,9 @@ DEFAULT_CONFIG = {
     # Tope de limit de la key OpenRouter (USD/mes). Arturo: key real con $5.
     'maxPaidLimitUsd': 5,
     # Presupuesto de solicitudes HTTP al modelo (turnos agénticos), no celdas.
+    # Tope duro por repo (OpenRouter): 100; el proxy local rechaza el 101+.
     'maxTurnsPerCell': 6,
-    'maxRequestsPerRun': 200,
+    'maxRequestsPerRun': 100,
 }
 # Límites OpenRouter :free (documentados; riesgo de corte).
 FREE_RPM = 20
@@ -423,20 +425,39 @@ def _scrub_secrets(text: str) -> str:
     return out
 
 
-class ClaudeCodeProvider:
-    """Bench agéntico vía Claude Code + OpenRouter (:free)."""
+def _load_or_proxy():
+    """Carga or_proxy.py del mismo directorio (sin empaquetar)."""
+    path = HERE / 'or_proxy.py'
+    if not path.is_file():
+        raise BenchError(f'Falta {path}; el provider openrouter exige el proxy contador.')
+    spec = importlib.util.spec_from_file_location('microsdd_or_proxy', path)
+    if spec is None or spec.loader is None:
+        raise BenchError(f'No se pudo cargar {path}')
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
-    MIN_INTERVAL_S = 3.1  # pausa entre celdas; no controla el ritmo interno de Claude Code
+
+class ClaudeCodeProvider:
+    """Bench agéntico vía Claude Code + OpenRouter (:free) a través del proxy contador."""
+
+    MIN_INTERVAL_S = 3.1  # pausa entre celdas; el proxy cuenta cada HTTP a OpenRouter
     CELL_TIMEOUT_S = 900
 
     def __init__(self, model_id: str, *, claude_bin: str = 'claude',
-                 max_turns: int = DEFAULT_CONFIG['maxTurnsPerCell']):
+                 max_turns: int = DEFAULT_CONFIG['maxTurnsPerCell'],
+                 proxy: Any = None):
         assert_free_model(model_id)
         if type(max_turns) is not int or max_turns < 1:
             raise BenchError(f'max_turns inválido: {max_turns!r}')
+        if proxy is None:
+            raise BenchError(
+                'ClaudeCodeProvider exige proxy contador OpenRouter (fail-closed); '
+                'no se inyecta la key real en el entorno de Claude.')
         self.model_id = model_id
         self.claude_bin = claude_bin
         self.max_turns = max_turns
+        self.proxy = proxy
         self._last_call = 0.0
         self.host_version = self._detect_version()
 
@@ -455,21 +476,20 @@ class ClaudeCodeProvider:
         if elapsed < self.MIN_INTERVAL_S:
             time.sleep(self.MIN_INTERVAL_S - elapsed)
 
-    def _env(self) -> dict[str, str]:
-        env = os.environ.copy()
-        # Key solo desde entorno; no se imprime.
-        or_key = env.get('OPENROUTER_API_KEY') or env.get('ANTHROPIC_AUTH_TOKEN') or ''
-        env['ANTHROPIC_BASE_URL'] = 'https://openrouter.ai/api'
-        env['ANTHROPIC_AUTH_TOKEN'] = or_key
-        env['ANTHROPIC_API_KEY'] = ''
-        env['ANTHROPIC_DEFAULT_SONNET_MODEL'] = self.model_id
-        env['ANTHROPIC_DEFAULT_OPUS_MODEL'] = self.model_id
-        env['ANTHROPIC_DEFAULT_HAIKU_MODEL'] = self.model_id
-        env['CLAUDE_CODE_SUBAGENT_MODEL'] = self.model_id
-        # Evitar prompts interactivos de trust/onboarding en CI.
-        env.setdefault('CI', 'true')
-        env.setdefault('CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC', '1')
-        return env
+    def _assert_proxy_ok(self) -> int:
+        """Fail-closed: contador legible y proxy no abortado. Devuelve count."""
+        try:
+            data = self.proxy.assert_readable()
+        except Exception as exc:
+            raise BenchError(f'contador de requests ilegible (fail-closed): {exc}') from exc
+        if getattr(self.proxy.server, 'aborted', False):
+            reason = getattr(self.proxy.server, 'abort_reason', None) or 'aborted'
+            raise BenchError(f'proxy OpenRouter abortado: {reason}')
+        return int(data['count'])
+
+    def _env(self, *, home: str) -> dict[str, str]:
+        self._assert_proxy_ok()
+        return self.proxy.client_env(self.model_id, home=home)
 
     def _prompt(self, task: dict) -> str:
         title = task.get('title') or task.get('id')
@@ -500,8 +520,13 @@ class ClaudeCodeProvider:
         if workdir is None:
             return self._pending_diag(
                 exit_code=None, stderr='workdir ausente', subtype=None, is_error=True)
+        # Mitiga --dangerously-skip-permissions: cwd y HOME solo en temp;
+        # la key real no entra al env de Claude (solo LOCAL_TOKEN vía proxy).
+        work = Path(workdir)
+        if not work.is_dir():
+            return self._pending_diag(
+                exit_code=None, stderr='workdir inválido', subtype=None, is_error=True)
         self._throttle()
-        env = self._env()
         # Flags compatibles con Claude Code 2.1.197 + OpenRouter (Arturo).
         cmd = [
             self.claude_bin, '-p', self._prompt(task),
@@ -514,9 +539,21 @@ class ClaudeCodeProvider:
         started = time.monotonic()
         self._last_call = started
         try:
-            proc = subprocess.run(
-                cmd, cwd=str(workdir), env=env, capture_output=True, text=True,
-                timeout=self.CELL_TIMEOUT_S, check=False)
+            with tempfile.TemporaryDirectory(prefix='microsdd-claude-home-') as home:
+                env = self._env(home=home)
+                # Defensa: la key real no debe aparecer en el env del cliente.
+                for forbidden in ('OPENROUTER_API_KEY',):
+                    if env.get(forbidden):
+                        raise BenchError(
+                            f'{forbidden} filtrada al entorno de Claude (fail-closed).')
+                if env.get('ANTHROPIC_AUTH_TOKEN') != self.proxy.LOCAL_TOKEN:
+                    raise BenchError(
+                        'ANTHROPIC_AUTH_TOKEN del cliente no es el token local del proxy.')
+                proc = subprocess.run(
+                    cmd, cwd=str(work), env=env, capture_output=True, text=True,
+                    timeout=self.CELL_TIMEOUT_S, check=False)
+        except BenchError:
+            raise
         except (OSError, subprocess.TimeoutExpired) as exc:
             return self._pending_diag(
                 exit_code=None, stderr=str(exc)[:800], subtype=None, is_error=True,
@@ -524,6 +561,8 @@ class ClaudeCodeProvider:
                 duration_ms=int((time.monotonic() - started) * 1000),
             )
         duration_ms = int((time.monotonic() - started) * 1000)
+        # Tras la celda: si el contador no se lee o el proxy abortó, fallar cerrado.
+        self._assert_proxy_ok()
         payload: dict = {}
         raw_out = (proc.stdout or '').strip()
         if raw_out:
@@ -675,6 +714,7 @@ def run_bench(
 
     model_id = model_list[0] if model_list else None
     real = usage_before is not None and api_key is not None
+    proxy = getattr(provider, 'proxy', None)
     requests_used: int | None = 0 if real else None
     cells: list[dict] = []
     pending_rest = False
@@ -682,8 +722,21 @@ def run_bench(
         tmp_path = Path(tmp)
         for task, variant, rep in schedule:
             if real and not pending_rest:
+                used_now = requests_used or 0
+                if proxy is not None:
+                    try:
+                        used_now = int(proxy.read_count())
+                    except Exception as exc:
+                        raise BenchError(
+                            f'contador de requests ilegible antes de celda (fail-closed): {exc}'
+                        ) from exc
+                    if getattr(proxy.server, 'aborted', False):
+                        raise BenchError(
+                            f'proxy OpenRouter abortado: '
+                            f'{getattr(proxy.server, "abort_reason", None) or "aborted"}')
+                    requests_used = used_now
                 # Corte por celda completa: no cabe otra celda con el tope de turnos.
-                if min(max_requests - requests_used, remaining) < max_turns:
+                if min(max_requests - used_now, remaining) < max_turns:
                     pending_rest = True
             if pending_rest:
                 cells.append(_pending_cell(task, variant, rep, model_id))
@@ -715,14 +768,33 @@ def run_bench(
                         '/api/v1/key: free_model_daily_requests ausente tras la celda (fail-closed).')
                 new_remaining = _require_nonneg_int(
                     free, 'remaining', label='free_model_daily_requests.remaining')
-                calls = result.get('calls')
-                turns = calls if type(calls) is int else max_turns
-                requests_used += max(remaining - new_remaining, turns)
+                if proxy is not None:
+                    try:
+                        requests_used = int(proxy.read_count())
+                    except Exception as exc:
+                        raise BenchError(
+                            f'contador de requests ilegible tras celda (fail-closed): {exc}'
+                        ) from exc
+                    if getattr(proxy.server, 'aborted', False):
+                        raise BenchError(
+                            f'proxy OpenRouter abortado: '
+                            f'{getattr(proxy.server, "abort_reason", None) or "aborted"}')
+                else:
+                    calls = result.get('calls')
+                    turns = calls if type(calls) is int else max_turns
+                    requests_used += max(remaining - new_remaining, turns)
                 remaining = new_remaining
 
     usage_after = None
     if usage_before is not None and api_key is not None:
         usage_after = assert_usage_unchanged(api_key, usage_before)
+
+    if real and proxy is not None:
+        try:
+            requests_used = int(proxy.read_count())
+        except Exception as exc:
+            raise BenchError(
+                f'contador de requests ilegible al cerrar (fail-closed): {exc}') from exc
 
     report = aggregate_report(cells, cfg=cfg, claim=claim, cheap=cheap, seed=seed, n=n)
     report['models'] = model_list
@@ -744,9 +816,9 @@ def run_bench(
         'usage no debe subir durante la corrida.',
         '[No verificado] Política de datos y retención de modelos :free de OpenRouter.',
         'Semilla Claude Code: seed=null (sin flag documentado).',
-        f'Presupuesto por turnos: maxTurnsPerCell={max_turns}, maxRequestsPerRun={max_requests}. '
-        f'El ritmo interno de Claude Code (~{FREE_RPM} req/min) no está controlado; '
-        '[No verificado] llamadas de fondo o reintentos no medidos pueden consumir cuota.',
+        f'Presupuesto: maxTurnsPerCell={max_turns}, maxRequestsPerRun={max_requests}; '
+        f'proxy local cuenta cada HTTP a OpenRouter (incl. small-fast) y rechaza el '
+        f'{max_requests + 1}+ (fail-closed si el contador es ilegible).',
     ]
     return report
 
@@ -1036,6 +1108,7 @@ def cmd_bench(argv: list[str]) -> int:
             skip = True
         elif provider_name == 'openrouter':
             skip = False
+            proxy = None
             try:
                 models = list(cfg.get('models') or [])
                 if not models:
@@ -1049,15 +1122,29 @@ def cmd_bench(argv: list[str]) -> int:
                         'OPENROUTER_API_KEY ausente; no se lanza la línea base real. '
                         'Usa --provider fake para pruebas deterministas.')
                 n = int(cfg['nCheap'] if cheap else cfg['n'])
-                max_turns, _ = request_budget(cfg)
+                max_turns, max_requests = request_budget(cfg)
                 max_cap = cfg.get('maxPaidLimitUsd', DEFAULT_CONFIG['maxPaidLimitUsd'])
                 check_openrouter_free_lock(
                     api_key, planned_requests(cfg, n * 5 * 2), max_paid_limit_usd=max_cap)
                 for m in models:
                     verify_openrouter_model_pricing(api_key, m)
-                provider = ClaudeCodeProvider(models[0], max_turns=max_turns)
+                or_proxy = _load_or_proxy()
+                state = Path(tempfile.gettempdir()) / 'microsdd-or-proxy-count.json'
+                proxy = or_proxy.OpenRouterCountingProxy(
+                    api_key, max_requests=max_requests, state_path=state)
+                proxy.start()
+                proxy.assert_readable()
+                provider = ClaudeCodeProvider(
+                    models[0], max_turns=max_turns, proxy=proxy)
             except BenchError as exc:
+                if proxy is not None:
+                    proxy.stop()
                 print(f'ERROR: {exc}', flush=True)
+                return 1
+            except Exception as exc:
+                if proxy is not None:
+                    proxy.stop()
+                print(f'ERROR: proxy OpenRouter: {exc}', flush=True)
                 return 1
         else:
             print(f'ERROR: provider desconocido {provider_name}', flush=True)
@@ -1068,6 +1155,12 @@ def cmd_bench(argv: list[str]) -> int:
         except BenchError as exc:
             print(f'ERROR: {exc}', flush=True)
             return 1
+        finally:
+            if provider_name == 'openrouter':
+                try:
+                    proxy.stop()
+                except Exception:
+                    pass
         dest = out or (Path(os.environ.get('XDG_STATE_HOME')
                             or (Path.home() / '.local' / 'state')) / 'microsdd' / 'bench-last')
         if os.name == 'nt' and out is None:

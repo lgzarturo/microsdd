@@ -5,6 +5,7 @@ import importlib.util
 import io
 import json
 import os
+import shutil
 import sys
 import tempfile
 import unittest
@@ -479,7 +480,7 @@ class BenchRequestBudgetTests(unittest.TestCase):
 
     def test_default_budget_config_values_and_fake_run(self):
         self.assertEqual(self.b.DEFAULT_CONFIG['maxTurnsPerCell'], 6)
-        self.assertEqual(self.b.DEFAULT_CONFIG['maxRequestsPerRun'], 200)
+        self.assertEqual(self.b.DEFAULT_CONFIG['maxRequestsPerRun'], 100)
         report = self.b.run_bench(
             provider=self.b.FakeProvider(seed=1), cheap=True,
             config=self._cfg(), skip_key_check=True)
@@ -488,9 +489,11 @@ class BenchRequestBudgetTests(unittest.TestCase):
     def test_bench_config_json_declares_budget(self):
         raw = json.loads((ROOT / 'bench' / 'config.json').read_text(encoding='utf-8'))
         self.assertEqual(raw.get('maxTurnsPerCell'), 6)
-        self.assertEqual(raw.get('maxRequestsPerRun'), 200)
+        self.assertEqual(raw.get('maxRequestsPerRun'), 100)
         cfg = self.b.load_config()
-        self.assertEqual(self.b.request_budget(cfg), (6, 200))
+        self.assertEqual(self.b.request_budget(cfg), (6, 100))
+        # cheap-partial sigue siendo válido en load_config (no rompe la línea base).
+        self.assertEqual(cfg.get('baselineStatus'), 'cheap-partial')
 
     # --- corrida real simulada ---
 
@@ -545,15 +548,18 @@ class BenchRequestBudgetTests(unittest.TestCase):
         self.assertEqual(stub.count, 0)
 
     def test_default_budget_allows_cheap_run(self):
+        # Con tope 100, 30x6=180 aborta; corrida cheap simulada necesita presupuesto mayor.
         stub = self._stub(1)
-        self._real_run(self._cfg(), stub, lambda i: 1000)
+        self._real_run(self._cfg(maxRequestsPerRun=200), stub, lambda i: 1000)
         self.assertGreaterEqual(stub.count, 1)
 
     def test_planned_requests_formula(self):
         cfg = self._cfg()
-        self.assertEqual(self.b.planned_requests(cfg, 30), 180)
+        self.assertEqual(self.b.planned_requests(cfg, 16), 96)
         with self.assertRaises(self.b.BenchError):
-            self.b.planned_requests(cfg, 50)
+            self.b.planned_requests(cfg, 17)  # 102 > 100
+        with self.assertRaises(self.b.BenchError):
+            self.b.planned_requests(cfg, 30)  # 180 > 100; no relanzar cheap entero
 
     def test_cuts_when_remaining_runs_out(self):
         stub = self._stub(4)
@@ -591,7 +597,7 @@ class BenchRequestBudgetTests(unittest.TestCase):
             self.assertEqual(clean[key], report[key])
         md = self.b.format_report_md(report)
         self.assertIn(f"requests: {report['requestsUsed']}/120", md)
-        self.assertTrue(any('ritmo interno de Claude Code' in r and 'no está controlado' in r
+        self.assertTrue(any('proxy local' in r and 'fail-closed' in r
                             for r in report['risks']))
 
     def test_fake_report_has_null_requests_used(self):
@@ -599,9 +605,9 @@ class BenchRequestBudgetTests(unittest.TestCase):
             provider=self.b.FakeProvider(seed=1), cheap=True,
             config=self._cfg(), skip_key_check=True)
         self.assertIsNone(report['requestsUsed'])
-        self.assertEqual(report['requestBudget'], 200)
+        self.assertEqual(report['requestBudget'], 100)
         self.assertEqual(report['maxTurnsPerCell'], 6)
-        self.assertIn('requests: None/200', self.b.format_report_md(report))
+        self.assertIn('requests: None/100', self.b.format_report_md(report))
 
     def test_min_interval_comment_does_not_promise_rpm(self):
         src = BENCH_PATH.read_text(encoding='utf-8')
@@ -610,11 +616,54 @@ class BenchRequestBudgetTests(unittest.TestCase):
 
     # --- ClaudeCodeProvider con subprocess simulado ---
 
+    def _fake_proxy(self):
+        """Proxy mínimo para tests de ClaudeCodeProvider (sin red)."""
+        or_mod = load('microsdd_or_proxy_bench_ut', ROOT / '.microharness' / 'or_proxy.py')
+        home_dir = tempfile.mkdtemp()
+        state = Path(home_dir) / 'c.json'
+        self.addCleanup(lambda: shutil.rmtree(home_dir, ignore_errors=True))
+
+        class StubServer:
+            aborted = False
+            abort_reason = None
+
+        class StubProxy:
+            LOCAL_TOKEN = or_mod.OpenRouterCountingProxy.LOCAL_TOKEN
+
+            def __init__(self):
+                self.counter = or_mod.RequestCounter(state, 100)
+                self.server = StubServer()
+                self.base_url = 'http://127.0.0.1:9'
+
+            def assert_readable(self):
+                return self.counter.read()
+
+            def read_count(self):
+                return self.counter.read()['count']
+
+            def client_env(self, model_id, *, home=None):
+                env = os.environ.copy()
+                for k in ('OPENROUTER_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_API_KEY'):
+                    env.pop(k, None)
+                if home:
+                    env['HOME'] = home
+                env['ANTHROPIC_BASE_URL'] = self.base_url
+                env['ANTHROPIC_AUTH_TOKEN'] = self.LOCAL_TOKEN
+                env['ANTHROPIC_API_KEY'] = ''
+                env['ANTHROPIC_DEFAULT_SONNET_MODEL'] = model_id
+                env['ANTHROPIC_DEFAULT_OPUS_MODEL'] = model_id
+                env['ANTHROPIC_DEFAULT_HAIKU_MODEL'] = model_id
+                env['CLAUDE_CODE_SUBAGENT_MODEL'] = model_id
+                env.setdefault('CI', 'true')
+                return env
+
+        return StubProxy()
+
     def _run_claude(self, payload, *, test_ok, max_turns=5):
-        cmds = []
+        calls = []
 
         def fake_run(cmd, *a, **k):
-            cmds.append(list(cmd))
+            calls.append((list(cmd), k.get('env')))
             if '--version' in cmd:
                 return mock.Mock(returncode=0, stdout='2.1.197 (Claude Code)', stderr='')
             if '-p' in cmd:
@@ -623,36 +672,51 @@ class BenchRequestBudgetTests(unittest.TestCase):
 
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
+        proxy = self._fake_proxy()
         with mock.patch('subprocess.run', side_effect=fake_run):
-            prov = self.b.ClaudeCodeProvider('meta/llama:free', max_turns=max_turns)
-            task = {'id': '01', 'title': 't', 'testCommand': ['python', '-m', 'unittest']}
-            result = prov.run_cell(task, 'base', 0, workdir=Path(tmp.name))
-        return result, cmds
+            with mock.patch.dict(os.environ, {'OPENROUTER_API_KEY': 'sk-should-not-leak'}):
+                prov = self.b.ClaudeCodeProvider(
+                    'meta/llama:free', max_turns=max_turns, proxy=proxy)
+                task = {'id': '01', 'title': 't', 'testCommand': ['python', '-m', 'unittest']}
+                result = prov.run_cell(task, 'base', 0, workdir=Path(tmp.name))
+        cmds = [c for c, _ in calls]
+        envs = [e for c, e in calls if e is not None]
+        return result, cmds, envs
 
     def test_claude_cmd_includes_max_turns(self):
         payload = {'is_error': False, 'subtype': 'success', 'num_turns': 2,
                    'usage': {'input_tokens': 10, 'output_tokens': 5}}
-        _result, cmds = self._run_claude(payload, test_ok=True, max_turns=5)
+        _result, cmds, envs = self._run_claude(payload, test_ok=True, max_turns=5)
         cmd = next(c for c in cmds if '-p' in c)
         i = cmd.index('--max-turns')
         self.assertEqual(cmd[i + 1], '5')
+        # Key real no llega al entorno de Claude; solo token local del proxy + HOME temp.
+        p_env = next(e for e in envs if e.get('ANTHROPIC_AUTH_TOKEN') == 'microsdd-proxy-local')
+        self.assertNotIn('OPENROUTER_API_KEY', p_env)
+        self.assertNotIn('sk-should-not-leak', json.dumps(p_env))
+        self.assertIn('microsdd-claude-home-', p_env.get('HOME', ''))
+
+    def test_claude_provider_requires_proxy(self):
+        with self.assertRaises(self.b.BenchError) as ctx:
+            self.b.ClaudeCodeProvider('meta/llama:free', max_turns=3)
+        self.assertIn('proxy', str(ctx.exception).lower())
 
     def test_num_turns_sets_calls_and_iterations(self):
         base = {'is_error': False, 'subtype': 'success',
                 'usage': {'input_tokens': 10, 'output_tokens': 5}}
-        result, _ = self._run_claude(dict(base, num_turns=6), test_ok=True)
+        result, _, _ = self._run_claude(dict(base, num_turns=6), test_ok=True)
         self.assertEqual(result['calls'], 6)
         self.assertEqual(result['iterations'], 6)
         for extra in ({}, {'num_turns': '6'}, {'num_turns': True}):
             with self.subTest(extra=extra):
-                result, _ = self._run_claude(dict(base, **extra), test_ok=True)
+                result, _, _ = self._run_claude(dict(base, **extra), test_ok=True)
                 self.assertIsNone(result['calls'])
                 self.assertIsNone(result['iterations'])
 
     def test_error_max_turns_counts_as_completed_cell(self):
         payload = {'is_error': True, 'subtype': 'error_max_turns', 'num_turns': 6,
                    'usage': {'input_tokens': 10, 'output_tokens': 5}}
-        result, _ = self._run_claude(payload, test_ok=False)
+        result, _, _ = self._run_claude(payload, test_ok=False)
         self.assertIs(result['pending'], False)
         self.assertEqual(result['status'], 'fail')
         self.assertEqual(result['calls'], 6)
@@ -664,10 +728,17 @@ class BenchRequestBudgetTests(unittest.TestCase):
             seen['n_total'] = n_total
             return self._key(1000)
 
+        # Presupuesto 200 solo para ejercitar el cableado; el default 100 aborta 30x6.
+        cfg = self._cfg(maxRequestsPerRun=200)
         prov_cls = mock.Mock()
-        with mock.patch.object(self.b, 'load_config', return_value=self._cfg()), \
+        fake_proxy = mock.Mock()
+        fake_proxy.assert_readable = mock.Mock(return_value={'count': 0, 'max': 200})
+        fake_proxy_cls = mock.Mock(return_value=fake_proxy)
+        fake_mod = mock.Mock(OpenRouterCountingProxy=fake_proxy_cls)
+        with mock.patch.object(self.b, 'load_config', return_value=cfg), \
                 mock.patch.object(self.b, 'check_openrouter_free_lock', side_effect=fake_lock), \
                 mock.patch.object(self.b, 'verify_openrouter_model_pricing'), \
+                mock.patch.object(self.b, '_load_or_proxy', return_value=fake_mod), \
                 mock.patch.object(self.b, 'ClaudeCodeProvider', prov_cls), \
                 mock.patch.object(self.b, 'run_bench', side_effect=self.b.BenchError('stop')), \
                 mock.patch.dict(os.environ, {'OPENROUTER_API_KEY': 'sk-test'}):
@@ -675,6 +746,15 @@ class BenchRequestBudgetTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertEqual(seen['n_total'], 3 * 5 * 2 * 6)
         self.assertEqual(prov_cls.call_args.kwargs.get('max_turns'), 6)
+        self.assertIs(prov_cls.call_args.kwargs.get('proxy'), fake_proxy)
+        fake_proxy.start.assert_called()
+        fake_proxy.stop.assert_called()
+
+    def test_cmd_bench_cheap_aborts_when_estimate_exceeds_100(self):
+        with mock.patch.object(self.b, 'load_config', return_value=self._cfg()), \
+                mock.patch.dict(os.environ, {'OPENROUTER_API_KEY': 'sk-test'}):
+            code = self.b.cmd_bench(['run', '--cheap', '--provider', 'openrouter'])
+        self.assertEqual(code, 1)
 
     def test_remaining_missing_after_cell_is_fail_closed(self):
         stub = self._stub(1)
@@ -687,10 +767,11 @@ class BenchRequestBudgetTests(unittest.TestCase):
                 del data['free_model_daily_requests']
             return _resp({'data': data})
 
+        cfg = self._cfg(maxRequestsPerRun=200)  # 30x6 cabe; el fallo es remaining ausente
         with mock.patch('urllib.request.urlopen', side_effect=fake_urlopen):
             with mock.patch.dict(os.environ, {'OPENROUTER_API_KEY': 'sk-test'}):
                 with self.assertRaises(self.b.BenchError):
-                    self.b.run_bench(provider=stub, cheap=True, config=self._cfg(),
+                    self.b.run_bench(provider=stub, cheap=True, config=cfg,
                                      skip_key_check=False)
         self.assertEqual(stub.count, 1)
 

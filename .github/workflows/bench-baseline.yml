@@ -14,10 +14,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
+      # Key solo para Python/candado y el proxy; Claude no la hereda (mitiga --dangerously-skip-permissions).
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-      ANTHROPIC_BASE_URL: https://openrouter.ai/api
-      ANTHROPIC_AUTH_TOKEN: ${{ secrets.OPENROUTER_API_KEY }}
-      ANTHROPIC_API_KEY: ""
       BENCH_MODEL: nvidia/nemotron-3-super-120b-a12b:free
       CI: "true"
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
@@ -77,16 +75,49 @@ jobs:
         id: smoke_run
         run: |
           mkdir -p smoke-out
+          STATE="${RUNNER_TEMP}/or-proxy-count.json"
+          HOME_TMP="${RUNNER_TEMP}/claude-home-smoke"
+          mkdir -p "$HOME_TMP"
+          # Proxy contador: key real solo aquí; Claude recibe token local.
+          python3 .microharness/or_proxy.py --max 100 --state "$STATE" --port 8765 &
+          PROXY_PID=$!
+          cleanup() { kill "$PROXY_PID" 2>/dev/null || true; }
+          trap cleanup EXIT
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            if curl -sf "http://127.0.0.1:8765/health" >/dev/null; then break; fi
+            sleep 0.2
+          done
           set +e
-          claude -p "di hola" \
-            --output-format json \
-            --dangerously-skip-permissions \
-            --model "${BENCH_MODEL}" \
-            --max-turns "${BENCH_MAX_TURNS}" \
-            > smoke-out/raw-stdout.json 2> smoke-out/raw-stderr.txt
+          # Sin OPENROUTER_API_KEY en el proceso Claude; cwd y HOME en temp.
+          env -u OPENROUTER_API_KEY \
+            HOME="$HOME_TMP" \
+            USERPROFILE="$HOME_TMP" \
+            ANTHROPIC_BASE_URL="http://127.0.0.1:8765" \
+            ANTHROPIC_AUTH_TOKEN="microsdd-proxy-local" \
+            ANTHROPIC_API_KEY="" \
+            CI=true \
+            CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \
+            claude -p "di hola" \
+              --output-format json \
+              --dangerously-skip-permissions \
+              --model "${BENCH_MODEL}" \
+              --max-turns "${BENCH_MAX_TURNS}" \
+              > smoke-out/raw-stdout.json 2> smoke-out/raw-stderr.txt
           ec=$?
           set -e
           echo "exit_code=${ec}" > smoke-out/exit.env
+          # Contador ilegible o tope → aborta el smoke.
+          python3 -c "
+          import json, sys
+          from pathlib import Path
+          p = Path('${STATE}')
+          if not p.is_file():
+              raise SystemExit('contador proxy ausente (fail-closed)')
+          data = json.loads(p.read_text(encoding='utf-8'))
+          if not isinstance(data.get('count'), int) or data['count'] < 1:
+              raise SystemExit(f'contador proxy inválido: {data!r}')
+          print('proxy_count', data['count'])
+          "
           python3 <<'PY'
           import json, os, sys
           from pathlib import Path
@@ -164,10 +195,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 360
     env:
+      # Key solo al proceso Python (candado + proxy interno). Claude no la hereda.
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-      ANTHROPIC_BASE_URL: https://openrouter.ai/api
-      ANTHROPIC_AUTH_TOKEN: ${{ secrets.OPENROUTER_API_KEY }}
-      ANTHROPIC_API_KEY: ""
       BENCH_MODEL: nvidia/nemotron-3-super-120b-a12b:free
       CI: "true"
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
