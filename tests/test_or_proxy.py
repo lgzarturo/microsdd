@@ -151,6 +151,26 @@ class ProxyServerTests(unittest.TestCase):
         self.assertEqual(len(self.upstream_hits), 1)
         self.assertEqual(self.upstream_hits[0]['auth'], 'Bearer sk-real-secret-key')
 
+    def test_forwards_chunked_body(self):
+        """Claude Code suele enviar Transfer-Encoding: chunked sin Content-Length."""
+        import http.client
+        payload = b'{"model":"x","messages":[{"role":"user","content":"hi"}]}'
+        conn = http.client.HTTPConnection('127.0.0.1', self.proxy.port, timeout=5)
+        conn.putrequest('POST', '/v1/messages')
+        conn.putheader('Authorization', f'Bearer {self.or_mod.OpenRouterCountingProxy.LOCAL_TOKEN}')
+        conn.putheader('Content-Type', 'application/json')
+        conn.putheader('Transfer-Encoding', 'chunked')
+        conn.endheaders()
+        # un solo chunk
+        conn.send(f'{len(payload):x}\r\n'.encode() + payload + b'\r\n0\r\n\r\n')
+        resp = conn.getresponse()
+        raw = resp.read()
+        conn.close()
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(json.loads(raw), {'ok': True})
+        self.assertEqual(len(self.upstream_hits), 1)
+        self.assertEqual(self.upstream_hits[0]['body'], payload)
+
     def test_third_request_rejected_when_max_2(self):
         self._post()
         self._post()

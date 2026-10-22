@@ -156,12 +156,20 @@ jobs:
                   payload = parsed
           except ValueError:
               payload = {}
+          # Campos de diagnóstico sin secretos (el result puede traer el error de API).
+          result_txt = payload.get('result')
+          if not isinstance(result_txt, str):
+              result_txt = payload.get('error') if isinstance(payload.get('error'), str) else ''
+              if not result_txt and isinstance(payload.get('error'), dict):
+                  result_txt = json.dumps(payload.get('error'), ensure_ascii=True)[:400]
           diag = {
               'ok': exit_code == 0 and payload.get('is_error') is not True and bool(payload),
               'exitCode': exit_code,
               'subtype': payload.get('subtype') if isinstance(payload.get('subtype'), str) else None,
               'isError': payload.get('is_error') if isinstance(payload.get('is_error'), bool) else None,
               'stderrTruncated': b._scrub_secrets(stderr)[:800],
+              'resultTruncated': b._scrub_secrets(str(result_txt or ''))[:800],
+              'payloadKeys': sorted(payload.keys())[:40] if payload else [],
               'hasPayload': bool(payload),
               'model': os.environ.get('BENCH_MODEL'),
               'hostVersion': None,

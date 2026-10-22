@@ -121,8 +121,45 @@ class _ProxyHandler(BaseHTTPRequestHandler):
         return
 
     def _read_body(self) -> bytes:
-        length = int(self.headers.get('Content-Length') or 0)
-        if length < 0 or length > 32 * 1024 * 1024:
+        """Lee el body; soporta Content-Length y Transfer-Encoding: chunked.
+
+        Sin esto, Claude Code suele enviar chunked sin Content-Length y el proxy
+        reenviaba body vacío → error rápido de OpenRouter / is_error.
+        """
+        max_body = 32 * 1024 * 1024
+        te = (self.headers.get('Transfer-Encoding') or '').lower()
+        if 'chunked' in te:
+            chunks: list[bytes] = []
+            total = 0
+            while True:
+                line = self.rfile.readline()
+                if not line:
+                    break
+                try:
+                    size = int(line.strip().split(b';')[0], 16)
+                except ValueError as exc:
+                    raise ProxyError(f'chunk size inválido: {line!r}') from exc
+                if size < 0 or total + size > max_body:
+                    raise ProxyError('body chunked excede el máximo')
+                if size == 0:
+                    # trailer opcional hasta línea vacía
+                    while True:
+                        trailer = self.rfile.readline()
+                        if trailer in (b'\r\n', b'\n', b''):
+                            break
+                    break
+                chunks.append(self.rfile.read(size))
+                total += size
+                self.rfile.read(2)  # CRLF tras el chunk
+            return b''.join(chunks)
+        length_hdr = self.headers.get('Content-Length')
+        if length_hdr is None or length_hdr == '':
+            return b''
+        try:
+            length = int(length_hdr)
+        except ValueError:
+            return b''
+        if length < 0 or length > max_body:
             return b''
         return self.rfile.read(length) if length else b''
 
@@ -148,7 +185,13 @@ class _ProxyHandler(BaseHTTPRequestHandler):
 
         path = self.path if self.path.startswith('/') else '/' + self.path
         url = upstream.rstrip('/') + path
-        body = self._read_body() if method in ('POST', 'PUT', 'PATCH') else None
+        try:
+            body = self._read_body() if method in ('POST', 'PUT', 'PATCH') else None
+        except ProxyError as exc:
+            self.server.aborted = True
+            self.server.abort_reason = str(exc)
+            self._reject(400, str(exc))
+            return
         headers = {
             'Authorization': f'Bearer {api_key}',
             'User-Agent': self.headers.get('User-Agent') or 'microsdd-or-proxy/0',
