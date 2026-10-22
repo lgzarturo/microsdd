@@ -13,15 +13,41 @@ import os
 import socket
 import tempfile
 import threading
+import time
 import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+# Tope OpenRouter tipico :free / politeness; fail-closed si se supera.
+DEFAULT_MAX_REQUESTS_PER_MINUTE = 20
+
 
 class ProxyError(Exception):
     pass
+
+
+class RateLimiter:
+    """Ventana deslizante de 60s. Fail-closed al superar max_per_minute."""
+
+    def __init__(self, max_per_minute: int = DEFAULT_MAX_REQUESTS_PER_MINUTE):
+        if type(max_per_minute) is not int or max_per_minute < 1:
+            raise ProxyError(f'max_per_minute inválido: {max_per_minute!r}')
+        self.max_per_minute = max_per_minute
+        self._times: list[float] = []
+        self._lock = threading.Lock()
+
+    def allow(self) -> None:
+        with self._lock:
+            now = time.monotonic()
+            cutoff = now - 60.0
+            self._times = [t for t in self._times if t > cutoff]
+            if len(self._times) >= self.max_per_minute:
+                raise ProxyError(
+                    f'rate limit {self.max_per_minute}/min alcanzado '
+                    f'(ventana={len(self._times)})')
+            self._times.append(now)
 
 
 class RequestCounter:
@@ -176,6 +202,7 @@ class _ProxyHandler(BaseHTTPRequestHandler):
         api_key: str = self.server.api_key
         upstream: str = self.server.upstream
         try:
+            self.server.rate_limiter.allow()
             new_count = counter.allow_and_increment()
         except ProxyError as exc:
             self.server.aborted = True
@@ -292,6 +319,7 @@ class CountingProxyServer(ThreadingHTTPServer):
         api_key: str,
         upstream: str = 'https://openrouter.ai/api',
         upstream_timeout: float = 600.0,
+        max_requests_per_minute: int = DEFAULT_MAX_REQUESTS_PER_MINUTE,
     ):
         if not api_key:
             raise ProxyError('api_key del proxy ausente')
@@ -299,6 +327,7 @@ class CountingProxyServer(ThreadingHTTPServer):
         self.api_key = api_key
         self.upstream = upstream.rstrip('/')
         self.upstream_timeout = upstream_timeout
+        self.rate_limiter = RateLimiter(max_requests_per_minute)
         self.aborted = False
         self.abort_reason: str | None = None
         super().__init__(server_address, _ProxyHandler)
@@ -323,6 +352,7 @@ class OpenRouterCountingProxy:
         port: int = 0,
         upstream: str = 'https://openrouter.ai/api',
         initial_count: int = 0,
+        max_requests_per_minute: int = DEFAULT_MAX_REQUESTS_PER_MINUTE,
     ):
         if not api_key:
             raise ProxyError('OPENROUTER_API_KEY ausente para el proxy')
@@ -340,6 +370,7 @@ class OpenRouterCountingProxy:
             counter=self.counter,
             api_key=api_key,
             upstream=upstream,
+            max_requests_per_minute=max_requests_per_minute,
         )
         self.host = host
         self.port = chosen_port
@@ -404,6 +435,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         '--initial-count', type=int, default=0,
         help='Requests ya gastados en intentos previos (tope acumulado).')
+    parser.add_argument(
+        '--rpm', type=int, default=DEFAULT_MAX_REQUESTS_PER_MINUTE,
+        help='Tope de requests por minuto (fail-closed).')
     args = parser.parse_args(argv)
     key = os.environ.get('OPENROUTER_API_KEY') or ''
     if not key:
@@ -411,7 +445,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     proxy = OpenRouterCountingProxy(
         key, max_requests=args.max, state_path=args.state, port=args.port,
-        initial_count=args.initial_count)
+        initial_count=args.initial_count, max_requests_per_minute=args.rpm)
     proxy.start()
     print(f'proxy listening on {proxy.base_url} max={args.max}', flush=True)
     print(f'state={proxy.state_path}', flush=True)

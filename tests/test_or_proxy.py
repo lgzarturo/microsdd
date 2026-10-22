@@ -90,6 +90,84 @@ class RequestCounterTests(unittest.TestCase):
 
 
 @unittest.skipUnless(OR_PATH.is_file(), 'or_proxy.py ausente')
+class RateLimiterTests(unittest.TestCase):
+    def setUp(self):
+        self.or_mod = load_or()
+
+    def test_allows_up_to_max_then_fail_closed(self):
+        lim = self.or_mod.RateLimiter(3)
+        lim.allow()
+        lim.allow()
+        lim.allow()
+        with self.assertRaises(self.or_mod.ProxyError) as ctx:
+            lim.allow()
+        self.assertIn('rate limit', str(ctx.exception).lower())
+
+    def test_invalid_max_raises(self):
+        for bad in (0, -1, True, '8', None, 1.5):
+            with self.subTest(bad=bad):
+                with self.assertRaises(self.or_mod.ProxyError):
+                    self.or_mod.RateLimiter(bad)
+
+    def test_proxy_rejects_when_rpm_exceeded(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        hits = []
+
+        class Upstream(BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                return
+
+            def do_POST(handler_self):  # noqa: N802
+                length = int(handler_self.headers.get('Content-Length') or 0)
+                if length:
+                    handler_self.rfile.read(length)
+                hits.append(1)
+                payload = b'{"ok":true}'
+                handler_self.send_response(200)
+                handler_self.send_header('Content-Type', 'application/json')
+                handler_self.send_header('Content-Length', str(len(payload)))
+                handler_self.end_headers()
+                handler_self.wfile.write(payload)
+
+        up = ThreadingHTTPServer(('127.0.0.1', 0), Upstream)
+        up_thread = threading.Thread(target=up.serve_forever, daemon=True)
+        up_thread.start()
+        self.addCleanup(up.shutdown)
+        self.addCleanup(up.server_close)
+        proxy = self.or_mod.OpenRouterCountingProxy(
+            'sk-real',
+            max_requests=100,
+            state_path=Path(tmp.name) / 'c.json',
+            upstream=f'http://127.0.0.1:{up.server_address[1]}',
+            max_requests_per_minute=2,
+        )
+        proxy.start()
+        self.addCleanup(proxy.stop)
+
+        def post():
+            req = urllib.request.Request(
+                proxy.base_url + '/v1/messages',
+                data=b'{"model":"x"}',
+                headers={
+                    'Authorization': f'Bearer {self.or_mod.OpenRouterCountingProxy.LOCAL_TOKEN}',
+                    'Content-Type': 'application/json',
+                },
+                method='POST',
+            )
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                return resp.status
+
+        self.assertEqual(post(), 200)
+        self.assertEqual(post(), 200)
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            post()
+        self.assertEqual(ctx.exception.code, 403)
+        self.assertTrue(proxy.server.aborted)
+        self.assertEqual(len(hits), 2)
+
+
+@unittest.skipUnless(OR_PATH.is_file(), 'or_proxy.py ausente')
 class ProxyServerTests(unittest.TestCase):
     def setUp(self):
         self.or_mod = load_or()

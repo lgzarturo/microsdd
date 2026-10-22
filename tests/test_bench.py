@@ -80,6 +80,14 @@ class BenchStatsTests(unittest.TestCase):
         with self.assertRaises(self.b.BenchError):
             self.b.assert_free_model('anthropic/claude-opus-5-5')
 
+    def test_assert_bench_model_allows_paid_and_rejects_bad_free_suffix(self):
+        self.b.assert_bench_model('meta/llama:free')
+        self.b.assert_bench_model('openai/gpt-oss-20b')
+        with self.assertRaises(self.b.BenchError):
+            self.b.assert_bench_model('meta/llama:FREE')
+        with self.assertRaises(self.b.BenchError):
+            self.b.assert_bench_model('')
+
     def test_openrouter_lock_aborts_without_key(self):
         with self.assertRaises(self.b.BenchError):
             self.b.check_openrouter_free_lock(None, 10)
@@ -224,13 +232,43 @@ class BenchStatsTests(unittest.TestCase):
         after = self.b.assert_usage_unchanged('sk-test', 1.0, data=data)
         self.assertEqual(after, 1.0)
 
-    def test_run_bench_invalidates_when_usage_rises(self):
-        """Corrida real (no fake): snapshot usage y aborta si sube."""
+    def test_assert_spend_within_cap_allows_small_delta(self):
+        data = dict(VALID_KEY_DATA)
+        data['usage'] = 1.25
+        after = self.b.assert_spend_within_cap(
+            'sk-test', 1.0, max_spend_usd=5, approach_ratio=0.8, data=data)
+        self.assertEqual(after, 1.25)
+
+    def test_assert_spend_within_cap_aborts_when_approaching(self):
+        data = dict(VALID_KEY_DATA)
+        data['usage'] = 5.1  # delta 4.1 >= 0.8*5
+        with self.assertRaises(self.b.BenchError) as ctx:
+            self.b.assert_spend_within_cap(
+                'sk-test', 1.0, max_spend_usd=5, approach_ratio=0.8, data=data)
+        self.assertIn('acerca', str(ctx.exception).lower())
+
+    def test_assert_spend_within_cap_aborts_when_exceeds(self):
+        data = dict(VALID_KEY_DATA)
+        data['usage'] = 7.0
+        with self.assertRaises(self.b.BenchError) as ctx:
+            self.b.assert_spend_within_cap(
+                'sk-test', 1.0, max_spend_usd=5, approach_ratio=0.8, data=data)
+        self.assertIn('supera', str(ctx.exception).lower())
+
+    def test_spend_lock_skips_free_quota_when_not_required(self):
+        data = {'usage': 1.0, 'limit': 10, 'limit_remaining': 9}
+        out = self.b.check_openrouter_spend_lock(
+            'sk-test', 10, max_paid_limit_usd=10, max_spend_usd=5,
+            require_free_quota=False, data=data)
+        self.assertEqual(out['limit'], 10)
+
+    def test_run_bench_invalidates_when_spend_approaches_cap(self):
+        """Corrida real: aborta si el delta usage se acerca a maxSpendUsd."""
         before = dict(VALID_KEY_DATA)
         before['usage'] = 1.0
-        before['limit'] = 5
+        before['limit'] = 10
         after = dict(before)
-        after['usage'] = 1.25
+        after['usage'] = 5.1  # delta 4.1 >= 0.8*5
         calls = {'n': 0}
 
         def fake_urlopen(*_a, **_k):
@@ -257,7 +295,9 @@ class BenchStatsTests(unittest.TestCase):
         cfg = self.b.load_config()
         cfg['bootstrap'] = 50
         cfg['models'] = ['meta/llama:free']
-        cfg['maxPaidLimitUsd'] = 5
+        cfg['maxPaidLimitUsd'] = 10
+        cfg['maxSpendUsd'] = 5
+        cfg['spendApproachRatio'] = 0.8
         cfg['maxTurnsPerCell'] = 1
         cfg['maxRequestsPerRun'] = 30
         with mock.patch('urllib.request.urlopen', side_effect=fake_urlopen):
@@ -266,9 +306,8 @@ class BenchStatsTests(unittest.TestCase):
                     provider=StubProvider(), cheap=True, claim='efficiency',
                     config=cfg, skip_key_check=False,
                 )
-        # Abort mid/post-celda: reporte parcial con resto pending (no tragar el error).
         self.assertTrue(report.get('aborted'))
-        self.assertIn('usage', report.get('abortReason', '').lower())
+        self.assertIn('gasto', report.get('abortReason', '').lower())
         self.assertGreaterEqual(calls['n'], 2)
         self.assertEqual(len(report['cells']), 30)
         self.assertGreater(len(report['pendingCells']), 0)
@@ -276,7 +315,7 @@ class BenchStatsTests(unittest.TestCase):
     def test_run_bench_records_usage_before_when_stable(self):
         data = dict(VALID_KEY_DATA)
         data['usage'] = 0.75
-        data['limit'] = 5
+        data['limit'] = 10
 
         class StubProvider:
             def run_cell(self, task, variant, repetition):
@@ -297,6 +336,8 @@ class BenchStatsTests(unittest.TestCase):
         cfg = self.b.load_config()
         cfg['bootstrap'] = 50
         cfg['models'] = ['meta/llama:free']
+        cfg['maxPaidLimitUsd'] = 10
+        cfg['maxSpendUsd'] = 5
         cfg['maxTurnsPerCell'] = 1
         cfg['maxRequestsPerRun'] = 30
         with mock.patch('urllib.request.urlopen', return_value=_resp({'data': data})):
@@ -306,7 +347,8 @@ class BenchStatsTests(unittest.TestCase):
                     config=cfg, skip_key_check=False,
                 )
         self.assertEqual(report['usageBefore'], 0.75)
-        self.assertTrue(any('maxPaidLimitUsd' in r for r in report['risks']))
+        self.assertEqual(report.get('usageDelta'), 0.0)
+        self.assertTrue(any('maxSpendUsd' in r for r in report['risks']))
 
     def test_report_md_is_cp1252_safe_ascii_arrows(self):
         """Windows cp1252: el markdown no usa flechas Unicode."""
@@ -454,6 +496,32 @@ class BenchStatsTests(unittest.TestCase):
                 self.b.verify_openrouter_model_pricing(
                     'sk-test', 'nvidia/nemotron-3-super-120b-a12b:free')
 
+    def test_verify_model_pricing_allows_paid_with_tools(self):
+        models = {
+            'data': [{
+                'id': 'openai/gpt-oss-20b',
+                'pricing': {'prompt': '0.000000018', 'completion': '0.00000009'},
+                'supported_parameters': ['tools', 'tool_choice', 'temperature'],
+            }]
+        }
+        with mock.patch('urllib.request.urlopen', return_value=_resp(models)):
+            out = self.b.verify_openrouter_model_pricing(
+                'sk-test', 'openai/gpt-oss-20b', allow_paid=True)
+        self.assertEqual(out['id'], 'openai/gpt-oss-20b')
+        self.assertAlmostEqual(out['_parsedPricing']['prompt'], 1.8e-8)
+        no_tools = {
+            'data': [{
+                'id': 'openai/gpt-oss-20b',
+                'pricing': {'prompt': '0.000000018', 'completion': '0.00000009'},
+                'supported_parameters': ['temperature'],
+            }]
+        }
+        with mock.patch('urllib.request.urlopen', return_value=_resp(no_tools)):
+            with self.assertRaises(self.b.BenchError) as ctx:
+                self.b.verify_openrouter_model_pricing(
+                    'sk-test', 'openai/gpt-oss-20b', allow_paid=True)
+        self.assertIn('tools', str(ctx.exception).lower())
+
 
 @unittest.skipUnless(BENCH_PATH.is_file(), 'bench.py ausente')
 class BenchRequestBudgetTests(unittest.TestCase):
@@ -467,7 +535,8 @@ class BenchRequestBudgetTests(unittest.TestCase):
         cfg = dict(self.b.DEFAULT_CONFIG)
         cfg['bootstrap'] = 50
         cfg['models'] = ['meta/llama:free']
-        cfg['maxPaidLimitUsd'] = 5
+        cfg['maxPaidLimitUsd'] = 10
+        cfg['maxSpendUsd'] = 5
         cfg.update(over)
         return cfg
 
@@ -482,7 +551,7 @@ class BenchRequestBudgetTests(unittest.TestCase):
                             config=cfg, skip_key_check=True)
 
     def test_default_budget_config_values_and_fake_run(self):
-        self.assertEqual(self.b.DEFAULT_CONFIG['maxTurnsPerCell'], 6)
+        self.assertEqual(self.b.DEFAULT_CONFIG['maxTurnsPerCell'], 3)
         self.assertEqual(self.b.DEFAULT_CONFIG['maxRequestsPerRun'], 100)
         report = self.b.run_bench(
             provider=self.b.FakeProvider(seed=1), cheap=True,
@@ -491,12 +560,11 @@ class BenchRequestBudgetTests(unittest.TestCase):
 
     def test_bench_config_json_declares_budget(self):
         raw = json.loads((ROOT / 'bench' / 'config.json').read_text(encoding='utf-8'))
-        self.assertEqual(raw.get('maxTurnsPerCell'), 6)
+        self.assertEqual(raw.get('maxTurnsPerCell'), 3)
         self.assertEqual(raw.get('maxRequestsPerRun'), 100)
         cfg = self.b.load_config()
-        self.assertEqual(self.b.request_budget(cfg), (6, 100))
-        # cheap-partial sigue siendo válido en load_config (no rompe la línea base).
-        self.assertEqual(cfg.get('baselineStatus'), 'cheap-partial')
+        self.assertEqual(self.b.request_budget(cfg), (3, 100))
+        self.assertEqual(cfg.get('baselineStatus'), 'pending')
 
     # --- corrida real simulada ---
 
@@ -551,18 +619,19 @@ class BenchRequestBudgetTests(unittest.TestCase):
         self.assertEqual(stub.count, 0)
 
     def test_default_budget_allows_cheap_run(self):
-        # Con tope 100, 30x6=180 aborta; corrida cheap simulada necesita presupuesto mayor.
+        # Con maxTurns=3, 30×3=90 ≤ 100; cheap cabe.
         stub = self._stub(1)
-        self._real_run(self._cfg(maxRequestsPerRun=200), stub, lambda i: 1000)
+        self._real_run(self._cfg(), stub, lambda i: 1000)
         self.assertGreaterEqual(stub.count, 1)
 
     def test_planned_requests_formula(self):
         cfg = self._cfg()
-        self.assertEqual(self.b.planned_requests(cfg, 16), 96)
+        self.assertEqual(self.b.planned_requests(cfg, 30), 90)
         with self.assertRaises(self.b.BenchError):
-            self.b.planned_requests(cfg, 17)  # 102 > 100
+            self.b.planned_requests(cfg, 34)  # 102 > 100
+        cfg6 = self._cfg(maxTurnsPerCell=6)
         with self.assertRaises(self.b.BenchError):
-            self.b.planned_requests(cfg, 30)  # 180 > 100; no relanzar cheap entero
+            self.b.planned_requests(cfg6, 30)  # 180 > 100
 
     def test_cuts_when_remaining_runs_out(self):
         stub = self._stub(4)
@@ -609,7 +678,7 @@ class BenchRequestBudgetTests(unittest.TestCase):
             config=self._cfg(), skip_key_check=True)
         self.assertIsNone(report['requestsUsed'])
         self.assertEqual(report['requestBudget'], 100)
-        self.assertEqual(report['maxTurnsPerCell'], 6)
+        self.assertEqual(report['maxTurnsPerCell'], 3)
         self.assertIn('requests: None/100', self.b.format_report_md(report))
 
     def test_min_interval_comment_does_not_promise_rpm(self):
@@ -731,7 +800,7 @@ class BenchRequestBudgetTests(unittest.TestCase):
             seen['n_total'] = n_total
             return self._key(1000)
 
-        # Presupuesto 200 solo para ejercitar el cableado; el default 100 aborta 30x6.
+        # maxTurns=3 → 30×3=90; presupuesto 200 solo para ejercitar cableado.
         cfg = self._cfg(maxRequestsPerRun=200)
         prov_cls = mock.Mock()
         fake_proxy = mock.Mock()
@@ -739,7 +808,7 @@ class BenchRequestBudgetTests(unittest.TestCase):
         fake_proxy_cls = mock.Mock(return_value=fake_proxy)
         fake_mod = mock.Mock(OpenRouterCountingProxy=fake_proxy_cls)
         with mock.patch.object(self.b, 'load_config', return_value=cfg), \
-                mock.patch.object(self.b, 'check_openrouter_free_lock', side_effect=fake_lock), \
+                mock.patch.object(self.b, 'check_openrouter_spend_lock', side_effect=fake_lock), \
                 mock.patch.object(self.b, 'verify_openrouter_model_pricing'), \
                 mock.patch.object(self.b, '_load_or_proxy', return_value=fake_mod), \
                 mock.patch.object(self.b, 'ClaudeCodeProvider', prov_cls), \
@@ -747,14 +816,16 @@ class BenchRequestBudgetTests(unittest.TestCase):
                 mock.patch.dict(os.environ, {'OPENROUTER_API_KEY': 'sk-test'}):
             code = self.b.cmd_bench(['run', '--cheap', '--provider', 'openrouter'])
         self.assertEqual(code, 1)
-        self.assertEqual(seen['n_total'], 3 * 5 * 2 * 6)
-        self.assertEqual(prov_cls.call_args.kwargs.get('max_turns'), 6)
+        self.assertEqual(seen['n_total'], 3 * 5 * 2 * 3)
+        self.assertEqual(prov_cls.call_args.kwargs.get('max_turns'), 3)
         self.assertIs(prov_cls.call_args.kwargs.get('proxy'), fake_proxy)
         fake_proxy.start.assert_called()
         fake_proxy.stop.assert_called()
 
     def test_cmd_bench_cheap_aborts_when_estimate_exceeds_100(self):
-        with mock.patch.object(self.b, 'load_config', return_value=self._cfg()), \
+        # Con maxTurns=6 (forzado) la cheap 30×6=180 > 100 aborta.
+        cfg = self._cfg(maxTurnsPerCell=6, maxRequestsPerRun=100)
+        with mock.patch.object(self.b, 'load_config', return_value=cfg), \
                 mock.patch.dict(os.environ, {'OPENROUTER_API_KEY': 'sk-test'}):
             code = self.b.cmd_bench(['run', '--cheap', '--provider', 'openrouter'])
         self.assertEqual(code, 1)
@@ -770,7 +841,7 @@ class BenchRequestBudgetTests(unittest.TestCase):
                 del data['free_model_daily_requests']
             return _resp({'data': data})
 
-        cfg = self._cfg(maxRequestsPerRun=200)  # 30x6 cabe; el fallo es remaining ausente
+        cfg = self._cfg(maxRequestsPerRun=200)  # 30×3 cabe; el fallo es remaining ausente
         with mock.patch('urllib.request.urlopen', side_effect=fake_urlopen):
             with mock.patch.dict(os.environ, {'OPENROUTER_API_KEY': 'sk-test'}):
                 report = self.b.run_bench(
@@ -823,7 +894,7 @@ class BenchRequestBudgetTests(unittest.TestCase):
         fake_proxy.server = mock.Mock(aborted=False, abort_reason=None)
         fake_mod = mock.Mock(OpenRouterCountingProxy=mock.Mock(return_value=fake_proxy))
         with mock.patch.object(self.b, 'load_config', return_value=cfg), \
-                mock.patch.object(self.b, 'check_openrouter_free_lock',
+                mock.patch.object(self.b, 'check_openrouter_spend_lock',
                                   return_value=self._key(1000)), \
                 mock.patch.object(self.b, 'verify_openrouter_model_pricing'), \
                 mock.patch.object(self.b, '_load_or_proxy', return_value=fake_mod), \

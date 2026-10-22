@@ -2,9 +2,11 @@
 # Solo workflow_dispatch o push a bench/baseline-m2-run.
 # Sin pull_request / pull_request_target. Secret: OPENROUTER_API_KEY.
 #
-# Claude Code PINNEADO a 2.1.197 (run 39203441982). 2.1.308+ rechaza
-# nvidia/nemotron-3-super-120b-a12b:free con unrecognized_model.
-# Tope 100 HTTP acumulado entre intentos (p. ej. smoke CC previo = 4).
+# Claude Code PINNEADO a 2.1.197.
+# Tope 100 HTTP acumulado; proxy 20 req/min fail-closed.
+# Candado: gasto máximo $5/repo (usage antes/después); key limit ≤ $10.
+# Sonda :free ≤3; si fallan → openai/gpt-oss-20b (pago económico + tools).
+# Matriz NUEVA: sin priorReport / sin mezclar celdas viejas.
 name: bench-baseline
 on:
   workflow_dispatch:
@@ -17,15 +19,19 @@ env:
   CLAUDE_CODE_VERSION: "2.1.197"
   # Intentos previos (CodeConductor smoke) cuentan hacia el tope de 100.
   BENCH_PRIOR_REQUESTS: "4"
-  BENCH_MODEL: nvidia/nemotron-3-super-120b-a12b:free
+  BENCH_PAID_FALLBACK: openai/gpt-oss-20b
 jobs:
   smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    outputs:
+      model: ${{ steps.probe.outputs.model }}
+      model_kind: ${{ steps.probe.outputs.model_kind }}
+      pricing_prompt: ${{ steps.probe.outputs.pricing_prompt }}
+      pricing_completion: ${{ steps.probe.outputs.pricing_completion }}
     env:
-      # Key solo para Python/candado y el proxy; Claude no la hereda (mitiga --dangerously-skip-permissions).
+      # Key solo para Python/candado y el proxy; Claude no la hereda.
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-      BENCH_MODEL: nvidia/nemotron-3-super-120b-a12b:free
       CI: "true"
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
     steps:
@@ -57,47 +63,18 @@ jobs:
           ver="$(claude --version | head -n1)"
           echo "claude: ${ver}"
           echo "${ver}" | grep -Fq "2.1.197" || {
-            echo "ERROR: se exige Claude Code 2.1.197 (run 39203441982); got: ${ver}"
-            echo "2.1.308+ rechaza nemotron :free (unrecognized_model)."
+            echo "ERROR: se exige Claude Code 2.1.197; got: ${ver}"
             exit 1
           }
 
-      - name: Candado smoke + precio 0
-        run: |
-          python3 <<'PY'
-          import json, os, sys
-          from pathlib import Path
-          sys.path.insert(0, '.microharness')
-          import bench as b
-          key = os.environ.get('OPENROUTER_API_KEY') or ''
-          model = os.environ['BENCH_MODEL']
-          b.assert_free_model(model)
-          cfg = b.load_config()
-          max_turns, _ = b.request_budget(cfg)
-          est = b.planned_requests(cfg, 1)
-          data = b.check_openrouter_free_lock(key, est, max_paid_limit_usd=5)
-          usage = b.read_usage(data)
-          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as fh:
-              fh.write(f'BENCH_MAX_TURNS={max_turns}\n')
-          b.verify_openrouter_model_pricing(key, model)
-          out = Path('smoke-out')
-          out.mkdir(exist_ok=True)
-          (out / 'usage-before.json').write_text(
-              json.dumps({'usage': usage}, indent=2) + '\n', encoding='utf-8')
-          print('smoke lock ok')
-          PY
-
-      - name: Smoke claude -p di hola
-        id: smoke_run
+      - name: Candado pre-sonda + elegir modelo
+        id: probe
         run: |
           mkdir -p smoke-out
           STATE="${RUNNER_TEMP}/or-proxy-count.json"
-          HOME_TMP="${RUNNER_TEMP}/claude-home-smoke"
-          mkdir -p "$HOME_TMP"
           PRIOR="${BENCH_PRIOR_REQUESTS:-0}"
-          # Proxy contador acumulado: key real solo aquí; Claude recibe token local.
           python3 .microharness/or_proxy.py --max 100 --state "$STATE" --port 8765 \
-            --initial-count "$PRIOR" &
+            --initial-count "$PRIOR" --rpm 20 &
           PROXY_PID=$!
           cleanup() { kill "$PROXY_PID" 2>/dev/null || true; }
           trap cleanup EXIT
@@ -105,21 +82,48 @@ jobs:
             if curl -sf "http://127.0.0.1:8765/health" >/dev/null; then break; fi
             sleep 0.2
           done
-          # Preflight: Anthropic /messages y OpenAI /chat/completions vía proxy.
           python3 <<'PY'
-          import json, os, urllib.error, urllib.request
+          import json, os, sys, urllib.error, urllib.request
           from pathlib import Path
+          sys.path.insert(0, '.microharness')
+          import bench as b
 
-          def call(path, payload, extra_headers=None):
-              body = json.dumps(payload).encode()
-              headers = {
-                  'Authorization': 'Bearer microsdd-proxy-local',
-                  'Content-Type': 'application/json',
-              }
-              if extra_headers:
-                  headers.update(extra_headers)
+          key = os.environ.get('OPENROUTER_API_KEY') or ''
+          cfg = b.load_config()
+          max_turns, _ = b.request_budget(cfg)
+          max_cap = float(cfg.get('maxPaidLimitUsd', 10))
+          max_spend = float(cfg.get('maxSpendUsd', 5))
+          # Candado de key (sin exigir cuota :free aún; la sonda decide).
+          data = b.check_openrouter_spend_lock(
+              key, 1, max_paid_limit_usd=max_cap, max_spend_usd=max_spend,
+              require_free_quota=False)
+          usage = b.read_usage(data)
+          Path('smoke-out/usage-before.json').write_text(
+              json.dumps({'usage': usage}, indent=2) + '\n', encoding='utf-8')
+
+          free_candidates = [
+              'google/gemma-4-31b-it:free',
+              'google/gemma-4-26b-a4b-it:free',
+              'poolside/laguna-s-2.1:free',
+          ]
+          paid_fallback = os.environ.get('BENCH_PAID_FALLBACK') or b.DEFAULT_PAID_FALLBACK_MODEL
+
+          def call_messages(model):
+              body = json.dumps({
+                  'model': model,
+                  'max_tokens': 16,
+                  'messages': [{'role': 'user', 'content': 'di hola'}],
+              }).encode()
               req = urllib.request.Request(
-                  'http://127.0.0.1:8765' + path, data=body, headers=headers, method='POST')
+                  'http://127.0.0.1:8765/v1/messages',
+                  data=body,
+                  headers={
+                      'Authorization': 'Bearer microsdd-proxy-local',
+                      'Content-Type': 'application/json',
+                      'anthropic-version': '2023-06-01',
+                  },
+                  method='POST',
+              )
               try:
                   with urllib.request.urlopen(req, timeout=120) as resp:
                       raw = resp.read()[:800]
@@ -133,29 +137,83 @@ jobs:
                   return {'ok': False, 'status': None,
                           'error': type(exc).__name__ + ': ' + str(exc)[:200]}
 
-          model = os.environ['BENCH_MODEL']
+          probes = []
+          chosen = None
+          kind = None
+          for mid in free_candidates:
+              # Máx. 3 sondas :free.
+              result = call_messages(mid)
+              probes.append({'model': mid, 'kind': 'free', **result})
+              if result.get('ok'):
+                  try:
+                      b.verify_openrouter_model_pricing(key, mid, allow_paid=False)
+                  except b.BenchError as exc:
+                      probes[-1]['pricingError'] = str(exc)[:200]
+                      continue
+                  chosen = mid
+                  kind = 'free'
+                  break
+
+          if chosen is None:
+              result = call_messages(paid_fallback)
+              probes.append({'model': paid_fallback, 'kind': 'paid', **result})
+              if not result.get('ok'):
+                  Path('smoke-out/probe.json').write_text(
+                      json.dumps({'probes': probes, 'chosen': None}, indent=2) + '\n',
+                      encoding='utf-8')
+                  raise SystemExit(
+                      'sonda: ningún :free ni fallback pago respondió 2xx')
+              match = b.verify_openrouter_model_pricing(
+                  key, paid_fallback, allow_paid=True)
+              chosen = paid_fallback
+              kind = 'paid'
+              prices = match.get('_parsedPricing') or {}
+          else:
+              match = b.verify_openrouter_model_pricing(key, chosen, allow_paid=False)
+              prices = match.get('_parsedPricing') or {'prompt': 0.0, 'completion': 0.0}
+
+          # pricing OpenRouter suele ser USD por token; reportar por 1M.
+          p_prompt = float(prices.get('prompt') or 0.0) * 1_000_000
+          p_completion = float(prices.get('completion') or 0.0) * 1_000_000
           out = {
-              'anthropic': call('/v1/messages', {
-                  'model': model, 'max_tokens': 16,
-                  'messages': [{'role': 'user', 'content': 'di hola'}],
-              }, {'anthropic-version': '2023-06-01'}),
-              'openai': call('/v1/chat/completions', {
-                  'model': model, 'max_tokens': 16,
-                  'messages': [{'role': 'user', 'content': 'di hola'}],
-              }),
+              'probes': probes,
+              'chosen': chosen,
+              'kind': kind,
+              'pricingPer1M': {'prompt': p_prompt, 'completion': p_completion},
+              'pricingRaw': prices,
           }
-          Path('smoke-out/preflight.json').write_text(
+          Path('smoke-out/probe.json').write_text(
               json.dumps(out, indent=2, ensure_ascii=True) + '\n', encoding='utf-8')
-          print('preflight', json.dumps(out, ensure_ascii=True)[:800])
-          if not (out['anthropic'].get('ok') or out['openai'].get('ok')):
-              raise SystemExit(
-                  'preflight: backend NVIDIA/OpenRouter caído para el modelo :free '
-                  '(Function not found). No se lanza Claude.')
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as fh:
+              fh.write(f'model={chosen}\n')
+              fh.write(f'model_kind={kind}\n')
+              fh.write(f'pricing_prompt={p_prompt}\n')
+              fh.write(f'pricing_completion={p_completion}\n')
+          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as fh:
+              fh.write(f'BENCH_MODEL={chosen}\n')
+              fh.write(f'BENCH_MODEL_KIND={kind}\n')
+              fh.write(f'BENCH_MAX_TURNS={max_turns}\n')
+          print('chosen', chosen, kind, 'pricing/1M', p_prompt, p_completion)
           PY
+          cp "$STATE" smoke-out/or-proxy-count.json || true
+
+      - name: Smoke claude -p di hola
+        id: smoke_run
+        run: |
+          mkdir -p smoke-out
+          STATE="${RUNNER_TEMP}/or-proxy-count.json"
+          HOME_TMP="${RUNNER_TEMP}/claude-home-smoke"
+          mkdir -p "$HOME_TMP"
+          # Reusar contador de la sonda (acumulado).
+          python3 .microharness/or_proxy.py --max 100 --state "$STATE" --port 8765 --rpm 20 &
+          PROXY_PID=$!
+          cleanup() { kill "$PROXY_PID" 2>/dev/null || true; }
+          trap cleanup EXIT
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            if curl -sf "http://127.0.0.1:8765/health" >/dev/null; then break; fi
+            sleep 0.2
+          done
           set +e
-          # Sin OPENROUTER_API_KEY en el proceso Claude; cwd y HOME en temp.
-          # Fijar todos los slots de modelo al :free (evita helper/haiku de pago
-          # o IDs que OpenRouter resuelve como Function not found).
           env -u OPENROUTER_API_KEY \
             HOME="$HOME_TMP" \
             USERPROFILE="$HOME_TMP" \
@@ -177,7 +235,6 @@ jobs:
           ec=$?
           set -e
           echo "exit_code=${ec}" > smoke-out/exit.env
-          # Contador ilegible o tope → aborta el smoke. Persistir estado para cheap.
           cp "$STATE" smoke-out/or-proxy-count.json
           python3 -c "
           import json, sys
@@ -209,7 +266,6 @@ jobs:
                   payload = parsed
           except ValueError:
               payload = {}
-          # Campos de diagnóstico sin secretos (el result puede traer el error de API).
           result_txt = payload.get('result')
           if not isinstance(result_txt, str):
               result_txt = payload.get('error') if isinstance(payload.get('error'), str) else ''
@@ -225,6 +281,7 @@ jobs:
               'payloadKeys': sorted(payload.keys())[:40] if payload else [],
               'hasPayload': bool(payload),
               'model': os.environ.get('BENCH_MODEL'),
+              'modelKind': os.environ.get('BENCH_MODEL_KIND'),
               'hostVersion': None,
           }
           try:
@@ -235,25 +292,33 @@ jobs:
                   diag['hostVersion'] = diag['hostVersion'][0][:120]
           except Exception:
               pass
-          # usage after smoke
           key = os.environ.get('OPENROUTER_API_KEY') or ''
           before = json.loads(out.joinpath('usage-before.json').read_text(encoding='utf-8'))['usage']
           after = b.read_usage(b.fetch_openrouter_key(key))
-          if after - float(before) > 0:
+          delta = after - float(before)
+          if delta < 0:
+              delta = 0.0
+          max_spend = float(b.load_config().get('maxSpendUsd', 5))
+          approach = float(b.load_config().get('spendApproachRatio', 0.8))
+          spend_ok = delta < max_spend * approach
+          if not spend_ok:
               diag['ok'] = False
-              diag['usageRise'] = True
-          else:
-              diag['usageRise'] = False
           diag['usageBefore'] = before
           diag['usageAfter'] = after
+          diag['usageDelta'] = delta
+          diag['spendOk'] = spend_ok
           count = json.loads(out.joinpath('or-proxy-count.json').read_text(encoding='utf-8'))
           diag['proxyCount'] = count.get('count')
           diag['proxyMax'] = count.get('max')
+          if out.joinpath('probe.json').is_file():
+              diag['probe'] = json.loads(out.joinpath('probe.json').read_text(encoding='utf-8'))
           out.joinpath('smoke.sanitized.json').write_text(
               json.dumps(diag, indent=2, ensure_ascii=True) + '\n', encoding='utf-8')
           out.joinpath('usage-after.json').write_text(
-              json.dumps({'usage': after, 'usageBefore': before}, indent=2) + '\n', encoding='utf-8')
-          # borrar crudos (pueden contener texto de modelo; no van al artifact)
+              json.dumps({
+                  'usage': after, 'usageBefore': before, 'usageDelta': delta,
+                  'spendOk': spend_ok,
+              }, indent=2) + '\n', encoding='utf-8')
           for name in ('raw-stdout.json', 'raw-stderr.txt'):
               p = out / name
               if p.is_file():
@@ -272,7 +337,7 @@ jobs:
             smoke-out/usage-before.json
             smoke-out/usage-after.json
             smoke-out/or-proxy-count.json
-            smoke-out/preflight.json
+            smoke-out/probe.json
           if-no-files-found: warn
 
   cheap-baseline:
@@ -280,9 +345,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 360
     env:
-      # Key solo al proceso Python (candado + proxy interno). Claude no la hereda.
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-      BENCH_MODEL: nvidia/nemotron-3-super-120b-a12b:free
+      BENCH_MODEL: ${{ needs.smoke.outputs.model }}
+      BENCH_MODEL_KIND: ${{ needs.smoke.outputs.model_kind }}
+      BENCH_PRICING_PROMPT: ${{ needs.smoke.outputs.pricing_prompt }}
+      BENCH_PRICING_COMPLETION: ${{ needs.smoke.outputs.pricing_completion }}
       CI: "true"
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
     steps:
@@ -293,6 +360,10 @@ jobs:
         run: |
           if [ -z "${OPENROUTER_API_KEY}" ]; then
             echo "ERROR: secret OPENROUTER_API_KEY no expuesto en Actions."
+            exit 1
+          fi
+          if [ -z "${BENCH_MODEL}" ]; then
+            echo "ERROR: BENCH_MODEL vacío (sonda falló)."
             exit 1
           fi
 
@@ -324,7 +395,7 @@ jobs:
           name: bench-smoke
           path: smoke-in
 
-      - name: Configure fill (04+05 luego 03-r2) + contador acumulado
+      - name: Configure matriz NUEVA (sin celdas viejas)
         run: |
           python3 <<'PY'
           import json, os, shutil
@@ -332,17 +403,10 @@ jobs:
           p = Path('bench/config.json')
           cfg = json.loads(p.read_text(encoding='utf-8'))
           cfg['models'] = [os.environ['BENCH_MODEL']]
-          cfg['baselineStatus'] = 'running-cheap-fill'
-          cfg['priorReport'] = 'bench/baseline/bench-report.sanitized.json'
-          # Orden: primero 04 y 05 (12), después 03-r2 (2).
-          only = []
-          for tid in ('04-config-docs', '05-prueba-regresion'):
-              for rep in range(3):
-                  only.append({'taskId': tid, 'variant': 'base', 'repetition': rep})
-                  only.append({'taskId': tid, 'variant': 'treatment', 'repetition': rep})
-          only.append({'taskId': '03-refactor', 'variant': 'base', 'repetition': 2})
-          only.append({'taskId': '03-refactor', 'variant': 'treatment', 'repetition': 2})
-          cfg['onlyCells'] = only
+          cfg['baselineStatus'] = 'running-cheap'
+          # Matriz nueva: NO priorReport / NO onlyCells / NO fusión.
+          cfg.pop('priorReport', None)
+          cfg.pop('onlyCells', None)
           prior = int(os.environ.get('BENCH_PRIOR_REQUESTS') or '0')
           smoke_state = Path('smoke-in/or-proxy-count.json')
           if smoke_state.is_file():
@@ -357,14 +421,20 @@ jobs:
                   json.dumps({'count': prior, 'max': 100}) + '\n', encoding='utf-8')
               print('proxy state seeded with prior', prior)
           cfg['requestsAlreadyUsed'] = prior
+          cfg['maxPaidLimitUsd'] = 10
+          cfg['maxSpendUsd'] = 5
+          cfg['spendApproachRatio'] = 0.8
+          cfg['maxTurnsPerCell'] = 3
+          cfg['maxRequestsPerRun'] = 100
           p.write_text(json.dumps(cfg, indent=2) + '\n', encoding='utf-8')
           with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as fh:
               fh.write(f'BENCH_PROXY_STATE={out_state}\n')
               fh.write(f'BENCH_PRIOR_REQUESTS={prior}\n')
-          print('onlyCells', len(only), 'prior_requests', prior)
+          print('model', os.environ['BENCH_MODEL'], 'kind', os.environ.get('BENCH_MODEL_KIND'),
+                'prior_requests', prior)
           PY
 
-      - name: Candado pre-corrida + precio 0
+      - name: Candado pre-corrida (gasto ≤ $5)
         run: |
           python3 <<'PY'
           import json, os, sys
@@ -373,21 +443,34 @@ jobs:
           import bench as b
           key = os.environ.get('OPENROUTER_API_KEY') or ''
           model = os.environ['BENCH_MODEL']
-          b.assert_free_model(model)
+          b.assert_bench_model(model)
           cfg = b.load_config()
-          only = cfg.get('onlyCells') or []
-          est = b.planned_requests(cfg, len(only))
-          data = b.check_openrouter_free_lock(key, est, max_paid_limit_usd=5)
+          # Matriz completa cheap: 30 celdas.
+          est = b.planned_requests(cfg, 30)
+          max_cap = float(cfg.get('maxPaidLimitUsd', 10))
+          max_spend = float(cfg.get('maxSpendUsd', 5))
+          need_free = b.is_free_model(model)
+          data = b.check_openrouter_spend_lock(
+              key, est, max_paid_limit_usd=max_cap, max_spend_usd=max_spend,
+              require_free_quota=need_free)
           usage = b.read_usage(data)
-          b.verify_openrouter_model_pricing(key, model)
+          b.verify_openrouter_model_pricing(
+              key, model, allow_paid=not need_free)
           out = Path('bench-out')
           out.mkdir(exist_ok=True)
           (out / 'usage-before.json').write_text(
-              json.dumps({'usage': usage}, indent=2) + '\n', encoding='utf-8')
-          print('lock ok est', est, 'only', len(only))
+              json.dumps({
+                  'usage': usage,
+                  'model': model,
+                  'modelKind': os.environ.get('BENCH_MODEL_KIND'),
+                  'pricingPromptPer1M': os.environ.get('BENCH_PRICING_PROMPT'),
+                  'pricingCompletionPer1M': os.environ.get('BENCH_PRICING_COMPLETION'),
+                  'estimatedRequests': est,
+              }, indent=2) + '\n', encoding='utf-8')
+          print('lock ok est', est, 'model', model, 'free', need_free)
           PY
 
-      - name: Run cheap fill (14 pendientes)
+      - name: Run cheap baseline (matriz nueva 30 celdas)
         id: cheap_run
         continue-on-error: true
         run: |
@@ -397,14 +480,12 @@ jobs:
           ec=$?
           set -e
           echo "cheap_exit=${ec}" >> "$GITHUB_OUTPUT"
-          # Persistir contador final del proxy.
           if [ -n "${BENCH_PROXY_STATE}" ] && [ -f "${BENCH_PROXY_STATE}" ]; then
             cp "${BENCH_PROXY_STATE}" bench-out/or-proxy-count.json || true
           fi
-          # 0 = ok/inconcluso; 2 = RECHAZA; 1 = abort con reporte parcial posible
           exit 0
 
-      - name: Candado post-corrida
+      - name: Candado post-corrida (gasto)
         if: always()
         run: |
           python3 <<'PY'
@@ -415,32 +496,44 @@ jobs:
           out = Path('bench-out')
           out.mkdir(exist_ok=True)
           key = os.environ.get('OPENROUTER_API_KEY') or ''
+          cfg = b.load_config()
+          max_spend = float(cfg.get('maxSpendUsd', 5))
+          approach = float(cfg.get('spendApproachRatio', 0.8))
           before_path = out / 'usage-before.json'
           if before_path.is_file():
               before = json.loads(before_path.read_text(encoding='utf-8'))['usage']
           else:
               before = b.read_usage(b.fetch_openrouter_key(key))
           after = b.read_usage(b.fetch_openrouter_key(key))
-          rise = after - float(before) > 0
+          delta = after - float(before)
+          if delta < 0:
+              delta = 0.0
+          spend_ok = delta < max_spend * approach
           proxy = {}
           pp = out / 'or-proxy-count.json'
           if pp.is_file():
               proxy = json.loads(pp.read_text(encoding='utf-8'))
           (out / 'usage-after.json').write_text(
               json.dumps({
-                  'usage': after, 'usageBefore': before, 'usageRise': rise,
+                  'usage': after, 'usageBefore': before, 'usageDelta': delta,
+                  'spendOk': spend_ok, 'maxSpendUsd': max_spend,
+                  'approachRatio': approach,
                   'proxyCount': proxy.get('count'), 'proxyMax': proxy.get('max'),
+                  'model': os.environ.get('BENCH_MODEL'),
+                  'modelKind': os.environ.get('BENCH_MODEL_KIND'),
+                  'pricingPromptPer1M': os.environ.get('BENCH_PRICING_PROMPT'),
+                  'pricingCompletionPer1M': os.environ.get('BENCH_PRICING_COMPLETION'),
               }, indent=2) + '\n', encoding='utf-8')
-          print('usage after recorded; proxy', proxy)
-          if rise:
-              raise SystemExit('usage rose; corrida invalida')
+          print('usage delta', delta, 'spend_ok', spend_ok, 'proxy', proxy)
+          if not spend_ok:
+              raise SystemExit(f'gasto se acerca/supera tope: delta={delta} max={max_spend}')
           PY
 
       - name: Sanitize artifact (§7)
         if: always()
         run: |
           python3 <<'PY'
-          import json, sys
+          import json, sys, os
           from pathlib import Path
           sys.path.insert(0, '.microharness')
           import bench as b
@@ -468,6 +561,11 @@ jobs:
               ua = json.loads((out / 'usage-after.json').read_text(encoding='utf-8'))
           clean['usageBefore'] = ub.get('usage', clean.get('usageBefore'))
           clean['usageAfter'] = ua.get('usage', clean.get('usageAfter'))
+          clean['usageDelta'] = ua.get('usageDelta', clean.get('usageDelta'))
+          clean['maxSpendUsd'] = ua.get('maxSpendUsd', clean.get('maxSpendUsd'))
+          clean['modelKind'] = os.environ.get('BENCH_MODEL_KIND')
+          clean['pricingPromptPer1M'] = os.environ.get('BENCH_PRICING_PROMPT')
+          clean['pricingCompletionPer1M'] = os.environ.get('BENCH_PRICING_COMPLETION')
           clean['cheap'] = True
           clean['date'] = clean.get('ts')
           if (out / 'or-proxy-count.json').is_file():
@@ -475,7 +573,6 @@ jobs:
               clean['proxyCount'] = pc.get('count')
               clean['proxyMax'] = pc.get('max')
               clean['requestsUsed'] = pc.get('count', clean.get('requestsUsed'))
-          # Resumen diagnóstico (sin prompts ni keys)
           diags = []
           for c in clean.get('cells') or []:
               if c.get('pending') or c.get('exitCode') not in (0, None):
@@ -509,7 +606,7 @@ jobs:
             bench-out/or-proxy-count.json
           if-no-files-found: warn
 
-      - name: Fail if no valid cells or usage rose
+      - name: Fail if no valid cells or spend exceeded
         if: always()
         run: |
           python3 <<'PY'
@@ -519,8 +616,8 @@ jobs:
           ua = Path('bench-out/usage-after.json')
           if ua.is_file():
               data = json.loads(ua.read_text(encoding='utf-8'))
-              if data.get('usageRise'):
-                  print('FAIL: usage rose')
+              if data.get('spendOk') is False:
+                  print('FAIL: gasto se acerca/supera tope')
                   raise SystemExit(1)
           if not p.is_file():
               print('FAIL: no sanitized report')
@@ -528,7 +625,11 @@ jobs:
           rep = json.loads(p.read_text(encoding='utf-8'))
           cells = rep.get('cells') or []
           valid = [c for c in cells if not c.get('pending')]
-          print(f'valid_cells={len(valid)} pending={len(cells)-len(valid)} verdict={rep.get("verdict")} proxy={rep.get("proxyCount")}')
+          print(
+              f'valid_cells={len(valid)} pending={len(cells)-len(valid)} '
+              f'verdict={rep.get("verdict")} proxy={rep.get("proxyCount")} '
+              f'delta={rep.get("usageDelta")} model={rep.get("models")}'
+          )
           if len(valid) == 0:
               print('FAIL: cero celdas validas')
               raise SystemExit(1)
