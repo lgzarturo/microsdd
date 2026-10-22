@@ -9,7 +9,7 @@
 |---|---|
 | Modelo | sonda `:free` ≤3; si fallan → pago económico con tools (ver reporte) |
 | Diseño | cheap N=3, 5 tareas × 2 brazos = 30 celdas; sin mezclar celdas viejas |
-| Tope HTTP | 100 acumulado/repo (proxy); rate limit 20/min fail-closed |
+| Tope HTTP | 100 acumulado/repo (solo POST mensajes reenviados); rate limit 20/min espera/cola |
 | Turnos | `maxTurnsPerCell=3` → 30×3=90 ≤ 100 |
 | Candado | gasto máximo **$5/repo** (usage antes/después; aborta al acercarse); key limit ≤ $10 |
 

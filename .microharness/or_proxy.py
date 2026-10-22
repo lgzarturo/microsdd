@@ -2,8 +2,11 @@
 """Proxy local que cuenta requests hacia OpenRouter (fail-closed). Solo stdlib.
 
 Claude Code apunta ANTHROPIC_BASE_URL al proxy; la key real vive solo aquí.
-Cada request HTTP (incluido small-fast u otros modelos) incrementa el contador.
-Si el contador no se puede leer/escribir, o si se alcanza el tope, se rechaza.
+
+Solo cuentan hacia el tope de 100 los POST de mensajes realmente reenviados a
+OpenRouter (/v1/messages, /v1/chat/completions). Health, HEAD y otros métodos
+no gastan slot. El rate limit 20/min ESPERA (cola/backoff) en vez de rechazar,
+para que Claude no entre en bucle de reintentos por 429 del propio proxy.
 """
 from __future__ import annotations
 
@@ -20,34 +23,80 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-# Tope OpenRouter tipico :free / politeness; fail-closed si se supera.
+# Tope de politeness OpenRouter; el limiter espera, no rechaza.
 DEFAULT_MAX_REQUESTS_PER_MINUTE = 20
+# Espera máxima por slot de rate limit (evita colgar una celda indefinidamente).
+DEFAULT_RATE_WAIT_TIMEOUT_S = 180.0
+# Rutas POST que cuentan hacia el tope de 100 (mensajes reenviados).
+COUNTABLE_POST_PATHS = (
+    '/v1/messages',
+    '/v1/chat/completions',
+    '/messages',
+    '/chat/completions',
+)
 
 
 class ProxyError(Exception):
     pass
 
 
-class RateLimiter:
-    """Ventana deslizante de 60s. Fail-closed al superar max_per_minute."""
+def _path_only(path: str) -> str:
+    return (path or '/').split('?', 1)[0]
 
-    def __init__(self, max_per_minute: int = DEFAULT_MAX_REQUESTS_PER_MINUTE):
+
+def is_countable_request(method: str, path: str) -> bool:
+    """True solo para POST de mensajes (los que deben gastar el tope de 100)."""
+    if (method or '').upper() != 'POST':
+        return False
+    p = _path_only(path)
+    if p in COUNTABLE_POST_PATHS:
+        return True
+    return any(p.endswith(suffix) for suffix in COUNTABLE_POST_PATHS)
+
+
+class RateLimiter:
+    """Ventana deslizante de 60s. Espera (cola) al llegar al tope; no rechaza."""
+
+    def __init__(
+        self,
+        max_per_minute: int = DEFAULT_MAX_REQUESTS_PER_MINUTE,
+        *,
+        wait_timeout_s: float = DEFAULT_RATE_WAIT_TIMEOUT_S,
+    ):
         if type(max_per_minute) is not int or max_per_minute < 1:
             raise ProxyError(f'max_per_minute inválido: {max_per_minute!r}')
+        if not isinstance(wait_timeout_s, (int, float)) or isinstance(wait_timeout_s, bool):
+            raise ProxyError(f'wait_timeout_s inválido: {wait_timeout_s!r}')
+        timeout = float(wait_timeout_s)
+        if timeout <= 0 or timeout != timeout:  # NaN check
+            raise ProxyError(f'wait_timeout_s inválido: {wait_timeout_s!r}')
         self.max_per_minute = max_per_minute
+        self.wait_timeout_s = timeout
         self._times: list[float] = []
         self._lock = threading.Lock()
+        self._cv = threading.Condition(self._lock)
 
-    def allow(self) -> None:
-        with self._lock:
-            now = time.monotonic()
-            cutoff = now - 60.0
-            self._times = [t for t in self._times if t > cutoff]
-            if len(self._times) >= self.max_per_minute:
-                raise ProxyError(
-                    f'rate limit {self.max_per_minute}/min alcanzado '
-                    f'(ventana={len(self._times)})')
-            self._times.append(now)
+    def acquire(self) -> None:
+        """Bloquea hasta haber hueco en la ventana; registra el slot al salir."""
+        deadline = time.monotonic() + self.wait_timeout_s
+        with self._cv:
+            while True:
+                now = time.monotonic()
+                cutoff = now - 60.0
+                self._times = [t for t in self._times if t > cutoff]
+                if len(self._times) < self.max_per_minute:
+                    self._times.append(now)
+                    self._cv.notify_all()
+                    return
+                if now >= deadline:
+                    raise ProxyError(
+                        f'rate limit {self.max_per_minute}/min: espera agotada '
+                        f'({self.wait_timeout_s}s)')
+                oldest = min(self._times)
+                sleep_for = min((oldest + 60.0) - now, deadline - now)
+                if sleep_for < 0.01:
+                    sleep_for = 0.01
+                self._cv.wait(timeout=sleep_for)
 
 
 class RequestCounter:
@@ -189,36 +238,80 @@ class _ProxyHandler(BaseHTTPRequestHandler):
             return b''
         return self.rfile.read(length) if length else b''
 
-    def _reject(self, code: int, message: str) -> None:
-        payload = json.dumps({'error': {'message': message, 'type': 'microsdd_proxy'}}).encode()
+    def _reject(self, code: int, message: str, *, error_type: str = 'microsdd_proxy') -> None:
+        # No usar type=rate_limit_error: Claude Code reintenta en bucle ante 429.
+        payload = json.dumps({
+            'error': {'message': message, 'type': error_type},
+            'type': 'error',
+        }).encode()
         self.send_response(code)
         self.send_header('Content-Type', 'application/json')
         self.send_header('Content-Length', str(len(payload)))
+        # Señalar no-reintento a clientes que respeten Retry-After vacío / connection close.
+        if code in (403, 401):
+            self.send_header('Connection', 'close')
         self.end_headers()
         self.wfile.write(payload)
+
+    def _local_ok(self, payload: dict) -> None:
+        raw = json.dumps(payload).encode()
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Content-Length', str(len(raw)))
+        self.end_headers()
+        self.wfile.write(raw)
+
+    def _handle_health(self) -> None:
+        try:
+            data = self.server.counter.read()
+        except ProxyError as exc:
+            self.server.aborted = True
+            self.server.abort_reason = str(exc)
+            self._reject(500, str(exc))
+            return
+        self._local_ok({
+            'ok': True,
+            'count': data['count'],
+            'max': data['max'],
+            'aborted': bool(self.server.aborted),
+        })
 
     def _forward(self, method: str) -> None:
         counter: RequestCounter = self.server.counter
         api_key: str = self.server.api_key
         upstream: str = self.server.upstream
-        try:
-            self.server.rate_limiter.allow()
-            new_count = counter.allow_and_increment()
-        except ProxyError as exc:
-            self.server.aborted = True
-            self.server.abort_reason = str(exc)
-            self._reject(403, str(exc))
-            return
-
         path = self.path if self.path.startswith('/') else '/' + self.path
-        url = upstream.rstrip('/') + path
+        countable = is_countable_request(method, path)
+
+        # Leer body ANTES de contar: fallo de parseo no gasta slot.
         try:
             body = self._read_body() if method in ('POST', 'PUT', 'PATCH') else None
         except ProxyError as exc:
             self.server.aborted = True
             self.server.abort_reason = str(exc)
-            self._reject(400, str(exc))
+            self._reject(400, str(exc), error_type='invalid_request_error')
             return
+
+        new_count: int | None = None
+        if countable:
+            # Rate limit: esperar hueco (no 429 → Claude no reintenta en bucle).
+            try:
+                self.server.rate_limiter.acquire()
+            except ProxyError as exc:
+                self.server.aborted = True
+                self.server.abort_reason = str(exc)
+                # 403 + tipo propio: no es rate_limit_error de API.
+                self._reject(403, str(exc), error_type='microsdd_proxy_timeout')
+                return
+            try:
+                new_count = counter.allow_and_increment()
+            except ProxyError as exc:
+                self.server.aborted = True
+                self.server.abort_reason = str(exc)
+                self._reject(403, str(exc), error_type='microsdd_proxy_budget')
+                return
+
+        url = upstream.rstrip('/') + path
         # Permitir fallbacks de proveedor en OpenRouter (NVIDIA Function-not-found).
         if body and method in ('POST', 'PUT', 'PATCH'):
             ctype = (self.headers.get('Content-Type') or '').lower()
@@ -261,38 +354,38 @@ class _ProxyHandler(BaseHTTPRequestHandler):
             status = exc.code
             content_type = exc.headers.get('Content-Type') if exc.headers else 'application/json'
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            label = f'#{new_count}' if new_count is not None else '(no contado)'
             self.server.aborted = True
-            self.server.abort_reason = f'upstream error after request #{new_count}: {exc}'
+            self.server.abort_reason = f'upstream error after request {label}: {exc}'
             self._reject(502, f'upstream error: {type(exc).__name__}')
             return
         self.send_response(status)
         self.send_header('Content-Type', content_type)
         self.send_header('Content-Length', str(len(raw)))
-        self.send_header('X-Microsdd-Request-Count', str(new_count))
+        if new_count is not None:
+            self.send_header('X-Microsdd-Request-Count', str(new_count))
         self.end_headers()
         self.wfile.write(raw)
 
-    def do_GET(self) -> None:  # noqa: N802
-        if self.path in ('/health', '/healthz'):
-            try:
-                data = self.server.counter.read()
-            except ProxyError as exc:
-                self.server.aborted = True
-                self.server.abort_reason = str(exc)
-                self._reject(500, str(exc))
-                return
-            payload = json.dumps({
-                'ok': True,
-                'count': data['count'],
-                'max': data['max'],
-                'aborted': bool(self.server.aborted),
-            }).encode()
+    def do_HEAD(self) -> None:  # noqa: N802
+        # Probes de auth de Claude/SDK: 200 local, sin reenviar ni contar (evita 401→retry).
+        path = _path_only(self.path if self.path.startswith('/') else '/' + self.path)
+        if path in ('/health', '/healthz', '/', '/v1/models', '/v1/messages'):
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
-            self.send_header('Content-Length', str(len(payload)))
+            self.send_header('Content-Length', '0')
             self.end_headers()
-            self.wfile.write(payload)
             return
+        self.send_response(200)
+        self.send_header('Content-Length', '0')
+        self.end_headers()
+
+    def do_GET(self) -> None:  # noqa: N802
+        path = _path_only(self.path if self.path.startswith('/') else '/' + self.path)
+        if path in ('/health', '/healthz'):
+            self._handle_health()
+            return
+        # Otros GET (p. ej. /v1/models): reenvío sin gastar el tope de 100.
         self._forward('GET')
 
     def do_POST(self) -> None:  # noqa: N802
@@ -320,6 +413,7 @@ class CountingProxyServer(ThreadingHTTPServer):
         upstream: str = 'https://openrouter.ai/api',
         upstream_timeout: float = 600.0,
         max_requests_per_minute: int = DEFAULT_MAX_REQUESTS_PER_MINUTE,
+        rate_wait_timeout_s: float = DEFAULT_RATE_WAIT_TIMEOUT_S,
     ):
         if not api_key:
             raise ProxyError('api_key del proxy ausente')
@@ -327,7 +421,8 @@ class CountingProxyServer(ThreadingHTTPServer):
         self.api_key = api_key
         self.upstream = upstream.rstrip('/')
         self.upstream_timeout = upstream_timeout
-        self.rate_limiter = RateLimiter(max_requests_per_minute)
+        self.rate_limiter = RateLimiter(
+            max_requests_per_minute, wait_timeout_s=rate_wait_timeout_s)
         self.aborted = False
         self.abort_reason: str | None = None
         super().__init__(server_address, _ProxyHandler)
@@ -353,6 +448,7 @@ class OpenRouterCountingProxy:
         upstream: str = 'https://openrouter.ai/api',
         initial_count: int = 0,
         max_requests_per_minute: int = DEFAULT_MAX_REQUESTS_PER_MINUTE,
+        rate_wait_timeout_s: float = DEFAULT_RATE_WAIT_TIMEOUT_S,
     ):
         if not api_key:
             raise ProxyError('OPENROUTER_API_KEY ausente para el proxy')
@@ -371,6 +467,7 @@ class OpenRouterCountingProxy:
             api_key=api_key,
             upstream=upstream,
             max_requests_per_minute=max_requests_per_minute,
+            rate_wait_timeout_s=rate_wait_timeout_s,
         )
         self.host = host
         self.port = chosen_port
@@ -423,6 +520,9 @@ class OpenRouterCountingProxy:
         env['CLAUDE_CODE_SUBAGENT_MODEL'] = model_id
         env.setdefault('CI', 'true')
         env.setdefault('CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC', '1')
+        # Mitigar reintentos agresivos del SDK ante fallos de red/proxy.
+        env.setdefault('CLAUDE_CODE_MAX_RETRIES', '0')
+        env.setdefault('ANTHROPIC_MAX_RETRIES', '0')
         return env
 
 
@@ -437,7 +537,7 @@ def main(argv: list[str] | None = None) -> int:
         help='Requests ya gastados en intentos previos (tope acumulado).')
     parser.add_argument(
         '--rpm', type=int, default=DEFAULT_MAX_REQUESTS_PER_MINUTE,
-        help='Tope de requests por minuto (fail-closed).')
+        help='Tope de requests por minuto (espera/cola, no rechaza).')
     args = parser.parse_args(argv)
     key = os.environ.get('OPENROUTER_API_KEY') or ''
     if not key:

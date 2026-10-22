@@ -94,14 +94,17 @@ class RateLimiterTests(unittest.TestCase):
     def setUp(self):
         self.or_mod = load_or()
 
-    def test_allows_up_to_max_then_fail_closed(self):
-        lim = self.or_mod.RateLimiter(3)
-        lim.allow()
-        lim.allow()
-        lim.allow()
+    def test_acquire_waits_instead_of_rejecting(self):
+        lim = self.or_mod.RateLimiter(2, wait_timeout_s=2.0)
+        lim.acquire()
+        lim.acquire()
+        # Con timeout corto y ventana llena → error de espera (no rechazo instantáneo).
+        t0 = __import__('time').monotonic()
         with self.assertRaises(self.or_mod.ProxyError) as ctx:
-            lim.allow()
-        self.assertIn('rate limit', str(ctx.exception).lower())
+            lim.acquire()
+        elapsed = __import__('time').monotonic() - t0
+        self.assertIn('espera', str(ctx.exception).lower())
+        self.assertGreaterEqual(elapsed, 1.5)
 
     def test_invalid_max_raises(self):
         for bad in (0, -1, True, '8', None, 1.5):
@@ -109,7 +112,8 @@ class RateLimiterTests(unittest.TestCase):
                 with self.assertRaises(self.or_mod.ProxyError):
                     self.or_mod.RateLimiter(bad)
 
-    def test_proxy_rejects_when_rpm_exceeded(self):
+    def test_proxy_waits_on_rpm_then_forwards(self):
+        """rpm=1: el 2º POST espera y se reenvía; no 429/403 de rate-limit."""
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         hits = []
@@ -135,12 +139,14 @@ class RateLimiterTests(unittest.TestCase):
         up_thread.start()
         self.addCleanup(up.shutdown)
         self.addCleanup(up.server_close)
+        # Manipular la ventana del limiter para no esperar 60s reales.
         proxy = self.or_mod.OpenRouterCountingProxy(
             'sk-real',
             max_requests=100,
             state_path=Path(tmp.name) / 'c.json',
             upstream=f'http://127.0.0.1:{up.server_address[1]}',
-            max_requests_per_minute=2,
+            max_requests_per_minute=1,
+            rate_wait_timeout_s=5.0,
         )
         proxy.start()
         self.addCleanup(proxy.stop)
@@ -155,16 +161,19 @@ class RateLimiterTests(unittest.TestCase):
                 },
                 method='POST',
             )
-            with urllib.request.urlopen(req, timeout=5) as resp:
+            with urllib.request.urlopen(req, timeout=10) as resp:
                 return resp.status
 
         self.assertEqual(post(), 200)
+        # Retroceder el timestamp del slot para que el wait sea corto.
+        with proxy.server.rate_limiter._lock:
+            proxy.server.rate_limiter._times = [
+                __import__('time').monotonic() - 59.5
+            ]
         self.assertEqual(post(), 200)
-        with self.assertRaises(urllib.error.HTTPError) as ctx:
-            post()
-        self.assertEqual(ctx.exception.code, 403)
-        self.assertTrue(proxy.server.aborted)
         self.assertEqual(len(hits), 2)
+        self.assertEqual(proxy.read_count(), 2)
+        self.assertFalse(proxy.server.aborted)
 
 
 @unittest.skipUnless(OR_PATH.is_file(), 'or_proxy.py ausente')
@@ -293,6 +302,101 @@ class ProxyServerTests(unittest.TestCase):
     def test_missing_api_key_raises(self):
         with self.assertRaises(self.or_mod.ProxyError):
             self.or_mod.OpenRouterCountingProxy('', max_requests=1)
+
+    def test_head_and_health_do_not_consume_budget(self):
+        """HEAD/health no reenvían ni gastan el tope (aviso CodeConductor)."""
+        import http.client
+        before = self.proxy.read_count()
+        conn = http.client.HTTPConnection('127.0.0.1', self.proxy.port, timeout=5)
+        conn.request('HEAD', '/v1/messages', headers={
+            'Authorization': f'Bearer {self.or_mod.OpenRouterCountingProxy.LOCAL_TOKEN}',
+        })
+        resp = conn.getresponse()
+        resp.read()
+        self.assertEqual(resp.status, 200)
+        conn.close()
+        with urllib.request.urlopen(self.proxy.base_url + '/health', timeout=5) as r:
+            self.assertEqual(r.status, 200)
+        self.assertEqual(self.proxy.read_count(), before)
+        self.assertEqual(len(self.upstream_hits), 0)
+
+    def test_get_models_forwards_without_counting(self):
+        class UpstreamGet(BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                return
+
+            def do_GET(handler_self):  # noqa: N802
+                self.upstream_hits.append({'path': handler_self.path, 'method': 'GET'})
+                payload = b'{"data":[]}'
+                handler_self.send_response(200)
+                handler_self.send_header('Content-Type', 'application/json')
+                handler_self.send_header('Content-Length', str(len(payload)))
+                handler_self.end_headers()
+                handler_self.wfile.write(payload)
+
+            def do_POST(handler_self):  # noqa: N802
+                length = int(handler_self.headers.get('Content-Length') or 0)
+                if length:
+                    handler_self.rfile.read(length)
+                payload = b'{"ok":true}'
+                handler_self.send_response(200)
+                handler_self.send_header('Content-Type', 'application/json')
+                handler_self.send_header('Content-Length', str(len(payload)))
+                handler_self.end_headers()
+                handler_self.wfile.write(payload)
+
+        # Reconfigurar upstream del proxy existente no es trivial; usar proxy nuevo.
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        up = ThreadingHTTPServer(('127.0.0.1', 0), UpstreamGet)
+        t = threading.Thread(target=up.serve_forever, daemon=True)
+        t.start()
+        self.addCleanup(up.shutdown)
+        self.addCleanup(up.server_close)
+        hits = []
+        # Capturar hits en closure del handler de arriba vía self.upstream_hits del test
+        # no aplica; el handler usa self del TestCase. OK.
+        proxy = self.or_mod.OpenRouterCountingProxy(
+            'sk-real',
+            max_requests=10,
+            state_path=Path(tmp.name) / 'c.json',
+            upstream=f'http://127.0.0.1:{up.server_address[1]}',
+        )
+        proxy.start()
+        self.addCleanup(proxy.stop)
+        before = proxy.read_count()
+        hits_before = len(self.upstream_hits)
+        with urllib.request.urlopen(proxy.base_url + '/v1/models', timeout=5) as resp:
+            self.assertEqual(resp.status, 200)
+        self.assertEqual(proxy.read_count(), before)
+        self.assertGreater(len(self.upstream_hits), hits_before)
+        # POST messages sí cuenta.
+        req = urllib.request.Request(
+            proxy.base_url + '/v1/messages',
+            data=b'{"model":"x"}',
+            headers={
+                'Authorization': f'Bearer {self.or_mod.OpenRouterCountingProxy.LOCAL_TOKEN}',
+                'Content-Type': 'application/json',
+            },
+            method='POST',
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            self.assertEqual(resp.status, 200)
+        self.assertEqual(proxy.read_count(), before + 1)
+
+    def test_is_countable_request_only_message_posts(self):
+        self.assertTrue(self.or_mod.is_countable_request('POST', '/v1/messages'))
+        self.assertTrue(self.or_mod.is_countable_request('POST', '/v1/chat/completions'))
+        self.assertFalse(self.or_mod.is_countable_request('GET', '/v1/messages'))
+        self.assertFalse(self.or_mod.is_countable_request('HEAD', '/v1/messages'))
+        self.assertFalse(self.or_mod.is_countable_request('POST', '/v1/models'))
+        self.assertFalse(self.or_mod.is_countable_request('GET', '/health'))
+
+    def test_client_env_disables_sdk_retries(self):
+        with tempfile.TemporaryDirectory() as home:
+            env = self.proxy.client_env('openai/gpt-oss-20b', home=home)
+        self.assertEqual(env.get('CLAUDE_CODE_MAX_RETRIES'), '0')
+        self.assertEqual(env.get('ANTHROPIC_MAX_RETRIES'), '0')
 
 
 if __name__ == '__main__':

@@ -1058,7 +1058,8 @@ def run_bench(
         report['aborted'] = True
         report['abortReason'] = abort_reason
     report['risks'] = [
-        f'Proxy rate limit: {FREE_RPM} req/min (fail-closed); '
+        f'Proxy rate limit: {FREE_RPM} req/min (espera/cola, no 429); '
+        f'solo POST de mensajes cuentan al tope; '
         f':free tipico {FREE_RPD_LOW} o {FREE_RPD_HIGH} req/día según créditos.',
         f'Candado: gasto máximo maxSpendUsd={max_spend} por repo '
         f'(usage antes/después; aborta al acercarse ratio={approach_ratio}); '

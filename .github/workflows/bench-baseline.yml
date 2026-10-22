@@ -230,6 +230,8 @@ jobs:
             CLAUDE_CODE_SUBAGENT_MODEL="${BENCH_MODEL}" \
             CI=true \
             CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \
+            CLAUDE_CODE_MAX_RETRIES=0 \
+            ANTHROPIC_MAX_RETRIES=0 \
             claude -p "di hola" \
               --output-format json \
               --dangerously-skip-permissions \

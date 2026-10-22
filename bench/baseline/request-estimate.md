@@ -5,7 +5,8 @@
 | Concepto | Requests |
 |---|---|
 | Tope duro repo (proxy) | 100 |
-| Rate limit proxy | 20/min fail-closed |
+| Rate limit proxy | 20/min espera/cola (no rechaza con 429) |
+| Qué cuenta | Solo POST `/v1/messages` y `/v1/chat/completions` reenviados |
 | Ya contados (prior conservador) | ~4–5 |
 | Restante | ~95 |
 | Matriz cheap N=3 | 30 celdas |
