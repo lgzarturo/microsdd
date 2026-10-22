@@ -262,13 +262,16 @@ class BenchStatsTests(unittest.TestCase):
         cfg['maxRequestsPerRun'] = 30
         with mock.patch('urllib.request.urlopen', side_effect=fake_urlopen):
             with mock.patch.dict(os.environ, {'OPENROUTER_API_KEY': 'sk-test'}):
-                with self.assertRaises(self.b.BenchError) as ctx:
-                    self.b.run_bench(
-                        provider=StubProvider(), cheap=True, claim='efficiency',
-                        config=cfg, skip_key_check=False,
-                    )
-        self.assertIn('usage', str(ctx.exception).lower())
+                report = self.b.run_bench(
+                    provider=StubProvider(), cheap=True, claim='efficiency',
+                    config=cfg, skip_key_check=False,
+                )
+        # Abort mid/post-celda: reporte parcial con resto pending (no tragar el error).
+        self.assertTrue(report.get('aborted'))
+        self.assertIn('usage', report.get('abortReason', '').lower())
         self.assertGreaterEqual(calls['n'], 2)
+        self.assertEqual(len(report['cells']), 30)
+        self.assertGreater(len(report['pendingCells']), 0)
 
     def test_run_bench_records_usage_before_when_stable(self):
         data = dict(VALID_KEY_DATA)
@@ -770,10 +773,69 @@ class BenchRequestBudgetTests(unittest.TestCase):
         cfg = self._cfg(maxRequestsPerRun=200)  # 30x6 cabe; el fallo es remaining ausente
         with mock.patch('urllib.request.urlopen', side_effect=fake_urlopen):
             with mock.patch.dict(os.environ, {'OPENROUTER_API_KEY': 'sk-test'}):
-                with self.assertRaises(self.b.BenchError):
-                    self.b.run_bench(provider=stub, cheap=True, config=cfg,
-                                     skip_key_check=False)
+                report = self.b.run_bench(
+                    provider=stub, cheap=True, config=cfg, skip_key_check=False)
         self.assertEqual(stub.count, 1)
+        self.assertTrue(report.get('aborted'))
+        self.assertIn('free_model_daily_requests', report.get('abortReason', ''))
+        # El resto del schedule queda pending (30 - 1 ejecutada).
+        self.assertEqual(len(report['pendingCells']), 29)
+        self.assertEqual(len(report['cells']), 30)
+
+    def test_mid_cell_bencherror_writes_pending_rest(self):
+        """Abort duro mid-celda: reporte con celdas hechas + resto pending."""
+        bench_err = self.b.BenchError
+
+        class BoomAfter:
+            def __init__(self):
+                self.count = 0
+
+            def run_cell(self, task, variant, repetition, workdir=None):
+                self.count += 1
+                if self.count >= 3:
+                    raise bench_err('proxy OpenRouter abortado: tope')
+                return {
+                    'success': True, 'pending': False, 'status': 'ok',
+                    'iterations': 1, 'retries': 0, 'calls': 1,
+                    'tokens': 10, 'costUsd': 0.0, 'durationMs': 1, 'cacheRate': 0.0,
+                    'firstTry': True, 'modelId': 'meta/llama:free', 'seed': None,
+                }
+
+        stub = BoomAfter()
+        cfg = self._cfg(maxRequestsPerRun=200)
+        report = self._real_run(cfg, stub, lambda i: 1000)
+        self.assertTrue(report.get('aborted'))
+        self.assertIn('tope', report.get('abortReason', ''))
+        self.assertEqual(stub.count, 3)
+        # 2 ok + 1 pending (la del boom) + 27 pending restantes = 30
+        self.assertEqual(len(report['cells']), 30)
+        done = [c for c in report['cells'] if not c.get('pending')]
+        pending = [c for c in report['cells'] if c.get('pending')]
+        self.assertEqual(len(done), 2)
+        self.assertEqual(len(pending), 28)
+        # cmd_bench debe escribir el reporte aunque aborted.
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        out = Path(tmp.name) / 'out'
+        fake_proxy = mock.Mock()
+        fake_proxy.assert_readable = mock.Mock(return_value={'count': 0, 'max': 200})
+        fake_proxy.read_count = mock.Mock(return_value=0)
+        fake_proxy.server = mock.Mock(aborted=False, abort_reason=None)
+        fake_mod = mock.Mock(OpenRouterCountingProxy=mock.Mock(return_value=fake_proxy))
+        with mock.patch.object(self.b, 'load_config', return_value=cfg), \
+                mock.patch.object(self.b, 'check_openrouter_free_lock',
+                                  return_value=self._key(1000)), \
+                mock.patch.object(self.b, 'verify_openrouter_model_pricing'), \
+                mock.patch.object(self.b, '_load_or_proxy', return_value=fake_mod), \
+                mock.patch.object(self.b, 'run_bench', return_value=report), \
+                mock.patch.dict(os.environ, {'OPENROUTER_API_KEY': 'sk-test'}):
+            code = self.b.cmd_bench(
+                ['run', '--cheap', '--provider', 'openrouter', '--out', str(out)])
+        self.assertEqual(code, 1)
+        self.assertTrue((out / 'bench-report.json').is_file())
+        written = json.loads((out / 'bench-report.json').read_text(encoding='utf-8'))
+        self.assertTrue(written.get('aborted'))
+        self.assertEqual(len(written['pendingCells']), 28)
 
 
 @unittest.skipUnless(METRICS_PATH.is_file() and BENCH_PATH.is_file(), 'metrics/bench ausentes')

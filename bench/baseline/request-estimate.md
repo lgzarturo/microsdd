@@ -29,14 +29,16 @@ Tope por celda con `--max-turns 6`: hasta 6 turnos del modelo pedido, más llama
 | Techo turnos (14 × 6) | 84 |
 | Con buffer small-fast | ≤ 100 (tope duro del repo) |
 
-## Plan para rellenar las 14 (sin lanzar en esta fase)
+## Plan para rellenar las 14
 
 1. **No** relanzar cheap entero: 30 × 6 = 180 > `maxRequestsPerRun=100` → aborta a propósito.
-2. Corrida de relleno solo de pendientes, en este orden:
+2. Corrida de relleno solo de pendientes (`onlyCells`), en este orden:
    - 12 celdas de `04-config-docs` y `05-prueba-regresion` (nunca corridas).
    - 2 celdas `03-refactor` r2 (fallaron con cuota).
 3. Arrancar con proxy (`max=100`), candado `$5`/`:free`, usage antes/después, `if: always()`.
-4. Cortar si el contador del proxy o `remaining` no da para otra celda completa (`maxTurnsPerCell`).
-5. Si tras las 14 queda margen (<100) y el veredicto sigue inconcluso, valorar repeticiones extra en otra fase — no en esta.
+4. **Tope acumulado entre intentos:** el contador no se reinicia. Smoke de CodeConductor gastó **4**; ese prior + smoke de este run + celdas ≤ 100.
+5. Claude Code **pinneado a 2.1.197** (run 39203441982). `2.1.308+` rechaza `nvidia/nemotron-3-super-120b-a12b:free` (`unrecognized_model`).
+6. Cortar si el contador del proxy o `remaining` no da para otra celda completa (`maxTurnsPerCell`). Abort mid-celda → resto `pending` + `write_report`.
+7. **minN desbloqueado ≠ veredicto favorable:** cumplir `nb/nt >= expected` solo deja de forzar `NO CONCLUYENTE` por submuestreo; efficiency/IC95 pueden seguir inconclusos o rechazar.
 
-Presupuesto esperado del relleno: **~42** (cabe); peor caso controlado por proxy en **100**.
+Presupuesto esperado del relleno: **~42** + smoke (~4) + prior CC (4) ≈ **50**; peor caso controlado por proxy en **100**.

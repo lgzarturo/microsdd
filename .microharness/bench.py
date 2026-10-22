@@ -292,6 +292,7 @@ def sanitize_report(report: dict) -> dict:
         'firstTry', 'modelId', 'seed', 'hostVersion', 'status',
         'exitCode', 'stderrTruncated', 'subtype', 'isError', 'errorClass',
     })
+    # aborted / abortReason se conservan en el scrub genérico (no están en forbidden).
 
     def scrub(obj: Any) -> Any:
         if isinstance(obj, dict):
@@ -665,6 +666,52 @@ def _pending_cell(task: dict, variant: str, rep: int, model_id: str | None) -> d
     }
 
 
+def _cell_key(task_id: str, variant: str, rep: int) -> tuple[str, str, int]:
+    return (task_id, variant, int(rep))
+
+
+def _parse_only_cells(raw: Any) -> list[tuple[str, str, int]] | None:
+    """Lista opcional [{taskId, variant, repetition}, ...] para relleno selectivo."""
+    if raw is None:
+        return None
+    if not isinstance(raw, list) or not raw:
+        raise BenchError('onlyCells debe ser una lista no vacía de celdas.')
+    out: list[tuple[str, str, int]] = []
+    seen: set[tuple[str, str, int]] = set()
+    for i, item in enumerate(raw):
+        if not isinstance(item, dict):
+            raise BenchError(f'onlyCells[{i}] no es objeto.')
+        tid = item.get('taskId')
+        variant = item.get('variant')
+        rep = item.get('repetition')
+        if not isinstance(tid, str) or not tid:
+            raise BenchError(f'onlyCells[{i}].taskId inválido.')
+        if variant not in ('base', 'treatment'):
+            raise BenchError(f'onlyCells[{i}].variant inválido: {variant!r}')
+        if type(rep) is not int or rep < 0:
+            raise BenchError(f'onlyCells[{i}].repetition inválido: {rep!r}')
+        key = _cell_key(tid, variant, rep)
+        if key in seen:
+            raise BenchError(f'onlyCells duplicada: {key}')
+        seen.add(key)
+        out.append(key)
+    return out
+
+
+def _load_prior_cells(path: Path | None) -> list[dict]:
+    if path is None:
+        return []
+    if not path.is_file():
+        raise BenchError(f'priorReport ausente: {path}')
+    data = json.loads(path.read_text(encoding='utf-8'))
+    if not isinstance(data, dict):
+        raise BenchError('priorReport: raíz no es objeto')
+    cells = data.get('cells')
+    if not isinstance(cells, list):
+        raise BenchError('priorReport: cells ausente')
+    return [c for c in cells if isinstance(c, dict)]
+
+
 def run_bench(
     *,
     provider: Any,
@@ -680,16 +727,43 @@ def run_bench(
     n = int(cfg['nCheap'] if cheap else cfg['n'])
     seed = int(cfg.get('seed', 42))
     tasks = list_tasks()
+    tasks_by_id = {t['id']: t for t in tasks}
     model_list = models if models is not None else list(cfg.get('models') or [])
+    only = _parse_only_cells(cfg.get('onlyCells'))
+    prior_path_raw = cfg.get('priorReport')
+    prior_path = Path(prior_path_raw) if isinstance(prior_path_raw, str) and prior_path_raw else None
+    if prior_path is not None and not prior_path.is_absolute():
+        prior_path = ROOT / prior_path
+    prior_cells = _load_prior_cells(prior_path) if only is not None else []
     api_key: str | None = None
     usage_before: float | None = None
     estimated: int | None = None
     remaining: int | None = None
+    # Orden intercalado A/B con semilla (deriva temporal), o solo onlyCells.
+    if only is not None:
+        schedule: list[tuple[dict, str, int]] = []
+        for tid, variant, rep in only:
+            task = tasks_by_id.get(tid)
+            if task is None:
+                raise BenchError(f'onlyCells: tarea desconocida {tid!r}')
+            schedule.append((task, variant, rep))
+        n_schedule = len(schedule)
+    else:
+        rng = random.Random(seed)
+        schedule = []
+        for task in tasks:
+            for rep in range(n):
+                schedule.append((task, 'base', rep))
+                schedule.append((task, 'treatment', rep))
+        rng.shuffle(schedule)
+        # Re-intercalar aproximadamente A/B manteniendo pares por tarea.
+        schedule.sort(key=lambda x: (x[0]['id'], x[2], 0 if x[1] == 'base' else 1))
+        n_schedule = len(schedule)
+
     if not skip_key_check and not isinstance(provider, FakeProvider):
         for mid in model_list:
             assert_free_model(mid)
-        # base + treatment intercalados; estimación por turnos, no por celdas.
-        estimated = planned_requests(cfg, n * len(tasks) * 2)
+        estimated = planned_requests(cfg, n_schedule)
         api_key = os.environ.get('OPENROUTER_API_KEY')
         max_cap = cfg.get('maxPaidLimitUsd', DEFAULT_CONFIG['maxPaidLimitUsd'])
         key_data = check_openrouter_free_lock(
@@ -701,100 +775,125 @@ def run_bench(
         if not model_list:
             raise BenchError('bench.config models vacío; línea base pendiente de IDs :free.')
 
-    # Orden intercalado A/B con semilla (deriva temporal).
-    rng = random.Random(seed)
-    schedule: list[tuple[dict, str, int]] = []
-    for task in tasks:
-        for rep in range(n):
-            schedule.append((task, 'base', rep))
-            schedule.append((task, 'treatment', rep))
-    rng.shuffle(schedule)
-    # Re-intercalar aproximadamente A/B manteniendo pares por tarea.
-    schedule.sort(key=lambda x: (x[0]['id'], x[2], 0 if x[1] == 'base' else 1))
-
     model_id = model_list[0] if model_list else None
     real = usage_before is not None and api_key is not None
     proxy = getattr(provider, 'proxy', None)
     requests_used: int | None = 0 if real else None
     cells: list[dict] = []
     pending_rest = False
+    abort_reason: str | None = None
     with tempfile.TemporaryDirectory(prefix='microsdd-bench-') as tmp:
         tmp_path = Path(tmp)
         for task, variant, rep in schedule:
-            if real and not pending_rest:
-                used_now = requests_used or 0
-                if proxy is not None:
-                    try:
-                        used_now = int(proxy.read_count())
-                    except Exception as exc:
-                        raise BenchError(
-                            f'contador de requests ilegible antes de celda (fail-closed): {exc}'
-                        ) from exc
-                    if getattr(proxy.server, 'aborted', False):
-                        raise BenchError(
-                            f'proxy OpenRouter abortado: '
-                            f'{getattr(proxy.server, "abort_reason", None) or "aborted"}')
-                    requests_used = used_now
-                # Corte por celda completa: no cabe otra celda con el tope de turnos.
-                if min(max_requests - used_now, remaining) < max_turns:
-                    pending_rest = True
-            if pending_rest:
+            if abort_reason or pending_rest:
                 cells.append(_pending_cell(task, variant, rep, model_id))
                 continue
-            work = tmp_path / f"{task['id']}-{variant}-{rep}"
-            copy_fixture(Path(task['_dir']), work)
             try:
+                if real:
+                    used_now = requests_used or 0
+                    if proxy is not None:
+                        try:
+                            used_now = int(proxy.read_count())
+                        except Exception as exc:
+                            raise BenchError(
+                                f'contador de requests ilegible antes de celda (fail-closed): {exc}'
+                            ) from exc
+                        if getattr(proxy.server, 'aborted', False):
+                            raise BenchError(
+                                f'proxy OpenRouter abortado: '
+                                f'{getattr(proxy.server, "abort_reason", None) or "aborted"}')
+                        requests_used = used_now
+                    # Corte por celda completa: no cabe otra celda con el tope de turnos.
+                    if min(max_requests - used_now, remaining) < max_turns:
+                        pending_rest = True
+                        cells.append(_pending_cell(task, variant, rep, model_id))
+                        continue
+                work = tmp_path / f"{task['id']}-{variant}-{rep}"
+                copy_fixture(Path(task['_dir']), work)
                 try:
                     result = provider.run_cell(task, variant, rep, workdir=work)
                 except TypeError:
                     result = provider.run_cell(task, variant, rep)
-            except BenchError:
-                raise
-            except Exception:
-                result = _pending_cell(task, variant, rep, model_id)
-            cells.append({
-                'taskId': task['id'],
-                'variant': variant,
-                'repetition': rep,
-                **result,
-            })
-            if real:
-                # Relectura por celda: usage no sube; remaining fail-closed.
-                key_data = fetch_openrouter_key(api_key)
-                assert_usage_unchanged(api_key, usage_before, data=key_data)
-                free = key_data.get('free_model_daily_requests')
-                if not isinstance(free, dict) or not free:
-                    raise BenchError(
-                        '/api/v1/key: free_model_daily_requests ausente tras la celda (fail-closed).')
-                new_remaining = _require_nonneg_int(
-                    free, 'remaining', label='free_model_daily_requests.remaining')
-                if proxy is not None:
-                    try:
-                        requests_used = int(proxy.read_count())
-                    except Exception as exc:
+                cells.append({
+                    'taskId': task['id'],
+                    'variant': variant,
+                    'repetition': rep,
+                    **result,
+                })
+                if real:
+                    # Relectura por celda: usage no sube; remaining fail-closed.
+                    key_data = fetch_openrouter_key(api_key)
+                    assert_usage_unchanged(api_key, usage_before, data=key_data)
+                    free = key_data.get('free_model_daily_requests')
+                    if not isinstance(free, dict) or not free:
                         raise BenchError(
-                            f'contador de requests ilegible tras celda (fail-closed): {exc}'
-                        ) from exc
-                    if getattr(proxy.server, 'aborted', False):
-                        raise BenchError(
-                            f'proxy OpenRouter abortado: '
-                            f'{getattr(proxy.server, "abort_reason", None) or "aborted"}')
-                else:
-                    calls = result.get('calls')
-                    turns = calls if type(calls) is int else max_turns
-                    requests_used += max(remaining - new_remaining, turns)
-                remaining = new_remaining
+                            '/api/v1/key: free_model_daily_requests ausente tras la celda '
+                            '(fail-closed).')
+                    new_remaining = _require_nonneg_int(
+                        free, 'remaining', label='free_model_daily_requests.remaining')
+                    if proxy is not None:
+                        try:
+                            requests_used = int(proxy.read_count())
+                        except Exception as exc:
+                            raise BenchError(
+                                f'contador de requests ilegible tras celda (fail-closed): {exc}'
+                            ) from exc
+                        if getattr(proxy.server, 'aborted', False):
+                            raise BenchError(
+                                f'proxy OpenRouter abortado: '
+                                f'{getattr(proxy.server, "abort_reason", None) or "aborted"}')
+                    else:
+                        calls = result.get('calls')
+                        turns = calls if type(calls) is int else max_turns
+                        requests_used += max(remaining - new_remaining, turns)
+                    remaining = new_remaining
+            except BenchError as exc:
+                # Abort mid-celda / post-celda: marcar resto (y esta si falta) como pending.
+                abort_reason = str(exc)
+                done = {
+                    _cell_key(c['taskId'], c['variant'], c['repetition']) for c in cells
+                }
+                cur = _cell_key(task['id'], variant, rep)
+                if cur not in done:
+                    cells.append(_pending_cell(task, variant, rep, model_id))
+                continue
 
     usage_after = None
     if usage_before is not None and api_key is not None:
-        usage_after = assert_usage_unchanged(api_key, usage_before)
+        try:
+            usage_after = assert_usage_unchanged(api_key, usage_before)
+        except BenchError as exc:
+            if abort_reason is None:
+                abort_reason = str(exc)
+            else:
+                abort_reason = f'{abort_reason}; {exc}'
 
     if real and proxy is not None:
         try:
             requests_used = int(proxy.read_count())
         except Exception as exc:
-            raise BenchError(
-                f'contador de requests ilegible al cerrar (fail-closed): {exc}') from exc
+            msg = f'contador de requests ilegible al cerrar (fail-closed): {exc}'
+            if abort_reason is None:
+                abort_reason = msg
+            # Sin count legible: no inventar; dejar el último known o fallar en reporte.
+            if requests_used is None:
+                requests_used = 0
+
+    # Relleno: fusionar celdas previas no reejecutadas + resultado del schedule.
+    if only is not None:
+        only_keys = set(only)
+        kept = [
+            c for c in prior_cells
+            if _cell_key(c.get('taskId', ''), c.get('variant', ''), int(c.get('repetition') or 0))
+            not in only_keys
+        ]
+        merged = kept + cells
+        merged.sort(key=lambda c: (
+            str(c.get('taskId') or ''),
+            int(c.get('repetition') or 0),
+            0 if c.get('variant') == 'base' else 1,
+        ))
+        cells = merged
 
     report = aggregate_report(cells, cfg=cfg, claim=claim, cheap=cheap, seed=seed, n=n)
     report['models'] = model_list
@@ -809,6 +908,9 @@ def run_bench(
         {'taskId': c['taskId'], 'variant': c['variant'], 'repetition': c['repetition']}
         for c in cells if c.get('pending')
     ]
+    if abort_reason:
+        report['aborted'] = True
+        report['abortReason'] = abort_reason
     report['risks'] = [
         f'OpenRouter :free: ~{FREE_RPM} req/min; {FREE_RPD_LOW} o {FREE_RPD_HIGH} req/día según créditos.',
         f'Candado: modelos :free; limit de key <= maxPaidLimitUsd '
@@ -818,7 +920,10 @@ def run_bench(
         'Semilla Claude Code: seed=null (sin flag documentado).',
         f'Presupuesto: maxTurnsPerCell={max_turns}, maxRequestsPerRun={max_requests}; '
         f'proxy local cuenta cada HTTP a OpenRouter (incl. small-fast) y rechaza el '
-        f'{max_requests + 1}+ (fail-closed si el contador es ilegible).',
+        f'{max_requests + 1}+ (fail-closed si el contador es ilegible; tope acumulado '
+        f'entre intentos).',
+        'minN desbloqueado (nb/nt >= expected) no implica veredicto favorable: efficiency '
+        'o IC95 pueden seguir en NO CONCLUYENTE / RECHAZA.',
     ]
     return report
 
@@ -1121,17 +1226,32 @@ def cmd_bench(argv: list[str]) -> int:
                     raise BenchError(
                         'OPENROUTER_API_KEY ausente; no se lanza la línea base real. '
                         'Usa --provider fake para pruebas deterministas.')
-                n = int(cfg['nCheap'] if cheap else cfg['n'])
                 max_turns, max_requests = request_budget(cfg)
+                only = _parse_only_cells(cfg.get('onlyCells'))
+                if only is not None:
+                    n_est = len(only)
+                else:
+                    n_est = int(cfg['nCheap'] if cheap else cfg['n']) * 5 * 2
                 max_cap = cfg.get('maxPaidLimitUsd', DEFAULT_CONFIG['maxPaidLimitUsd'])
                 check_openrouter_free_lock(
-                    api_key, planned_requests(cfg, n * 5 * 2), max_paid_limit_usd=max_cap)
+                    api_key, planned_requests(cfg, n_est), max_paid_limit_usd=max_cap)
                 for m in models:
                     verify_openrouter_model_pricing(api_key, m)
                 or_proxy = _load_or_proxy()
-                state = Path(tempfile.gettempdir()) / 'microsdd-or-proxy-count.json'
+                state_env = os.environ.get('BENCH_PROXY_STATE')
+                state = Path(state_env) if state_env else (
+                    Path(tempfile.gettempdir()) / 'microsdd-or-proxy-count.json')
+                prior_raw = os.environ.get('BENCH_PRIOR_REQUESTS', '0')
+                try:
+                    prior_n = int(prior_raw)
+                except ValueError as exc:
+                    raise BenchError(
+                        f'BENCH_PRIOR_REQUESTS inválido: {prior_raw!r}') from exc
+                if type(cfg.get('requestsAlreadyUsed')) is int:
+                    prior_n = max(prior_n, int(cfg['requestsAlreadyUsed']))
                 proxy = or_proxy.OpenRouterCountingProxy(
-                    api_key, max_requests=max_requests, state_path=state)
+                    api_key, max_requests=max_requests, state_path=state,
+                    initial_count=prior_n)
                 proxy.start()
                 proxy.assert_readable()
                 provider = ClaudeCodeProvider(
@@ -1149,28 +1269,39 @@ def cmd_bench(argv: list[str]) -> int:
         else:
             print(f'ERROR: provider desconocido {provider_name}', flush=True)
             return 1
+        report = None
+        run_exc: BenchError | None = None
         try:
             report = run_bench(
                 provider=provider, cheap=cheap, claim=claim, config=cfg, skip_key_check=skip)
         except BenchError as exc:
+            # Fallo antes de tener celdas (candado/config): sin reporte parcial.
+            run_exc = exc
             print(f'ERROR: {exc}', flush=True)
-            return 1
         finally:
             if provider_name == 'openrouter':
                 try:
                     proxy.stop()
                 except Exception:
                     pass
+        if report is None:
+            return 1
         dest = out or (Path(os.environ.get('XDG_STATE_HOME')
                             or (Path.home() / '.local' / 'state')) / 'microsdd' / 'bench-last')
         if os.name == 'nt' and out is None:
             dest = Path(os.environ.get('LOCALAPPDATA') or (Path.home() / 'AppData' / 'Local')) / 'microsdd' / 'bench-last'
+        # Siempre escribir reporte si hay celdas (incluye abort mid-celda con pendientes).
         write_report(report, dest)
         sanitized = sanitize_report(report)
         (dest / 'bench-report.sanitized.json').write_text(
             json.dumps(sanitized, indent=2, ensure_ascii=True) + '\n', encoding='utf-8')
         safe_print(format_report_md(report))
         safe_print(f'Reporte escrito en {dest}')
+        if report.get('aborted'):
+            print(f"ERROR: abortado: {report.get('abortReason')}", flush=True)
+            return 1
+        if run_exc is not None:
+            return 1
         return 0 if report['verdict'] != 'RECHAZA' else 2
     if sub == 'report':
         src = None

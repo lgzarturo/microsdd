@@ -1,6 +1,10 @@
 # Línea base cheap (N=3) vía OpenRouter + Claude Code.
 # Solo workflow_dispatch o push a bench/baseline-m2-run.
 # Sin pull_request / pull_request_target. Secret: OPENROUTER_API_KEY.
+#
+# Claude Code PINNEADO a 2.1.197 (run 39203441982). 2.1.308+ rechaza
+# nvidia/nemotron-3-super-120b-a12b:free con unrecognized_model.
+# Tope 100 HTTP acumulado entre intentos (p. ej. smoke CC previo = 4).
 name: bench-baseline
 on:
   workflow_dispatch:
@@ -9,6 +13,11 @@ on:
       - bench/baseline-m2-run
 permissions:
   contents: read
+env:
+  CLAUDE_CODE_VERSION: "2.1.197"
+  # Intentos previos (CodeConductor smoke) cuentan hacia el tope de 100.
+  BENCH_PRIOR_REQUESTS: "4"
+  BENCH_MODEL: nvidia/nemotron-3-super-120b-a12b:free
 jobs:
   smoke:
     runs-on: ubuntu-latest
@@ -40,11 +49,18 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install Claude Code
-        run: npm install -g @anthropic-ai/claude-code@2.1.197
+      - name: Install Claude Code (pinned)
+        run: npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
 
-      - name: Verify Claude Code
-        run: claude --version
+      - name: Verify Claude Code pin
+        run: |
+          ver="$(claude --version | head -n1)"
+          echo "claude: ${ver}"
+          echo "${ver}" | grep -Fq "2.1.197" || {
+            echo "ERROR: se exige Claude Code 2.1.197 (run 39203441982); got: ${ver}"
+            echo "2.1.308+ rechaza nemotron :free (unrecognized_model)."
+            exit 1
+          }
 
       - name: Candado smoke + precio 0
         run: |
@@ -78,8 +94,10 @@ jobs:
           STATE="${RUNNER_TEMP}/or-proxy-count.json"
           HOME_TMP="${RUNNER_TEMP}/claude-home-smoke"
           mkdir -p "$HOME_TMP"
-          # Proxy contador: key real solo aquí; Claude recibe token local.
-          python3 .microharness/or_proxy.py --max 100 --state "$STATE" --port 8765 &
+          PRIOR="${BENCH_PRIOR_REQUESTS:-0}"
+          # Proxy contador acumulado: key real solo aquí; Claude recibe token local.
+          python3 .microharness/or_proxy.py --max 100 --state "$STATE" --port 8765 \
+            --initial-count "$PRIOR" &
           PROXY_PID=$!
           cleanup() { kill "$PROXY_PID" 2>/dev/null || true; }
           trap cleanup EXIT
@@ -106,17 +124,18 @@ jobs:
           ec=$?
           set -e
           echo "exit_code=${ec}" > smoke-out/exit.env
-          # Contador ilegible o tope → aborta el smoke.
+          # Contador ilegible o tope → aborta el smoke. Persistir estado para cheap.
+          cp "$STATE" smoke-out/or-proxy-count.json
           python3 -c "
           import json, sys
           from pathlib import Path
-          p = Path('${STATE}')
+          p = Path('smoke-out/or-proxy-count.json')
           if not p.is_file():
               raise SystemExit('contador proxy ausente (fail-closed)')
           data = json.loads(p.read_text(encoding='utf-8'))
           if not isinstance(data.get('count'), int) or data['count'] < 1:
               raise SystemExit(f'contador proxy inválido: {data!r}')
-          print('proxy_count', data['count'])
+          print('proxy_count', data['count'], 'max', data.get('max'))
           "
           python3 <<'PY'
           import json, os, sys
@@ -166,6 +185,9 @@ jobs:
               diag['usageRise'] = False
           diag['usageBefore'] = before
           diag['usageAfter'] = after
+          count = json.loads(out.joinpath('or-proxy-count.json').read_text(encoding='utf-8'))
+          diag['proxyCount'] = count.get('count')
+          diag['proxyMax'] = count.get('max')
           out.joinpath('smoke.sanitized.json').write_text(
               json.dumps(diag, indent=2, ensure_ascii=True) + '\n', encoding='utf-8')
           out.joinpath('usage-after.json').write_text(
@@ -188,6 +210,7 @@ jobs:
             smoke-out/smoke.sanitized.json
             smoke-out/usage-before.json
             smoke-out/usage-after.json
+            smoke-out/or-proxy-count.json
           if-no-files-found: warn
 
   cheap-baseline:
@@ -221,23 +244,62 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install Claude Code
-        run: npm install -g @anthropic-ai/claude-code@2.1.197
+      - name: Install Claude Code (pinned)
+        run: npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
 
-      - name: Verify Claude Code
-        run: claude --version
+      - name: Verify Claude Code pin
+        run: |
+          ver="$(claude --version | head -n1)"
+          echo "claude: ${ver}"
+          echo "${ver}" | grep -F "2.1.197" >/dev/null || {
+            echo "ERROR: se exige Claude Code 2.1.197; got: ${ver}"
+            exit 1
+          }
 
-      - name: Configure bench model
+      - name: Download smoke proxy counter
+        uses: actions/download-artifact@v4
+        with:
+          name: bench-smoke
+          path: smoke-in
+
+      - name: Configure fill (04+05 luego 03-r2) + contador acumulado
         run: |
           python3 <<'PY'
-          import json, os
+          import json, os, shutil
           from pathlib import Path
           p = Path('bench/config.json')
           cfg = json.loads(p.read_text(encoding='utf-8'))
           cfg['models'] = [os.environ['BENCH_MODEL']]
-          cfg['baselineStatus'] = 'running-cheap'
+          cfg['baselineStatus'] = 'running-cheap-fill'
+          cfg['priorReport'] = 'bench/baseline/bench-report.sanitized.json'
+          # Orden: primero 04 y 05 (12), después 03-r2 (2).
+          only = []
+          for tid in ('04-config-docs', '05-prueba-regresion'):
+              for rep in range(3):
+                  only.append({'taskId': tid, 'variant': 'base', 'repetition': rep})
+                  only.append({'taskId': tid, 'variant': 'treatment', 'repetition': rep})
+          only.append({'taskId': '03-refactor', 'variant': 'base', 'repetition': 2})
+          only.append({'taskId': '03-refactor', 'variant': 'treatment', 'repetition': 2})
+          cfg['onlyCells'] = only
+          prior = int(os.environ.get('BENCH_PRIOR_REQUESTS') or '0')
+          smoke_state = Path('smoke-in/or-proxy-count.json')
+          if smoke_state.is_file():
+              data = json.loads(smoke_state.read_text(encoding='utf-8'))
+              prior = max(prior, int(data.get('count') or 0))
+              out_state = Path(os.environ.get('RUNNER_TEMP', '/tmp')) / 'or-proxy-count.json'
+              shutil.copy(smoke_state, out_state)
+              print('proxy state from smoke:', data)
+          else:
+              out_state = Path(os.environ.get('RUNNER_TEMP', '/tmp')) / 'or-proxy-count.json'
+              out_state.write_text(
+                  json.dumps({'count': prior, 'max': 100}) + '\n', encoding='utf-8')
+              print('proxy state seeded with prior', prior)
+          cfg['requestsAlreadyUsed'] = prior
           p.write_text(json.dumps(cfg, indent=2) + '\n', encoding='utf-8')
-          print('model configured')
+          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as fh:
+              fh.write(f'BENCH_PROXY_STATE={out_state}\n')
+              fh.write(f'BENCH_PRIOR_REQUESTS={prior}\n')
+          print('onlyCells', len(only), 'prior_requests', prior)
           PY
 
       - name: Candado pre-corrida + precio 0
@@ -251,7 +313,8 @@ jobs:
           model = os.environ['BENCH_MODEL']
           b.assert_free_model(model)
           cfg = b.load_config()
-          est = b.planned_requests(cfg, int(cfg['nCheap']) * 5 * 2)
+          only = cfg.get('onlyCells') or []
+          est = b.planned_requests(cfg, len(only))
           data = b.check_openrouter_free_lock(key, est, max_paid_limit_usd=5)
           usage = b.read_usage(data)
           b.verify_openrouter_model_pricing(key, model)
@@ -259,10 +322,10 @@ jobs:
           out.mkdir(exist_ok=True)
           (out / 'usage-before.json').write_text(
               json.dumps({'usage': usage}, indent=2) + '\n', encoding='utf-8')
-          print('lock ok')
+          print('lock ok est', est, 'only', len(only))
           PY
 
-      - name: Run cheap baseline
+      - name: Run cheap fill (14 pendientes)
         id: cheap_run
         continue-on-error: true
         run: |
@@ -272,7 +335,11 @@ jobs:
           ec=$?
           set -e
           echo "cheap_exit=${ec}" >> "$GITHUB_OUTPUT"
-          # 0 = ok/inconcluso; 2 = RECHAZA; otros = error duro
+          # Persistir contador final del proxy.
+          if [ -n "${BENCH_PROXY_STATE}" ] && [ -f "${BENCH_PROXY_STATE}" ]; then
+            cp "${BENCH_PROXY_STATE}" bench-out/or-proxy-count.json || true
+          fi
+          # 0 = ok/inconcluso; 2 = RECHAZA; 1 = abort con reporte parcial posible
           exit 0
 
       - name: Candado post-corrida
@@ -293,11 +360,16 @@ jobs:
               before = b.read_usage(b.fetch_openrouter_key(key))
           after = b.read_usage(b.fetch_openrouter_key(key))
           rise = after - float(before) > 0
+          proxy = {}
+          pp = out / 'or-proxy-count.json'
+          if pp.is_file():
+              proxy = json.loads(pp.read_text(encoding='utf-8'))
           (out / 'usage-after.json').write_text(
               json.dumps({
                   'usage': after, 'usageBefore': before, 'usageRise': rise,
+                  'proxyCount': proxy.get('count'), 'proxyMax': proxy.get('max'),
               }, indent=2) + '\n', encoding='utf-8')
-          print('usage after recorded')
+          print('usage after recorded; proxy', proxy)
           if rise:
               raise SystemExit('usage rose; corrida invalida')
           PY
@@ -336,6 +408,11 @@ jobs:
           clean['usageAfter'] = ua.get('usage', clean.get('usageAfter'))
           clean['cheap'] = True
           clean['date'] = clean.get('ts')
+          if (out / 'or-proxy-count.json').is_file():
+              pc = json.loads((out / 'or-proxy-count.json').read_text(encoding='utf-8'))
+              clean['proxyCount'] = pc.get('count')
+              clean['proxyMax'] = pc.get('max')
+              clean['requestsUsed'] = pc.get('count', clean.get('requestsUsed'))
           # Resumen diagnóstico (sin prompts ni keys)
           diags = []
           for c in clean.get('cells') or []:
@@ -367,6 +444,7 @@ jobs:
             bench-out/bench-report.sanitized.md
             bench-out/usage-before.json
             bench-out/usage-after.json
+            bench-out/or-proxy-count.json
           if-no-files-found: warn
 
       - name: Fail if no valid cells or usage rose
@@ -388,7 +466,7 @@ jobs:
           rep = json.loads(p.read_text(encoding='utf-8'))
           cells = rep.get('cells') or []
           valid = [c for c in cells if not c.get('pending')]
-          print(f'valid_cells={len(valid)} pending={len(cells)-len(valid)} verdict={rep.get("verdict")}')
+          print(f'valid_cells={len(valid)} pending={len(cells)-len(valid)} verdict={rep.get("verdict")} proxy={rep.get("proxyCount")}')
           if len(valid) == 0:
               print('FAIL: cero celdas validas')
               raise SystemExit(1)

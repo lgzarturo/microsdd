@@ -25,24 +25,44 @@ class ProxyError(Exception):
 
 
 class RequestCounter:
-    """Contador persistente fail-closed. Estado: {"count": int, "max": int}."""
+    """Contador persistente fail-closed. Estado: {"count": int, "max": int}.
 
-    def __init__(self, path: Path, max_requests: int):
+    El tope es acumulado entre intentos: si el archivo ya existe, se conserva
+    `count` (p. ej. smoke previo o intento de otro repo) y solo se actualiza `max`.
+    """
+
+    def __init__(self, path: Path, max_requests: int, *, initial_count: int = 0):
         if type(max_requests) is not int or max_requests < 1:
             raise ProxyError(f'max_requests inválido: {max_requests!r}')
+        if type(initial_count) is not int or initial_count < 0:
+            raise ProxyError(f'initial_count inválido: {initial_count!r}')
+        if initial_count > max_requests:
+            raise ProxyError(
+                f'initial_count={initial_count} ya supera max={max_requests} (fail-closed)')
         self.path = Path(path)
         self.max_requests = max_requests
+        self.initial_count = initial_count
         self._lock = threading.Lock()
         self._ensure()
 
     def _ensure(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         if not self.path.is_file():
-            self._write({'count': 0, 'max': self.max_requests})
+            self._write({'count': self.initial_count, 'max': self.max_requests})
             return
         data = self.read()
+        # Acumulado: no bajar count si el archivo ya refleja intentos previos.
+        changed = False
         if data['max'] != self.max_requests:
             data['max'] = self.max_requests
+            changed = True
+        if data['count'] < self.initial_count:
+            data['count'] = self.initial_count
+            changed = True
+        if data['count'] > data['max']:
+            raise ProxyError(
+                f'contador ya sobre el tope: count={data["count"]} max={data["max"]}')
+        if changed:
             self._write(data)
 
     def _write(self, data: dict) -> None:
@@ -239,12 +259,14 @@ class OpenRouterCountingProxy:
         host: str = '127.0.0.1',
         port: int = 0,
         upstream: str = 'https://openrouter.ai/api',
+        initial_count: int = 0,
     ):
         if not api_key:
             raise ProxyError('OPENROUTER_API_KEY ausente para el proxy')
         self.max_requests = max_requests
         self.state_path = Path(state_path or (Path(tempfile_state_dir()) / 'or-proxy-count.json'))
-        self.counter = RequestCounter(self.state_path, max_requests)
+        self.counter = RequestCounter(
+            self.state_path, max_requests, initial_count=initial_count)
         self._api_key = api_key
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.bind((host, port))
@@ -316,12 +338,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--max', type=int, default=100)
     parser.add_argument('--state', type=Path, default=None)
     parser.add_argument('--port', type=int, default=0)
+    parser.add_argument(
+        '--initial-count', type=int, default=0,
+        help='Requests ya gastados en intentos previos (tope acumulado).')
     args = parser.parse_args(argv)
     key = os.environ.get('OPENROUTER_API_KEY') or ''
     if not key:
         print('ERROR: OPENROUTER_API_KEY ausente', flush=True)
         return 1
-    proxy = OpenRouterCountingProxy(key, max_requests=args.max, state_path=args.state, port=args.port)
+    proxy = OpenRouterCountingProxy(
+        key, max_requests=args.max, state_path=args.state, port=args.port,
+        initial_count=args.initial_count)
     proxy.start()
     print(f'proxy listening on {proxy.base_url} max={args.max}', flush=True)
     print(f'state={proxy.state_path}', flush=True)

@@ -52,6 +52,17 @@ class RequestCounterTests(unittest.TestCase):
             c.allow_and_increment()
         self.assertEqual(c.read()['count'], 100)
 
+    def test_initial_count_accumulates_across_attempts(self):
+        # Intentos previos (p. ej. smoke CC = 4) cuentan hacia el tope.
+        c = self.or_mod.RequestCounter(self.path, 100, initial_count=4)
+        self.assertEqual(c.read()['count'], 4)
+        self.assertEqual(c.allow_and_increment(), 5)
+        # Reabrir el mismo state no baja el count.
+        c2 = self.or_mod.RequestCounter(self.path, 100, initial_count=4)
+        self.assertEqual(c2.read()['count'], 5)
+        with self.assertRaises(self.or_mod.ProxyError):
+            self.or_mod.RequestCounter(self.path, 100, initial_count=101)
+
     def test_unreadable_counter_raises(self):
         self.path.write_text('not-json', encoding='utf-8')
         c = self.or_mod.RequestCounter.__new__(self.or_mod.RequestCounter)
