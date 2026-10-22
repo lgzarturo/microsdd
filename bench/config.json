@@ -9,7 +9,7 @@
   "models": [
     "deepseek/deepseek-v4-flash"
   ],
-  "baselineStatus": "pending",
+  "baselineStatus": "cheap-partial",
   "maxPaidLimitUsd": 10,
   "maxSpendUsd": 0.49,
   "spendApproachRatio": 0.8,
@@ -17,11 +17,9 @@
   "maxRequestsPerRun": 100,
   "allowPartialRun": true,
   "notes": [
-    "Baseline DeepSeek v4-flash (~$0.091/$0.182 /1M). Candado usage Δ ≤ $0.49.",
-    "Presupuesto 100 requests (reiniciado). maxTurnsPerCell=6 (3 era insuficiente).",
-    "allowPartialRun: 30×6=180 > 100 → lanza y corta con pending (orden por rep).",
-    "Sonda: 01-correccion-localizada/base; matriz N=3 solo si éxito.",
-    "Orden matriz: r0 todas tareas×brazos, luego r1, luego r2.",
-    "Proxy 0755fde+: solo POST mensajes; rpm espera/cola; key solo en proxy."
+    "Run 39802356050: sonda OK @6 + matriz partial 16/30 (97/100 req).",
+    "Usage Δ total ≈ $0.078 ≤ $0.49. Veredicto NO CONCLUYENTE.",
+    "r0 completo; r1 parcial (6/10); r2 pending. No mezclar archivos viejos.",
+    "Modelo deepseek/deepseek-v4-flash. Proxy solo POST; rpm cola."
   ]
 }
