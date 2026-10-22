@@ -1,0 +1,17 @@
+{
+  "success": false,
+  "spendOk": true,
+  "usageDelta": 0.0,
+  "proxyCount": 3,
+  "cell": {
+    "taskId": "01-correccion-localizada",
+    "variant": "base",
+    "repetition": 0,
+    "success": false,
+    "status": "fail",
+    "pending": false,
+    "exitCode": 1,
+    "subtype": "error_max_turns",
+    "isError": true
+  }
+}

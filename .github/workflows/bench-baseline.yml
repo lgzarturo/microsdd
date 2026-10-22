@@ -1,6 +1,11 @@
-# Línea base cheap (N=3) vía OpenRouter + Claude Code.
+# Baseline DeepSeek (Arturo 22 oct 9:51 Cancún).
 # Solo workflow_dispatch o push a bench/baseline-m2-run.
-# Sin pull_request / pull_request_target. Secret: OPENROUTER_API_KEY.
+# Secret: OPENROUTER_API_KEY. Claude Code pin 2.1.197.
+#
+# Presupuesto NUEVO: 100 requests (prior=0) · candado $0.49 usage Δ.
+# maxTurnsPerCell=6; allowPartialRun (30×6=180 > 100 → pending al cortar).
+# Matriz intercalada por rep (r0…r1…r2). Proxy: solo POST; rpm espera.
+# Sonda: 1 celda 01/base. Sin éxito → no matriz. Con éxito → N=3.
 name: bench-baseline
 on:
   workflow_dispatch:
@@ -9,16 +14,23 @@ on:
       - bench/baseline-m2-run
 permissions:
   contents: read
+env:
+  CLAUDE_CODE_VERSION: "2.1.197"
+  # Contador reiniciado (presupuesto nuevo de este repo).
+  BENCH_PRIOR_REQUESTS: "0"
+  BENCH_MODEL: deepseek/deepseek-v4-flash
+  BENCH_PROBE_TASK: "01-correccion-localizada"
 jobs:
-  smoke:
+  probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
+    outputs:
+      success: ${{ steps.probe_result.outputs.success }}
+      model: ${{ steps.probe_result.outputs.model }}
+      pricing_prompt: ${{ steps.probe_result.outputs.pricing_prompt }}
+      pricing_completion: ${{ steps.probe_result.outputs.pricing_completion }}
     env:
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-      ANTHROPIC_BASE_URL: https://openrouter.ai/api
-      ANTHROPIC_AUTH_TOKEN: ${{ secrets.OPENROUTER_API_KEY }}
-      ANTHROPIC_API_KEY: ""
-      BENCH_MODEL: nvidia/nemotron-3-super-120b-a12b:free
       CI: "true"
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
     steps:
@@ -42,176 +54,297 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install Claude Code
-        run: npm install -g @anthropic-ai/claude-code@2.1.197
+      - name: Install Claude Code (pinned)
+        run: npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
 
-      - name: Verify Claude Code
-        run: claude --version
-
-      - name: Candado smoke + precio 0
+      - name: Verify Claude Code pin
         run: |
-          python3 <<'PY'
-          import json, os, sys
-          from pathlib import Path
-          sys.path.insert(0, '.microharness')
-          import bench as b
-          key = os.environ.get('OPENROUTER_API_KEY') or ''
-          model = os.environ['BENCH_MODEL']
-          b.assert_free_model(model)
-          cfg = b.load_config()
-          max_turns, _ = b.request_budget(cfg)
-          est = b.planned_requests(cfg, 1)
-          data = b.check_openrouter_free_lock(key, est, max_paid_limit_usd=5)
-          usage = b.read_usage(data)
-          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as fh:
-              fh.write(f'BENCH_MAX_TURNS={max_turns}\n')
-          b.verify_openrouter_model_pricing(key, model)
-          out = Path('smoke-out')
-          out.mkdir(exist_ok=True)
-          (out / 'usage-before.json').write_text(
-              json.dumps({'usage': usage}, indent=2) + '\n', encoding='utf-8')
-          print('smoke lock ok')
-          PY
-
-      - name: Smoke claude -p di hola
-        id: smoke_run
-        run: |
-          mkdir -p smoke-out
-          set +e
-          claude -p "di hola" \
-            --output-format json \
-            --dangerously-skip-permissions \
-            --model "${BENCH_MODEL}" \
-            --max-turns "${BENCH_MAX_TURNS}" \
-            > smoke-out/raw-stdout.json 2> smoke-out/raw-stderr.txt
-          ec=$?
-          set -e
-          echo "exit_code=${ec}" > smoke-out/exit.env
-          python3 <<'PY'
-          import json, os, sys
-          from pathlib import Path
-          sys.path.insert(0, '.microharness')
-          import bench as b
-          out = Path('smoke-out')
-          stdout = out.joinpath('raw-stdout.json').read_text(encoding='utf-8', errors='replace')
-          stderr = out.joinpath('raw-stderr.txt').read_text(encoding='utf-8', errors='replace')
-          exit_code = 1
-          for line in out.joinpath('exit.env').read_text(encoding='utf-8').splitlines():
-              if line.startswith('exit_code='):
-                  exit_code = int(line.split('=', 1)[1])
-          payload = {}
-          try:
-              parsed = json.loads(stdout.strip() or '{}')
-              if isinstance(parsed, dict):
-                  payload = parsed
-          except ValueError:
-              payload = {}
-          diag = {
-              'ok': exit_code == 0 and payload.get('is_error') is not True and bool(payload),
-              'exitCode': exit_code,
-              'subtype': payload.get('subtype') if isinstance(payload.get('subtype'), str) else None,
-              'isError': payload.get('is_error') if isinstance(payload.get('is_error'), bool) else None,
-              'stderrTruncated': b._scrub_secrets(stderr)[:800],
-              'hasPayload': bool(payload),
-              'model': os.environ.get('BENCH_MODEL'),
-              'hostVersion': None,
+          ver="$(claude --version | head -n1)"
+          echo "claude: ${ver}"
+          echo "${ver}" | grep -Fq "2.1.197" || {
+            echo "ERROR: se exige Claude Code 2.1.197; got: ${ver}"
+            exit 1
           }
-          try:
-              import subprocess
-              ver = subprocess.run(['claude', '--version'], capture_output=True, text=True, timeout=30)
-              diag['hostVersion'] = (ver.stdout or ver.stderr or '').strip().splitlines()[:1]
-              if diag['hostVersion']:
-                  diag['hostVersion'] = diag['hostVersion'][0][:120]
-          except Exception:
-              pass
-          # usage after smoke
-          key = os.environ.get('OPENROUTER_API_KEY') or ''
-          before = json.loads(out.joinpath('usage-before.json').read_text(encoding='utf-8'))['usage']
-          after = b.read_usage(b.fetch_openrouter_key(key))
-          if after - float(before) > 0:
-              diag['ok'] = False
-              diag['usageRise'] = True
-          else:
-              diag['usageRise'] = False
-          diag['usageBefore'] = before
-          diag['usageAfter'] = after
-          out.joinpath('smoke.sanitized.json').write_text(
-              json.dumps(diag, indent=2, ensure_ascii=True) + '\n', encoding='utf-8')
-          out.joinpath('usage-after.json').write_text(
-              json.dumps({'usage': after, 'usageBefore': before}, indent=2) + '\n', encoding='utf-8')
-          # borrar crudos (pueden contener texto de modelo; no van al artifact)
-          for name in ('raw-stdout.json', 'raw-stderr.txt'):
-              p = out / name
-              if p.is_file():
-                  p.unlink()
-          print('smoke ok' if diag['ok'] else 'smoke FAILED')
-          raise SystemExit(0 if diag['ok'] else 1)
-          PY
 
-      - name: Upload smoke artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: bench-smoke
-          path: |
-            smoke-out/smoke.sanitized.json
-            smoke-out/usage-before.json
-            smoke-out/usage-after.json
-          if-no-files-found: warn
-
-  cheap-baseline:
-    needs: smoke
-    runs-on: ubuntu-latest
-    timeout-minutes: 360
-    env:
-      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-      ANTHROPIC_BASE_URL: https://openrouter.ai/api
-      ANTHROPIC_AUTH_TOKEN: ${{ secrets.OPENROUTER_API_KEY }}
-      ANTHROPIC_API_KEY: ""
-      BENCH_MODEL: nvidia/nemotron-3-super-120b-a12b:free
-      CI: "true"
-      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Require OpenRouter secret
-        run: |
-          if [ -z "${OPENROUTER_API_KEY}" ]; then
-            echo "ERROR: secret OPENROUTER_API_KEY no expuesto en Actions."
-            exit 1
-          fi
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Install Claude Code
-        run: npm install -g @anthropic-ai/claude-code@2.1.197
-
-      - name: Verify Claude Code
-        run: claude --version
-
-      - name: Configure bench model
+      - name: Configure probe (1 celda base)
         run: |
           python3 <<'PY'
           import json, os
           from pathlib import Path
           p = Path('bench/config.json')
           cfg = json.loads(p.read_text(encoding='utf-8'))
-          cfg['models'] = [os.environ['BENCH_MODEL']]
-          cfg['baselineStatus'] = 'running-cheap'
+          model = os.environ['BENCH_MODEL']
+          cfg['models'] = [model]
+          cfg['baselineStatus'] = 'probe'
+          cfg['maxSpendUsd'] = 0.49
+          cfg['spendApproachRatio'] = 0.8
+          cfg['maxPaidLimitUsd'] = 10
+          cfg['maxTurnsPerCell'] = 6
+          cfg['maxRequestsPerRun'] = 100
+          cfg['allowPartialRun'] = True
+          cfg['requestsAlreadyUsed'] = 0
+          cfg.pop('priorReport', None)
+          cfg['onlyCells'] = [{
+              'taskId': os.environ['BENCH_PROBE_TASK'],
+              'variant': 'base',
+              'repetition': 0,
+          }]
           p.write_text(json.dumps(cfg, indent=2) + '\n', encoding='utf-8')
-          print('model configured')
+          state = Path(os.environ.get('RUNNER_TEMP', '/tmp')) / 'or-proxy-count.json'
+          state.write_text(json.dumps({'count': 0, 'max': 100}) + '\n', encoding='utf-8')
+          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as fh:
+              fh.write(f'BENCH_PROXY_STATE={state}\n')
+              fh.write('BENCH_PRIOR_REQUESTS=0\n')
+          print('probe onlyCells', cfg['onlyCells'], 'model', model, 'maxTurns', 6)
           PY
 
-      - name: Candado pre-corrida + precio 0
+      - name: Candado + precio DeepSeek
+        run: |
+          mkdir -p probe-out
+          python3 <<'PY'
+          import json, os, sys
+          from pathlib import Path
+          sys.path.insert(0, '.microharness')
+          import bench as b
+          key = os.environ.get('OPENROUTER_API_KEY') or ''
+          model = os.environ['BENCH_MODEL']
+          b.assert_bench_model(model)
+          cfg = b.load_config()
+          est = b.planned_requests(cfg, 1)
+          max_cap = float(cfg.get('maxPaidLimitUsd', 10))
+          max_spend = float(cfg.get('maxSpendUsd', 0.49))
+          data = b.check_openrouter_spend_lock(
+              key, est, max_paid_limit_usd=max_cap, max_spend_usd=max_spend,
+              require_free_quota=False)
+          usage = b.read_usage(data)
+          match = b.verify_openrouter_model_pricing(key, model, allow_paid=True)
+          prices = match.get('_parsedPricing') or {}
+          p_prompt = float(prices.get('prompt') or 0.0) * 1_000_000
+          p_comp = float(prices.get('completion') or 0.0) * 1_000_000
+          Path('probe-out/usage-before.json').write_text(
+              json.dumps({
+                  'usage': usage, 'model': model,
+                  'pricingPromptPer1M': p_prompt,
+                  'pricingCompletionPer1M': p_comp,
+                  'estimatedRequests': est,
+                  'maxSpendUsd': max_spend,
+                  'budgetReset': True,
+                  'priorRequests': 0,
+              }, indent=2) + '\n', encoding='utf-8')
+          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as fh:
+              fh.write(f'BENCH_PRICING_PROMPT={p_prompt}\n')
+              fh.write(f'BENCH_PRICING_COMPLETION={p_comp}\n')
+          print('lock ok', model, 'est', est, 'price/1M', p_prompt, p_comp)
+          PY
+
+      - name: Run probe cell
+        id: probe_run
+        continue-on-error: true
+        run: |
+          mkdir -p probe-out
+          set +e
+          python3 .microharness/metrics.py bench run --cheap --provider openrouter --out probe-out
+          ec=$?
+          set -e
+          echo "probe_exit=${ec}" >> "$GITHUB_OUTPUT"
+          if [ -n "${BENCH_PROXY_STATE}" ] && [ -f "${BENCH_PROXY_STATE}" ]; then
+            cp "${BENCH_PROXY_STATE}" probe-out/or-proxy-count.json || true
+          fi
+          exit 0
+
+      - name: Evaluate probe + candado post
+        id: probe_result
+        if: always()
+        run: |
+          python3 <<'PY'
+          import json, os, sys
+          from pathlib import Path
+          sys.path.insert(0, '.microharness')
+          import bench as b
+          out = Path('probe-out')
+          out.mkdir(exist_ok=True)
+          key = os.environ.get('OPENROUTER_API_KEY') or ''
+          cfg = b.load_config()
+          max_spend = float(cfg.get('maxSpendUsd', 0.49))
+          approach = float(cfg.get('spendApproachRatio', 0.8))
+          before_path = out / 'usage-before.json'
+          before = json.loads(before_path.read_text(encoding='utf-8'))['usage'] if before_path.is_file() else 0.0
+          after = b.read_usage(b.fetch_openrouter_key(key))
+          delta = max(0.0, after - float(before))
+          spend_ok = delta < max_spend * approach
+          proxy = {}
+          if (out / 'or-proxy-count.json').is_file():
+              proxy = json.loads((out / 'or-proxy-count.json').read_text(encoding='utf-8'))
+          report_path = out / 'bench-report.json'
+          cell = None
+          success = False
+          if report_path.is_file():
+              raw = json.loads(report_path.read_text(encoding='utf-8'))
+              clean = b.sanitize_report(raw)
+              cells = [c for c in (clean.get('cells') or []) if not c.get('pending')]
+              # onlyCells puede fusionar; tomar la sonda 01/base/0
+              for c in (clean.get('cells') or []):
+                  if (c.get('taskId') == os.environ['BENCH_PROBE_TASK']
+                          and c.get('variant') == 'base'
+                          and int(c.get('repetition') or 0) == 0):
+                      cell = c
+                      break
+              if cell is None and cells:
+                  cell = cells[0]
+              if cell is not None and not cell.get('pending'):
+                  success = bool(cell.get('success') is True or cell.get('status') == 'ok')
+              clean['usageBefore'] = before
+              clean['usageAfter'] = after
+              clean['usageDelta'] = delta
+              clean['maxSpendUsd'] = max_spend
+              clean['spendOk'] = spend_ok
+              clean['proxyCount'] = proxy.get('count')
+              clean['proxyMax'] = proxy.get('max')
+              clean['probeSuccess'] = success
+              clean['modelKind'] = 'paid'
+              clean['pricingPromptPer1M'] = os.environ.get('BENCH_PRICING_PROMPT')
+              clean['pricingCompletionPer1M'] = os.environ.get('BENCH_PRICING_COMPLETION')
+              (out / 'bench-report.sanitized.json').write_text(
+                  json.dumps(clean, indent=2, ensure_ascii=True) + '\n', encoding='utf-8')
+              (out / 'bench-report.sanitized.md').write_text(
+                  b.format_report_md(clean), encoding='utf-8')
+          (out / 'usage-after.json').write_text(
+              json.dumps({
+                  'usage': after, 'usageBefore': before, 'usageDelta': delta,
+                  'spendOk': spend_ok, 'maxSpendUsd': max_spend,
+                  'proxyCount': proxy.get('count'), 'proxyMax': proxy.get('max'),
+                  'probeSuccess': success,
+                  'model': os.environ.get('BENCH_MODEL'),
+              }, indent=2) + '\n', encoding='utf-8')
+          (out / 'probe-result.json').write_text(
+              json.dumps({
+                  'success': success,
+                  'spendOk': spend_ok,
+                  'usageDelta': delta,
+                  'proxyCount': proxy.get('count'),
+                  'cell': {
+                      'taskId': (cell or {}).get('taskId'),
+                      'variant': (cell or {}).get('variant'),
+                      'repetition': (cell or {}).get('repetition'),
+                      'success': (cell or {}).get('success'),
+                      'status': (cell or {}).get('status'),
+                      'pending': (cell or {}).get('pending'),
+                      'exitCode': (cell or {}).get('exitCode'),
+                      'subtype': (cell or {}).get('subtype'),
+                      'isError': (cell or {}).get('isError'),
+                  } if cell else None,
+              }, indent=2, ensure_ascii=True) + '\n', encoding='utf-8')
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as fh:
+              fh.write(f'success={"true" if success and spend_ok else "false"}\n')
+              fh.write(f'model={os.environ.get("BENCH_MODEL")}\n')
+              fh.write(f'pricing_prompt={os.environ.get("BENCH_PRICING_PROMPT")}\n')
+              fh.write(f'pricing_completion={os.environ.get("BENCH_PRICING_COMPLETION")}\n')
+          print('probe success', success, 'spend_ok', spend_ok, 'delta', delta, 'proxy', proxy)
+          if not spend_ok:
+              raise SystemExit('gasto se acerca/supera tope $0.49')
+          # No fallar el job si la celda falla: Arturo pide PARAR y reportar.
+          raise SystemExit(0)
+          PY
+
+      - name: Upload probe artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-probe
+          path: |
+            probe-out/probe-result.json
+            probe-out/bench-report.sanitized.json
+            probe-out/bench-report.sanitized.md
+            probe-out/usage-before.json
+            probe-out/usage-after.json
+            probe-out/or-proxy-count.json
+          if-no-files-found: warn
+
+  cheap-baseline:
+    needs: probe
+    if: needs.probe.outputs.success == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      BENCH_MODEL: ${{ needs.probe.outputs.model }}
+      BENCH_PRICING_PROMPT: ${{ needs.probe.outputs.pricing_prompt }}
+      BENCH_PRICING_COMPLETION: ${{ needs.probe.outputs.pricing_completion }}
+      CI: "true"
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Require OpenRouter secret
+        run: |
+          if [ -z "${OPENROUTER_API_KEY}" ] || [ -z "${BENCH_MODEL}" ]; then
+            echo "ERROR: secret o modelo ausente."
+            exit 1
+          fi
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Claude Code (pinned)
+        run: npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
+
+      - name: Verify Claude Code pin
+        run: |
+          ver="$(claude --version | head -n1)"
+          echo "${ver}" | grep -F "2.1.197" >/dev/null || exit 1
+
+      - name: Download probe counter
+        uses: actions/download-artifact@v4
+        with:
+          name: bench-probe
+          path: probe-in
+
+      - name: Configure matriz N=3 (sin mezclar archivo)
+        run: |
+          python3 <<'PY'
+          import json, os, shutil
+          from pathlib import Path
+          p = Path('bench/config.json')
+          cfg = json.loads(p.read_text(encoding='utf-8'))
+          cfg['models'] = [os.environ['BENCH_MODEL']]
+          cfg['baselineStatus'] = 'running-cheap'
+          cfg['maxSpendUsd'] = 0.49
+          cfg['spendApproachRatio'] = 0.8
+          cfg['maxPaidLimitUsd'] = 10
+          cfg['maxTurnsPerCell'] = 6
+          cfg['maxRequestsPerRun'] = 100
+          cfg['allowPartialRun'] = True  # 30×6=180 > 100 → pending al cortar
+          cfg.pop('priorReport', None)
+          cfg.pop('onlyCells', None)  # matriz completa N=3
+          prior = 0
+          smoke_state = Path('probe-in/or-proxy-count.json')
+          if smoke_state.is_file():
+              data = json.loads(smoke_state.read_text(encoding='utf-8'))
+              prior = int(data.get('count') or 0)
+              out_state = Path(os.environ.get('RUNNER_TEMP', '/tmp')) / 'or-proxy-count.json'
+              shutil.copy(smoke_state, out_state)
+              print('proxy from probe:', data)
+          else:
+              out_state = Path(os.environ.get('RUNNER_TEMP', '/tmp')) / 'or-proxy-count.json'
+              out_state.write_text(json.dumps({'count': 0, 'max': 100}) + '\n', encoding='utf-8')
+          cfg['requestsAlreadyUsed'] = prior
+          p.write_text(json.dumps(cfg, indent=2) + '\n', encoding='utf-8')
+          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as fh:
+              fh.write(f'BENCH_PROXY_STATE={out_state}\n')
+              fh.write(f'BENCH_PRIOR_REQUESTS={prior}\n')
+          print('matrix N=3 prior', prior, 'model', os.environ['BENCH_MODEL'],
+                'maxTurns=6 allowPartial=True')
+          PY
+
+      - name: Candado pre-matriz ($0.49)
         run: |
           python3 <<'PY'
           import json, os, sys
@@ -220,20 +353,33 @@ jobs:
           import bench as b
           key = os.environ.get('OPENROUTER_API_KEY') or ''
           model = os.environ['BENCH_MODEL']
-          b.assert_free_model(model)
           cfg = b.load_config()
-          est = b.planned_requests(cfg, int(cfg['nCheap']) * 5 * 2)
-          data = b.check_openrouter_free_lock(key, est, max_paid_limit_usd=5)
+          # allowPartialRun: estima 180 pero no aborta; el proxy corta en 100.
+          est = b.planned_requests(cfg, 30)
+          prior = int(os.environ.get('BENCH_PRIOR_REQUESTS') or '0')
+          max_cap = float(cfg.get('maxPaidLimitUsd', 10))
+          max_spend = float(cfg.get('maxSpendUsd', 0.49))
+          data = b.check_openrouter_spend_lock(
+              key, est, max_paid_limit_usd=max_cap, max_spend_usd=max_spend,
+              require_free_quota=False)
           usage = b.read_usage(data)
-          b.verify_openrouter_model_pricing(key, model)
+          b.verify_openrouter_model_pricing(key, model, allow_paid=True)
           out = Path('bench-out')
           out.mkdir(exist_ok=True)
           (out / 'usage-before.json').write_text(
-              json.dumps({'usage': usage}, indent=2) + '\n', encoding='utf-8')
-          print('lock ok')
+              json.dumps({
+                  'usage': usage, 'model': model,
+                  'pricingPromptPer1M': os.environ.get('BENCH_PRICING_PROMPT'),
+                  'pricingCompletionPer1M': os.environ.get('BENCH_PRICING_COMPLETION'),
+                  'estimatedRequests': est, 'priorRequests': prior,
+                  'maxSpendUsd': max_spend,
+                  'allowPartialRun': True,
+                  'maxTurnsPerCell': 6,
+              }, indent=2) + '\n', encoding='utf-8')
+          print('lock ok est', est, 'prior', prior, 'partial', True)
           PY
 
-      - name: Run cheap baseline
+      - name: Run cheap N=3
         id: cheap_run
         continue-on-error: true
         run: |
@@ -243,10 +389,12 @@ jobs:
           ec=$?
           set -e
           echo "cheap_exit=${ec}" >> "$GITHUB_OUTPUT"
-          # 0 = ok/inconcluso; 2 = RECHAZA; otros = error duro
+          if [ -n "${BENCH_PROXY_STATE}" ] && [ -f "${BENCH_PROXY_STATE}" ]; then
+            cp "${BENCH_PROXY_STATE}" bench-out/or-proxy-count.json || true
+          fi
           exit 0
 
-      - name: Candado post-corrida
+      - name: Candado post + sanitize
         if: always()
         run: |
           python3 <<'PY'
@@ -257,75 +405,52 @@ jobs:
           out = Path('bench-out')
           out.mkdir(exist_ok=True)
           key = os.environ.get('OPENROUTER_API_KEY') or ''
+          cfg = b.load_config()
+          max_spend = float(cfg.get('maxSpendUsd', 0.49))
+          approach = float(cfg.get('spendApproachRatio', 0.8))
           before_path = out / 'usage-before.json'
-          if before_path.is_file():
-              before = json.loads(before_path.read_text(encoding='utf-8'))['usage']
-          else:
-              before = b.read_usage(b.fetch_openrouter_key(key))
+          before = json.loads(before_path.read_text(encoding='utf-8'))['usage'] if before_path.is_file() else b.read_usage(b.fetch_openrouter_key(key))
           after = b.read_usage(b.fetch_openrouter_key(key))
-          rise = after - float(before) > 0
+          delta = max(0.0, after - float(before))
+          spend_ok = delta < max_spend * approach
+          proxy = {}
+          if (out / 'or-proxy-count.json').is_file():
+              proxy = json.loads((out / 'or-proxy-count.json').read_text(encoding='utf-8'))
           (out / 'usage-after.json').write_text(
               json.dumps({
-                  'usage': after, 'usageBefore': before, 'usageRise': rise,
+                  'usage': after, 'usageBefore': before, 'usageDelta': delta,
+                  'spendOk': spend_ok, 'maxSpendUsd': max_spend,
+                  'proxyCount': proxy.get('count'), 'proxyMax': proxy.get('max'),
+                  'model': os.environ.get('BENCH_MODEL'),
+                  'pricingPromptPer1M': os.environ.get('BENCH_PRICING_PROMPT'),
+                  'pricingCompletionPer1M': os.environ.get('BENCH_PRICING_COMPLETION'),
               }, indent=2) + '\n', encoding='utf-8')
-          print('usage after recorded')
-          if rise:
-              raise SystemExit('usage rose; corrida invalida')
-          PY
-
-      - name: Sanitize artifact (§7)
-        if: always()
-        run: |
-          python3 <<'PY'
-          import json, sys
-          from pathlib import Path
-          sys.path.insert(0, '.microharness')
-          import bench as b
-          out = Path('bench-out')
-          out.mkdir(exist_ok=True)
           report_path = out / 'bench-report.json'
           if report_path.is_file():
-              raw = json.loads(report_path.read_text(encoding='utf-8'))
-              clean = b.sanitize_report(raw)
+              clean = b.sanitize_report(json.loads(report_path.read_text(encoding='utf-8')))
           else:
               clean = {
-                  'schema': 'microsdd-bench-report/v1',
-                  'verdict': 'NO CONCLUYENTE',
-                  'cheap': True,
-                  'cells': [],
-                  'pendingCells': [],
-                  'privacy': 'strict-aggregate',
-                  'note': 'bench-report.json ausente',
+                  'schema': 'microsdd-bench-report/v1', 'verdict': 'NO CONCLUYENTE',
+                  'cheap': True, 'cells': [], 'pendingCells': [],
+                  'privacy': 'strict-aggregate', 'note': 'bench-report.json ausente',
               }
-          ub = {}
-          ua = {}
-          if (out / 'usage-before.json').is_file():
-              ub = json.loads((out / 'usage-before.json').read_text(encoding='utf-8'))
-          if (out / 'usage-after.json').is_file():
-              ua = json.loads((out / 'usage-after.json').read_text(encoding='utf-8'))
-          clean['usageBefore'] = ub.get('usage', clean.get('usageBefore'))
-          clean['usageAfter'] = ua.get('usage', clean.get('usageAfter'))
-          clean['cheap'] = True
-          clean['date'] = clean.get('ts')
-          # Resumen diagnóstico (sin prompts ni keys)
-          diags = []
-          for c in clean.get('cells') or []:
-              if c.get('pending') or c.get('exitCode') not in (0, None):
-                  diags.append({
-                      'taskId': c.get('taskId'),
-                      'variant': c.get('variant'),
-                      'repetition': c.get('repetition'),
-                      'exitCode': c.get('exitCode'),
-                      'subtype': c.get('subtype'),
-                      'isError': c.get('isError'),
-                      'stderrTruncated': c.get('stderrTruncated'),
-                  })
-          clean['diagnostics'] = diags[:50]
+          clean['usageBefore'] = before
+          clean['usageAfter'] = after
+          clean['usageDelta'] = delta
+          clean['maxSpendUsd'] = max_spend
+          clean['modelKind'] = 'paid'
+          clean['pricingPromptPer1M'] = os.environ.get('BENCH_PRICING_PROMPT')
+          clean['pricingCompletionPer1M'] = os.environ.get('BENCH_PRICING_COMPLETION')
+          clean['proxyCount'] = proxy.get('count')
+          clean['proxyMax'] = proxy.get('max')
+          clean['requestsUsed'] = proxy.get('count', clean.get('requestsUsed'))
           (out / 'bench-report.sanitized.json').write_text(
               json.dumps(clean, indent=2, ensure_ascii=True) + '\n', encoding='utf-8')
           (out / 'bench-report.sanitized.md').write_text(
               b.format_report_md(clean), encoding='utf-8')
-          print('sanitized')
+          print('delta', delta, 'spend_ok', spend_ok, 'proxy', proxy)
+          if not spend_ok:
+              raise SystemExit(f'gasto se acerca/supera tope: delta={delta}')
           PY
 
       - name: Upload sanitized results
@@ -338,30 +463,39 @@ jobs:
             bench-out/bench-report.sanitized.md
             bench-out/usage-before.json
             bench-out/usage-after.json
+            bench-out/or-proxy-count.json
           if-no-files-found: warn
 
-      - name: Fail if no valid cells or usage rose
+      - name: Fail if no valid cells or spend exceeded
         if: always()
         run: |
           python3 <<'PY'
           import json, sys
           from pathlib import Path
-          p = Path('bench-out/bench-report.sanitized.json')
           ua = Path('bench-out/usage-after.json')
-          if ua.is_file():
-              data = json.loads(ua.read_text(encoding='utf-8'))
-              if data.get('usageRise'):
-                  print('FAIL: usage rose')
-                  raise SystemExit(1)
+          if ua.is_file() and json.loads(ua.read_text(encoding='utf-8')).get('spendOk') is False:
+              print('FAIL: gasto')
+              raise SystemExit(1)
+          p = Path('bench-out/bench-report.sanitized.json')
           if not p.is_file():
-              print('FAIL: no sanitized report')
+              print('FAIL: no report')
               raise SystemExit(1)
           rep = json.loads(p.read_text(encoding='utf-8'))
           cells = rep.get('cells') or []
           valid = [c for c in cells if not c.get('pending')]
-          print(f'valid_cells={len(valid)} pending={len(cells)-len(valid)} verdict={rep.get("verdict")}')
+          print(f'valid={len(valid)} pending={len(cells)-len(valid)} verdict={rep.get("verdict")} proxy={rep.get("proxyCount")} delta={rep.get("usageDelta")}')
           if len(valid) == 0:
-              print('FAIL: cero celdas validas')
-              raise SystemExit(1)
+              raise SystemExit('FAIL: cero celdas validas')
           raise SystemExit(0)
           PY
+
+  probe-failed-report:
+    needs: probe
+    if: needs.probe.outputs.success != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Stop — sonda sin éxito (sin matriz)
+        run: |
+          echo "Sonda DeepSeek sin éxito o gasto inválido; matriz NO lanzada (Arturo)."
+          echo "Ver artifact bench-probe."
+          exit 0

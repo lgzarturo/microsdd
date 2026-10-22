@@ -1,0 +1,14 @@
+{
+  "usage": 0.034679352,
+  "usageBefore": 2.98e-06,
+  "usageDelta": 0.034676372,
+  "spendOk": true,
+  "maxSpendUsd": 5.0,
+  "approachRatio": 0.8,
+  "proxyCount": 98,
+  "proxyMax": 100,
+  "model": "openai/gpt-oss-20b",
+  "modelKind": "paid",
+  "pricingPromptPer1M": "0.018",
+  "pricingCompletionPer1M": "0.09"
+}

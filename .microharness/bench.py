@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import math
 import os
@@ -31,18 +32,28 @@ DEFAULT_CONFIG = {
     'efficiencyDeltaPct': 10,
     'qualityTokenCeilingPct': 15,
     'claim': 'efficiency',  # efficiency | quality
-    'models': [],  # rellenar con IDs :free; vacío = pendiente
+    'models': [],  # IDs :free o pago económico; vacío = pendiente
     'baselineStatus': 'pending',
-    # Tope de limit de la key OpenRouter (USD/mes). Arturo: key real con $5.
-    'maxPaidLimitUsd': 5,
+    # Techo del campo `limit` de la key (créditos en cuenta; Arturo: $10).
+    'maxPaidLimitUsd': 10,
+    # Candado de gasto por repo: delta usage (Arturo 22 oct 9:51: $0.49).
+    'maxSpendUsd': 0.49,
+    # Fracción del tope a partir de la cual se aborta ("se acerca").
+    'spendApproachRatio': 0.8,
     # Presupuesto de solicitudes HTTP al modelo (turnos agénticos), no celdas.
+    # Tope duro por repo (OpenRouter): 100; el proxy local rechaza el 101+.
+    # maxTurns=6 (loop agéntico); 30×6=180 > 100 → allowPartialRun corta con pending.
     'maxTurnsPerCell': 6,
-    'maxRequestsPerRun': 200,
+    'maxRequestsPerRun': 100,
+    # Si la estimación supera el tope, lanzar igual y marcar resto pending al cortar.
+    'allowPartialRun': True,
 }
-# Límites OpenRouter :free (documentados; riesgo de corte).
+# Límites OpenRouter :free / proxy (documentados; riesgo de corte).
 FREE_RPM = 20
 FREE_RPD_LOW = 50  # < 10 créditos comprados
 FREE_RPD_HIGH = 1000
+# Modelo baseline pago (Arturo 22 oct 9:51 Cancún).
+DEFAULT_PAID_FALLBACK_MODEL = 'deepseek/deepseek-v4-flash'
 
 
 class BenchError(Exception):
@@ -75,14 +86,20 @@ def request_budget(cfg: dict) -> tuple[int, int]:
     return out[0], out[1]
 
 
-def planned_requests(cfg: dict, cells: int) -> int:
-    """Estimación de solicitudes = celdas × maxTurnsPerCell; aborta si supera maxRequestsPerRun."""
+def planned_requests(cfg: dict, cells: int, *, strict: bool | None = None) -> int:
+    """Estimación = celdas × maxTurnsPerCell.
+
+    Si supera maxRequestsPerRun: aborta salvo allowPartialRun (o strict=False),
+    para poder lanzar y dejar pending al cortar por el proxy.
+    """
     max_turns, max_requests = request_budget(cfg)
     estimated = int(cells) * max_turns
     if estimated > max_requests:
-        raise BenchError(
-            f'Solicitudes estimadas {estimated} ({cells} celdas x {max_turns} turnos) '
-            f'superan maxRequestsPerRun={max_requests}; no se lanza la corrida.')
+        allow_partial = bool(cfg.get('allowPartialRun', False)) if strict is None else (not strict)
+        if not allow_partial:
+            raise BenchError(
+                f'Solicitudes estimadas {estimated} ({cells} celdas x {max_turns} turnos) '
+                f'superan maxRequestsPerRun={max_requests}; no se lanza la corrida.')
     return estimated
 
 
@@ -101,11 +118,25 @@ def list_tasks() -> list[dict]:
     return out
 
 
+def is_free_model(model_id: str) -> bool:
+    return isinstance(model_id, str) and model_id.endswith(':free')
+
+
 def assert_free_model(model_id: str) -> None:
     # Solo sufijo exacto ':free' (minúsculas); ':FREE' u otros fallan.
-    if not isinstance(model_id, str) or not model_id.endswith(':free'):
+    if not is_free_model(model_id):
         raise BenchError(
-            f'Modelo {model_id!r} no termina en :free; la línea base solo admite modelos gratis.')
+            f'Modelo {model_id!r} no termina en :free; se esperaba un modelo gratis.')
+
+
+def assert_bench_model(model_id: str) -> None:
+    """Acepta :free o ID de pago no vacío (candado es gasto ≤ maxSpendUsd)."""
+    if not isinstance(model_id, str) or not model_id.strip():
+        raise BenchError(f'Modelo inválido: {model_id!r}')
+    # Variantes :FREE / :Free no cuentan como gratis ni como pago válido.
+    if model_id.lower().endswith(':free') and not model_id.endswith(':free'):
+        raise BenchError(
+            f'Modelo {model_id!r}: sufijo :free debe ser minúsculas exactas.')
 
 
 def _require_number(data: dict, key: str, *, label: str | None = None) -> float:
@@ -165,24 +196,34 @@ def read_usage(data: dict) -> float:
     return usage
 
 
-def check_openrouter_free_lock(
+def _validate_usd_cap(value: Any, name: str) -> float:
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        raise BenchError(f'{name} inválido: {value!r}')
+    cap = float(value)
+    if cap < 0 or math.isnan(cap) or math.isinf(cap):
+        raise BenchError(f'{name} inválido: {value!r}')
+    return cap
+
+
+def check_openrouter_spend_lock(
     api_key: str | None,
     n_total: int,
     *,
-    max_paid_limit_usd: float = 5.0,
+    max_paid_limit_usd: float = 10.0,
+    max_spend_usd: float = 0.49,
+    require_free_quota: bool = False,
     data: dict | None = None,
 ) -> dict:
-    """Candado :free + limit finito ≤ tope. Fail-closed. Devuelve data de /key.
+    """Candado de gasto: limit finito ≤ techo key; usage snapshot; cuota :free opcional.
 
-    n_total = solicitudes estimadas al modelo (celdas × maxTurnsPerCell), no celdas.
+    n_total = solicitudes estimadas (celdas × maxTurnsPerCell), no celdas.
+    El tope de gasto runtime es max_spend_usd (delta usage); aquí solo se valida
+    la key y, si require_free_quota, la cuota diaria :free.
     """
     if type(n_total) is not int or n_total < 1:
         raise BenchError(f'n_total inválido: {n_total!r}')
-    if not isinstance(max_paid_limit_usd, (int, float)) or isinstance(max_paid_limit_usd, bool):
-        raise BenchError(f'maxPaidLimitUsd inválido: {max_paid_limit_usd!r}')
-    max_cap = float(max_paid_limit_usd)
-    if max_cap < 0 or math.isnan(max_cap) or math.isinf(max_cap):
-        raise BenchError(f'maxPaidLimitUsd inválido: {max_paid_limit_usd!r}')
+    max_cap = _validate_usd_cap(max_paid_limit_usd, 'maxPaidLimitUsd')
+    _validate_usd_cap(max_spend_usd, 'maxSpendUsd')
 
     if data is None:
         data = fetch_openrouter_key(api_key or '')
@@ -190,7 +231,7 @@ def check_openrouter_free_lock(
     # usage debe ser número finito (snapshot); no se exige 0.
     read_usage(data)
 
-    # limit: numérico finito y ≤ tope (null/ilimitado aborta).
+    # limit: numérico finito y ≤ techo de créditos en cuenta (null/ilimitado aborta).
     limit = _require_number(data, 'limit')
     if limit < 0:
         raise BenchError(f'/api/v1/key: limit={limit} negativo (fail-closed).')
@@ -205,20 +246,67 @@ def check_openrouter_free_lock(
             if lr < 0:
                 raise BenchError(f'/api/v1/key: {lr_key}={lr} negativo (fail-closed).')
 
-    free = data.get('free_model_daily_requests')
-    if not isinstance(free, dict) or not free:
-        raise BenchError(
-            '/api/v1/key: free_model_daily_requests ausente o vacío (fail-closed; §3.6).')
-    remaining = _require_nonneg_int(free, 'remaining', label='free_model_daily_requests.remaining')
-    if remaining < n_total:
-        raise BenchError(
-            f'Cuota :free insuficiente: remaining={remaining}, hace falta {n_total} '
-            f'(limite tipico {FREE_RPD_LOW}/dia o {FREE_RPD_HIGH}/dia; {FREE_RPM}/min).')
+    if require_free_quota:
+        free = data.get('free_model_daily_requests')
+        if not isinstance(free, dict) or not free:
+            raise BenchError(
+                '/api/v1/key: free_model_daily_requests ausente o vacío (fail-closed).')
+        remaining = _require_nonneg_int(
+            free, 'remaining', label='free_model_daily_requests.remaining')
+        if remaining < n_total:
+            raise BenchError(
+                f'Cuota :free insuficiente: remaining={remaining}, hace falta {n_total} '
+                f'(limite tipico {FREE_RPD_LOW}/dia o {FREE_RPD_HIGH}/dia; {FREE_RPM}/min).')
     return data
 
 
+def check_openrouter_free_lock(
+    api_key: str | None,
+    n_total: int,
+    *,
+    max_paid_limit_usd: float = 10.0,
+    data: dict | None = None,
+) -> dict:
+    """Compat: candado con cuota :free obligatoria (equiv. spend_lock + require_free_quota)."""
+    return check_openrouter_spend_lock(
+        api_key, n_total, max_paid_limit_usd=max_paid_limit_usd,
+        max_spend_usd=DEFAULT_CONFIG['maxSpendUsd'],
+        require_free_quota=True, data=data)
+
+
+def assert_spend_within_cap(
+    api_key: str,
+    usage_before: float,
+    *,
+    max_spend_usd: float = 0.49,
+    approach_ratio: float = 0.8,
+    data: dict | None = None,
+) -> float:
+    """Relee usage; aborta si el delta alcanza el tope o se acerca (approach_ratio)."""
+    max_spend = _validate_usd_cap(max_spend_usd, 'maxSpendUsd')
+    ratio = _validate_usd_cap(approach_ratio, 'spendApproachRatio')
+    if ratio > 1.0:
+        raise BenchError(f'spendApproachRatio inválido: {approach_ratio!r}')
+    payload = data if data is not None else fetch_openrouter_key(api_key)
+    usage_after = read_usage(payload)
+    delta = usage_after - float(usage_before)
+    if delta < 0:
+        # Reembolsos/ajustes: no invalidar; tratar como 0 gastado neto.
+        delta = 0.0
+    approach_at = max_spend * ratio
+    if delta >= max_spend:
+        raise BenchError(
+            f'gasto supera tope: before={usage_before} after={usage_after} '
+            f'delta={delta} maxSpendUsd={max_spend}; corrida invalida.')
+    if delta >= approach_at and max_spend > 0:
+        raise BenchError(
+            f'gasto se acerca al tope: before={usage_before} after={usage_after} '
+            f'delta={delta} approach={approach_at} maxSpendUsd={max_spend}; aborta.')
+    return usage_after
+
+
 def assert_usage_unchanged(api_key: str, usage_before: float, *, data: dict | None = None) -> float:
-    """Relee usage; si subió (delta > 0) aborta y la corrida queda inválida."""
+    """Compat estricta: delta > 0 aborta (solo corridas :free sin gasto)."""
     payload = data if data is not None else fetch_openrouter_key(api_key)
     usage_after = read_usage(payload)
     delta = usage_after - float(usage_before)
@@ -229,9 +317,37 @@ def assert_usage_unchanged(api_key: str, usage_before: float, *, data: dict | No
     return usage_after
 
 
-def verify_openrouter_model_pricing(api_key: str, model_id: str) -> dict:
-    """Fail-closed: modelo :free con precio 0 en /api/v1/models."""
-    assert_free_model(model_id)
+def _parse_pricing_amount(raw: Any, key: str) -> float:
+    if isinstance(raw, bool) or not isinstance(raw, (int, float, str)):
+        raise BenchError(
+            f'/api/v1/models: pricing.{key} tipo inesperado {type(raw).__name__} (fail-closed).')
+    try:
+        num = float(raw)
+    except (TypeError, ValueError) as exc:
+        raise BenchError(
+            f'/api/v1/models: pricing.{key}={raw!r} no parseable (fail-closed).') from exc
+    if math.isnan(num) or math.isinf(num) or num < 0:
+        raise BenchError(
+            f'/api/v1/models: pricing.{key}={num} inválido (fail-closed).')
+    return num
+
+
+def verify_openrouter_model_pricing(
+    api_key: str,
+    model_id: str,
+    *,
+    allow_paid: bool = False,
+) -> dict:
+    """Fail-closed: localiza el modelo y valida pricing.
+
+    :free → prompt/completion deben ser 0.
+    allow_paid → acepta precio > 0 y exige soporte de tools (supported_parameters).
+    """
+    assert_bench_model(model_id)
+    free = is_free_model(model_id)
+    if not free and not allow_paid:
+        raise BenchError(
+            f'Modelo {model_id!r} no es :free; pasa allow_paid=True para pago económico.')
     if not api_key:
         raise BenchError('OPENROUTER_API_KEY ausente para verificar precio del modelo.')
     req = urllib.request.Request(
@@ -258,21 +374,27 @@ def verify_openrouter_model_pricing(api_key: str, model_id: str) -> dict:
     pricing = match.get('pricing')
     if not isinstance(pricing, dict):
         raise BenchError(f'/api/v1/models: pricing ausente para {model_id!r} (fail-closed).')
+    prices: dict[str, float] = {}
     for key in ('prompt', 'completion'):
         if key not in pricing:
             raise BenchError(f'/api/v1/models: falta pricing.{key} (fail-closed).')
-        raw = pricing[key]
-        if isinstance(raw, bool) or not isinstance(raw, (int, float, str)):
+        prices[key] = _parse_pricing_amount(pricing[key], key)
+        if free and prices[key] != 0.0:
             raise BenchError(
-                f'/api/v1/models: pricing.{key} tipo inesperado {type(raw).__name__} (fail-closed).')
-        try:
-            num = float(raw)
-        except (TypeError, ValueError) as exc:
+                f'/api/v1/models: pricing.{key}={prices[key]} no es 0 (fail-closed; solo :free).')
+    if not free:
+        # Tool use obligatorio para el fallback de pago (Claude Code / agentic).
+        supported = match.get('supported_parameters')
+        if not isinstance(supported, list):
             raise BenchError(
-                f'/api/v1/models: pricing.{key}={raw!r} no parseable (fail-closed).') from exc
-        if math.isnan(num) or math.isinf(num) or num != 0.0:
+                f'/api/v1/models: supported_parameters ausente para {model_id!r} (fail-closed).')
+        ok_tools = any(
+            isinstance(p, str) and p in ('tools', 'tool_choice') for p in supported)
+        if not ok_tools:
             raise BenchError(
-                f'/api/v1/models: pricing.{key}={num} no es 0 (fail-closed; solo :free).')
+                f'/api/v1/models: {model_id!r} sin tools/tool_choice (fail-closed; pago).')
+    match = dict(match)
+    match['_parsedPricing'] = prices
     return match
 
 
@@ -290,6 +412,7 @@ def sanitize_report(report: dict) -> dict:
         'firstTry', 'modelId', 'seed', 'hostVersion', 'status',
         'exitCode', 'stderrTruncated', 'subtype', 'isError', 'errorClass',
     })
+    # aborted / abortReason se conservan en el scrub genérico (no están en forbidden).
 
     def scrub(obj: Any) -> Any:
         if isinstance(obj, dict):
@@ -423,20 +546,39 @@ def _scrub_secrets(text: str) -> str:
     return out
 
 
-class ClaudeCodeProvider:
-    """Bench agéntico vía Claude Code + OpenRouter (:free)."""
+def _load_or_proxy():
+    """Carga or_proxy.py del mismo directorio (sin empaquetar)."""
+    path = HERE / 'or_proxy.py'
+    if not path.is_file():
+        raise BenchError(f'Falta {path}; el provider openrouter exige el proxy contador.')
+    spec = importlib.util.spec_from_file_location('microsdd_or_proxy', path)
+    if spec is None or spec.loader is None:
+        raise BenchError(f'No se pudo cargar {path}')
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
-    MIN_INTERVAL_S = 3.1  # pausa entre celdas; no controla el ritmo interno de Claude Code
+
+class ClaudeCodeProvider:
+    """Bench agéntico vía Claude Code + OpenRouter (proxy contador; :free o pago)."""
+
+    MIN_INTERVAL_S = 3.1  # pausa entre celdas; el proxy cuenta cada HTTP a OpenRouter
     CELL_TIMEOUT_S = 900
 
     def __init__(self, model_id: str, *, claude_bin: str = 'claude',
-                 max_turns: int = DEFAULT_CONFIG['maxTurnsPerCell']):
-        assert_free_model(model_id)
+                 max_turns: int = DEFAULT_CONFIG['maxTurnsPerCell'],
+                 proxy: Any = None):
+        assert_bench_model(model_id)
         if type(max_turns) is not int or max_turns < 1:
             raise BenchError(f'max_turns inválido: {max_turns!r}')
+        if proxy is None:
+            raise BenchError(
+                'ClaudeCodeProvider exige proxy contador OpenRouter (fail-closed); '
+                'no se inyecta la key real en el entorno de Claude.')
         self.model_id = model_id
         self.claude_bin = claude_bin
         self.max_turns = max_turns
+        self.proxy = proxy
         self._last_call = 0.0
         self.host_version = self._detect_version()
 
@@ -455,21 +597,20 @@ class ClaudeCodeProvider:
         if elapsed < self.MIN_INTERVAL_S:
             time.sleep(self.MIN_INTERVAL_S - elapsed)
 
-    def _env(self) -> dict[str, str]:
-        env = os.environ.copy()
-        # Key solo desde entorno; no se imprime.
-        or_key = env.get('OPENROUTER_API_KEY') or env.get('ANTHROPIC_AUTH_TOKEN') or ''
-        env['ANTHROPIC_BASE_URL'] = 'https://openrouter.ai/api'
-        env['ANTHROPIC_AUTH_TOKEN'] = or_key
-        env['ANTHROPIC_API_KEY'] = ''
-        env['ANTHROPIC_DEFAULT_SONNET_MODEL'] = self.model_id
-        env['ANTHROPIC_DEFAULT_OPUS_MODEL'] = self.model_id
-        env['ANTHROPIC_DEFAULT_HAIKU_MODEL'] = self.model_id
-        env['CLAUDE_CODE_SUBAGENT_MODEL'] = self.model_id
-        # Evitar prompts interactivos de trust/onboarding en CI.
-        env.setdefault('CI', 'true')
-        env.setdefault('CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC', '1')
-        return env
+    def _assert_proxy_ok(self) -> int:
+        """Fail-closed: contador legible y proxy no abortado. Devuelve count."""
+        try:
+            data = self.proxy.assert_readable()
+        except Exception as exc:
+            raise BenchError(f'contador de requests ilegible (fail-closed): {exc}') from exc
+        if getattr(self.proxy.server, 'aborted', False):
+            reason = getattr(self.proxy.server, 'abort_reason', None) or 'aborted'
+            raise BenchError(f'proxy OpenRouter abortado: {reason}')
+        return int(data['count'])
+
+    def _env(self, *, home: str) -> dict[str, str]:
+        self._assert_proxy_ok()
+        return self.proxy.client_env(self.model_id, home=home)
 
     def _prompt(self, task: dict) -> str:
         title = task.get('title') or task.get('id')
@@ -500,8 +641,13 @@ class ClaudeCodeProvider:
         if workdir is None:
             return self._pending_diag(
                 exit_code=None, stderr='workdir ausente', subtype=None, is_error=True)
+        # Mitiga --dangerously-skip-permissions: cwd y HOME solo en temp;
+        # la key real no entra al env de Claude (solo LOCAL_TOKEN vía proxy).
+        work = Path(workdir)
+        if not work.is_dir():
+            return self._pending_diag(
+                exit_code=None, stderr='workdir inválido', subtype=None, is_error=True)
         self._throttle()
-        env = self._env()
         # Flags compatibles con Claude Code 2.1.197 + OpenRouter (Arturo).
         cmd = [
             self.claude_bin, '-p', self._prompt(task),
@@ -514,9 +660,21 @@ class ClaudeCodeProvider:
         started = time.monotonic()
         self._last_call = started
         try:
-            proc = subprocess.run(
-                cmd, cwd=str(workdir), env=env, capture_output=True, text=True,
-                timeout=self.CELL_TIMEOUT_S, check=False)
+            with tempfile.TemporaryDirectory(prefix='microsdd-claude-home-') as home:
+                env = self._env(home=home)
+                # Defensa: la key real no debe aparecer en el env del cliente.
+                for forbidden in ('OPENROUTER_API_KEY',):
+                    if env.get(forbidden):
+                        raise BenchError(
+                            f'{forbidden} filtrada al entorno de Claude (fail-closed).')
+                if env.get('ANTHROPIC_AUTH_TOKEN') != self.proxy.LOCAL_TOKEN:
+                    raise BenchError(
+                        'ANTHROPIC_AUTH_TOKEN del cliente no es el token local del proxy.')
+                proc = subprocess.run(
+                    cmd, cwd=str(work), env=env, capture_output=True, text=True,
+                    timeout=self.CELL_TIMEOUT_S, check=False)
+        except BenchError:
+            raise
         except (OSError, subprocess.TimeoutExpired) as exc:
             return self._pending_diag(
                 exit_code=None, stderr=str(exc)[:800], subtype=None, is_error=True,
@@ -524,6 +682,8 @@ class ClaudeCodeProvider:
                 duration_ms=int((time.monotonic() - started) * 1000),
             )
         duration_ms = int((time.monotonic() - started) * 1000)
+        # Tras la celda: si el contador no se lee o el proxy abortó, fallar cerrado.
+        self._assert_proxy_ok()
         payload: dict = {}
         raw_out = (proc.stdout or '').strip()
         if raw_out:
@@ -626,6 +786,52 @@ def _pending_cell(task: dict, variant: str, rep: int, model_id: str | None) -> d
     }
 
 
+def _cell_key(task_id: str, variant: str, rep: int) -> tuple[str, str, int]:
+    return (task_id, variant, int(rep))
+
+
+def _parse_only_cells(raw: Any) -> list[tuple[str, str, int]] | None:
+    """Lista opcional [{taskId, variant, repetition}, ...] para relleno selectivo."""
+    if raw is None:
+        return None
+    if not isinstance(raw, list) or not raw:
+        raise BenchError('onlyCells debe ser una lista no vacía de celdas.')
+    out: list[tuple[str, str, int]] = []
+    seen: set[tuple[str, str, int]] = set()
+    for i, item in enumerate(raw):
+        if not isinstance(item, dict):
+            raise BenchError(f'onlyCells[{i}] no es objeto.')
+        tid = item.get('taskId')
+        variant = item.get('variant')
+        rep = item.get('repetition')
+        if not isinstance(tid, str) or not tid:
+            raise BenchError(f'onlyCells[{i}].taskId inválido.')
+        if variant not in ('base', 'treatment'):
+            raise BenchError(f'onlyCells[{i}].variant inválido: {variant!r}')
+        if type(rep) is not int or rep < 0:
+            raise BenchError(f'onlyCells[{i}].repetition inválido: {rep!r}')
+        key = _cell_key(tid, variant, rep)
+        if key in seen:
+            raise BenchError(f'onlyCells duplicada: {key}')
+        seen.add(key)
+        out.append(key)
+    return out
+
+
+def _load_prior_cells(path: Path | None) -> list[dict]:
+    if path is None:
+        return []
+    if not path.is_file():
+        raise BenchError(f'priorReport ausente: {path}')
+    data = json.loads(path.read_text(encoding='utf-8'))
+    if not isinstance(data, dict):
+        raise BenchError('priorReport: raíz no es objeto')
+    cells = data.get('cells')
+    if not isinstance(cells, list):
+        raise BenchError('priorReport: cells ausente')
+    return [c for c in cells if isinstance(c, dict)]
+
+
 def run_bench(
     *,
     provider: Any,
@@ -641,94 +847,214 @@ def run_bench(
     n = int(cfg['nCheap'] if cheap else cfg['n'])
     seed = int(cfg.get('seed', 42))
     tasks = list_tasks()
+    tasks_by_id = {t['id']: t for t in tasks}
     model_list = models if models is not None else list(cfg.get('models') or [])
+    only = _parse_only_cells(cfg.get('onlyCells'))
+    prior_path_raw = cfg.get('priorReport')
+    prior_path = Path(prior_path_raw) if isinstance(prior_path_raw, str) and prior_path_raw else None
+    if prior_path is not None and not prior_path.is_absolute():
+        prior_path = ROOT / prior_path
+    prior_cells = _load_prior_cells(prior_path) if only is not None else []
     api_key: str | None = None
     usage_before: float | None = None
     estimated: int | None = None
-    remaining: int | None = None
+    remaining: int | None = None  # cuota :free; None = solo tope proxy/gasto
+    max_spend = float(cfg.get('maxSpendUsd', DEFAULT_CONFIG['maxSpendUsd']))
+    approach_ratio = float(cfg.get(
+        'spendApproachRatio', DEFAULT_CONFIG['spendApproachRatio']))
+    # Orden intercalado A/B con semilla (deriva temporal), o solo onlyCells.
+    if only is not None:
+        schedule: list[tuple[dict, str, int]] = []
+        for tid, variant, rep in only:
+            task = tasks_by_id.get(tid)
+            if task is None:
+                raise BenchError(f'onlyCells: tarea desconocida {tid!r}')
+            schedule.append((task, variant, rep))
+        n_schedule = len(schedule)
+    else:
+        rng = random.Random(seed)
+        schedule = []
+        for task in tasks:
+            for rep in range(n):
+                schedule.append((task, 'base', rep))
+                schedule.append((task, 'treatment', rep))
+        rng.shuffle(schedule)
+        # Intercalado por repetición: r0 todas las tareas×brazos, luego r1, luego r2.
+        # Si el tope 100 corta, lo ejecutado queda balanceado entre brazos/tareas.
+        schedule.sort(key=lambda x: (x[2], x[0]['id'], 0 if x[1] == 'base' else 1))
+        n_schedule = len(schedule)
+
     if not skip_key_check and not isinstance(provider, FakeProvider):
+        if not model_list:
+            raise BenchError(
+                'bench.config models vacío; indica IDs :free o pago económico.')
         for mid in model_list:
-            assert_free_model(mid)
-        # base + treatment intercalados; estimación por turnos, no por celdas.
-        estimated = planned_requests(cfg, n * len(tasks) * 2)
+            assert_bench_model(mid)
+        estimated = planned_requests(cfg, n_schedule)
         api_key = os.environ.get('OPENROUTER_API_KEY')
         max_cap = cfg.get('maxPaidLimitUsd', DEFAULT_CONFIG['maxPaidLimitUsd'])
-        key_data = check_openrouter_free_lock(
-            api_key, estimated, max_paid_limit_usd=max_cap)
+        need_free_quota = all(is_free_model(m) for m in model_list)
+        key_data = check_openrouter_spend_lock(
+            api_key, estimated, max_paid_limit_usd=max_cap,
+            max_spend_usd=max_spend, require_free_quota=need_free_quota)
         usage_before = read_usage(key_data)
-        remaining = _require_nonneg_int(
-            key_data['free_model_daily_requests'], 'remaining',
-            label='free_model_daily_requests.remaining')
-        if not model_list:
-            raise BenchError('bench.config models vacío; línea base pendiente de IDs :free.')
-
-    # Orden intercalado A/B con semilla (deriva temporal).
-    rng = random.Random(seed)
-    schedule: list[tuple[dict, str, int]] = []
-    for task in tasks:
-        for rep in range(n):
-            schedule.append((task, 'base', rep))
-            schedule.append((task, 'treatment', rep))
-    rng.shuffle(schedule)
-    # Re-intercalar aproximadamente A/B manteniendo pares por tarea.
-    schedule.sort(key=lambda x: (x[0]['id'], x[2], 0 if x[1] == 'base' else 1))
+        if need_free_quota:
+            remaining = _require_nonneg_int(
+                key_data['free_model_daily_requests'], 'remaining',
+                label='free_model_daily_requests.remaining')
+        else:
+            remaining = None
 
     model_id = model_list[0] if model_list else None
     real = usage_before is not None and api_key is not None
+    proxy = getattr(provider, 'proxy', None)
     requests_used: int | None = 0 if real else None
     cells: list[dict] = []
     pending_rest = False
+    abort_reason: str | None = None
     with tempfile.TemporaryDirectory(prefix='microsdd-bench-') as tmp:
         tmp_path = Path(tmp)
         for task, variant, rep in schedule:
-            if real and not pending_rest:
-                # Corte por celda completa: no cabe otra celda con el tope de turnos.
-                if min(max_requests - requests_used, remaining) < max_turns:
-                    pending_rest = True
-            if pending_rest:
+            if abort_reason or pending_rest:
                 cells.append(_pending_cell(task, variant, rep, model_id))
                 continue
-            work = tmp_path / f"{task['id']}-{variant}-{rep}"
-            copy_fixture(Path(task['_dir']), work)
             try:
+                if real:
+                    used_now = requests_used or 0
+                    if proxy is not None:
+                        try:
+                            used_now = int(proxy.read_count())
+                        except Exception as exc:
+                            raise BenchError(
+                                f'contador de requests ilegible antes de celda (fail-closed): {exc}'
+                            ) from exc
+                        if getattr(proxy.server, 'aborted', False):
+                            raise BenchError(
+                                f'proxy OpenRouter abortado: '
+                                f'{getattr(proxy.server, "abort_reason", None) or "aborted"}')
+                        requests_used = used_now
+                    # Corte por celda completa: no cabe otra celda con el tope de turnos.
+                    headroom = max_requests - used_now
+                    if remaining is not None:
+                        headroom = min(headroom, remaining)
+                    if headroom < max_turns:
+                        pending_rest = True
+                        cells.append(_pending_cell(task, variant, rep, model_id))
+                        continue
+                work = tmp_path / f"{task['id']}-{variant}-{rep}"
+                copy_fixture(Path(task['_dir']), work)
                 try:
                     result = provider.run_cell(task, variant, rep, workdir=work)
                 except TypeError:
                     result = provider.run_cell(task, variant, rep)
-            except BenchError:
-                raise
-            except Exception:
-                result = _pending_cell(task, variant, rep, model_id)
-            cells.append({
-                'taskId': task['id'],
-                'variant': variant,
-                'repetition': rep,
-                **result,
-            })
-            if real:
-                # Relectura por celda: usage no sube; remaining fail-closed.
-                key_data = fetch_openrouter_key(api_key)
-                assert_usage_unchanged(api_key, usage_before, data=key_data)
-                free = key_data.get('free_model_daily_requests')
-                if not isinstance(free, dict) or not free:
-                    raise BenchError(
-                        '/api/v1/key: free_model_daily_requests ausente tras la celda (fail-closed).')
-                new_remaining = _require_nonneg_int(
-                    free, 'remaining', label='free_model_daily_requests.remaining')
-                calls = result.get('calls')
-                turns = calls if type(calls) is int else max_turns
-                requests_used += max(remaining - new_remaining, turns)
-                remaining = new_remaining
+                cells.append({
+                    'taskId': task['id'],
+                    'variant': variant,
+                    'repetition': rep,
+                    **result,
+                })
+                if real:
+                    # Relectura por celda: gasto ≤ maxSpendUsd (aborta si se acerca).
+                    key_data = fetch_openrouter_key(api_key)
+                    assert_spend_within_cap(
+                        api_key, usage_before, max_spend_usd=max_spend,
+                        approach_ratio=approach_ratio, data=key_data)
+                    if remaining is not None:
+                        free = key_data.get('free_model_daily_requests')
+                        if not isinstance(free, dict) or not free:
+                            raise BenchError(
+                                '/api/v1/key: free_model_daily_requests ausente tras la celda '
+                                '(fail-closed).')
+                        new_remaining = _require_nonneg_int(
+                            free, 'remaining',
+                            label='free_model_daily_requests.remaining')
+                    else:
+                        new_remaining = None
+                    if proxy is not None:
+                        try:
+                            requests_used = int(proxy.read_count())
+                        except Exception as exc:
+                            raise BenchError(
+                                f'contador de requests ilegible tras celda (fail-closed): {exc}'
+                            ) from exc
+                        if getattr(proxy.server, 'aborted', False):
+                            raise BenchError(
+                                f'proxy OpenRouter abortado: '
+                                f'{getattr(proxy.server, "abort_reason", None) or "aborted"}')
+                    else:
+                        calls = result.get('calls')
+                        turns = calls if type(calls) is int else max_turns
+                        if remaining is not None and new_remaining is not None:
+                            requests_used += max(remaining - new_remaining, turns)
+                        else:
+                            requests_used += turns
+                    remaining = new_remaining
+            except BenchError as exc:
+                # Abort mid-celda / post-celda: marcar resto (y esta si falta) como pending.
+                abort_reason = str(exc)
+                done = {
+                    _cell_key(c['taskId'], c['variant'], c['repetition']) for c in cells
+                }
+                cur = _cell_key(task['id'], variant, rep)
+                if cur not in done:
+                    cells.append(_pending_cell(task, variant, rep, model_id))
+                continue
 
     usage_after = None
+    usage_delta = None
     if usage_before is not None and api_key is not None:
-        usage_after = assert_usage_unchanged(api_key, usage_before)
+        try:
+            usage_after = assert_spend_within_cap(
+                api_key, usage_before, max_spend_usd=max_spend,
+                approach_ratio=approach_ratio)
+            usage_delta = float(usage_after) - float(usage_before)
+            if usage_delta < 0:
+                usage_delta = 0.0
+        except BenchError as exc:
+            if abort_reason is None:
+                abort_reason = str(exc)
+            else:
+                abort_reason = f'{abort_reason}; {exc}'
+            try:
+                usage_after = read_usage(fetch_openrouter_key(api_key))
+                usage_delta = max(0.0, float(usage_after) - float(usage_before))
+            except BenchError:
+                pass
+
+    if real and proxy is not None:
+        try:
+            requests_used = int(proxy.read_count())
+        except Exception as exc:
+            msg = f'contador de requests ilegible al cerrar (fail-closed): {exc}'
+            if abort_reason is None:
+                abort_reason = msg
+            # Sin count legible: no inventar; dejar el último known o fallar en reporte.
+            if requests_used is None:
+                requests_used = 0
+
+    # Relleno: fusionar celdas previas no reejecutadas + resultado del schedule.
+    if only is not None:
+        only_keys = set(only)
+        kept = [
+            c for c in prior_cells
+            if _cell_key(c.get('taskId', ''), c.get('variant', ''), int(c.get('repetition') or 0))
+            not in only_keys
+        ]
+        merged = kept + cells
+        merged.sort(key=lambda c: (
+            str(c.get('taskId') or ''),
+            int(c.get('repetition') or 0),
+            0 if c.get('variant') == 'base' else 1,
+        ))
+        cells = merged
 
     report = aggregate_report(cells, cfg=cfg, claim=claim, cheap=cheap, seed=seed, n=n)
     report['models'] = model_list
     report['baselineStatus'] = cfg.get('baselineStatus', 'pending')
     report['usageBefore'] = usage_before
     report['usageAfter'] = usage_after
+    report['usageDelta'] = usage_delta
+    report['maxSpendUsd'] = max_spend
     report['requestsUsed'] = requests_used
     report['requestBudget'] = max_requests
     report['requestsEstimated'] = estimated
@@ -737,16 +1063,26 @@ def run_bench(
         {'taskId': c['taskId'], 'variant': c['variant'], 'repetition': c['repetition']}
         for c in cells if c.get('pending')
     ]
+    if abort_reason:
+        report['aborted'] = True
+        report['abortReason'] = abort_reason
     report['risks'] = [
-        f'OpenRouter :free: ~{FREE_RPM} req/min; {FREE_RPD_LOW} o {FREE_RPD_HIGH} req/día según créditos.',
-        f'Candado: modelos :free; limit de key <= maxPaidLimitUsd '
-        f'({cfg.get("maxPaidLimitUsd", DEFAULT_CONFIG["maxPaidLimitUsd"])}); '
-        'usage no debe subir durante la corrida.',
-        '[No verificado] Política de datos y retención de modelos :free de OpenRouter.',
+        f'Proxy rate limit: {FREE_RPM} req/min (espera/cola, no 429); '
+        f'solo POST de mensajes cuentan al tope; '
+        f':free tipico {FREE_RPD_LOW} o {FREE_RPD_HIGH} req/día según créditos.',
+        f'Candado: gasto máximo maxSpendUsd={max_spend} por repo '
+        f'(usage antes/después; aborta al acercarse ratio={approach_ratio}); '
+        f'limit de key <= maxPaidLimitUsd='
+        f'{cfg.get("maxPaidLimitUsd", DEFAULT_CONFIG["maxPaidLimitUsd"])}; '
+        f'modelos :free o pago económico con tools.',
+        '[No verificado] Política de datos y retención de modelos OpenRouter.',
         'Semilla Claude Code: seed=null (sin flag documentado).',
-        f'Presupuesto por turnos: maxTurnsPerCell={max_turns}, maxRequestsPerRun={max_requests}. '
-        f'El ritmo interno de Claude Code (~{FREE_RPM} req/min) no está controlado; '
-        '[No verificado] llamadas de fondo o reintentos no medidos pueden consumir cuota.',
+        f'Presupuesto: maxTurnsPerCell={max_turns}, maxRequestsPerRun={max_requests}; '
+        f'proxy local cuenta cada HTTP a OpenRouter (incl. small-fast) y rechaza el '
+        f'{max_requests + 1}+ (fail-closed si el contador es ilegible; tope acumulado '
+        f'entre intentos).',
+        'minN desbloqueado (nb/nt >= expected) no implica veredicto favorable: efficiency '
+        'o IC95 pueden seguir en NO CONCLUYENTE / RECHAZA.',
     ]
     return report
 
@@ -1036,48 +1372,101 @@ def cmd_bench(argv: list[str]) -> int:
             skip = True
         elif provider_name == 'openrouter':
             skip = False
+            proxy = None
             try:
                 models = list(cfg.get('models') or [])
                 if not models:
                     raise BenchError(
-                        'bench.config models vacío; indica IDs :free antes de openrouter.')
+                        'bench.config models vacío; indica IDs :free o pago económico.')
                 for m in models:
-                    assert_free_model(m)
+                    assert_bench_model(m)
                 api_key = os.environ.get('OPENROUTER_API_KEY')
                 if not api_key:
                     raise BenchError(
                         'OPENROUTER_API_KEY ausente; no se lanza la línea base real. '
                         'Usa --provider fake para pruebas deterministas.')
-                n = int(cfg['nCheap'] if cheap else cfg['n'])
-                max_turns, _ = request_budget(cfg)
+                max_turns, max_requests = request_budget(cfg)
+                only = _parse_only_cells(cfg.get('onlyCells'))
+                if only is not None:
+                    n_est = len(only)
+                else:
+                    n_est = int(cfg['nCheap'] if cheap else cfg['n']) * 5 * 2
                 max_cap = cfg.get('maxPaidLimitUsd', DEFAULT_CONFIG['maxPaidLimitUsd'])
-                check_openrouter_free_lock(
-                    api_key, planned_requests(cfg, n * 5 * 2), max_paid_limit_usd=max_cap)
+                max_spend = cfg.get('maxSpendUsd', DEFAULT_CONFIG['maxSpendUsd'])
+                need_free = all(is_free_model(m) for m in models)
+                check_openrouter_spend_lock(
+                    api_key, planned_requests(cfg, n_est),
+                    max_paid_limit_usd=max_cap, max_spend_usd=max_spend,
+                    require_free_quota=need_free)
                 for m in models:
-                    verify_openrouter_model_pricing(api_key, m)
-                provider = ClaudeCodeProvider(models[0], max_turns=max_turns)
+                    verify_openrouter_model_pricing(
+                        api_key, m, allow_paid=not is_free_model(m))
+                or_proxy = _load_or_proxy()
+                state_env = os.environ.get('BENCH_PROXY_STATE')
+                state = Path(state_env) if state_env else (
+                    Path(tempfile.gettempdir()) / 'microsdd-or-proxy-count.json')
+                prior_raw = os.environ.get('BENCH_PRIOR_REQUESTS', '0')
+                try:
+                    prior_n = int(prior_raw)
+                except ValueError as exc:
+                    raise BenchError(
+                        f'BENCH_PRIOR_REQUESTS inválido: {prior_raw!r}') from exc
+                if type(cfg.get('requestsAlreadyUsed')) is int:
+                    prior_n = max(prior_n, int(cfg['requestsAlreadyUsed']))
+                proxy = or_proxy.OpenRouterCountingProxy(
+                    api_key, max_requests=max_requests, state_path=state,
+                    initial_count=prior_n,
+                    max_requests_per_minute=FREE_RPM)
+                proxy.start()
+                proxy.assert_readable()
+                provider = ClaudeCodeProvider(
+                    models[0], max_turns=max_turns, proxy=proxy)
             except BenchError as exc:
+                if proxy is not None:
+                    proxy.stop()
                 print(f'ERROR: {exc}', flush=True)
+                return 1
+            except Exception as exc:
+                if proxy is not None:
+                    proxy.stop()
+                print(f'ERROR: proxy OpenRouter: {exc}', flush=True)
                 return 1
         else:
             print(f'ERROR: provider desconocido {provider_name}', flush=True)
             return 1
+        report = None
+        run_exc: BenchError | None = None
         try:
             report = run_bench(
                 provider=provider, cheap=cheap, claim=claim, config=cfg, skip_key_check=skip)
         except BenchError as exc:
+            # Fallo antes de tener celdas (candado/config): sin reporte parcial.
+            run_exc = exc
             print(f'ERROR: {exc}', flush=True)
+        finally:
+            if provider_name == 'openrouter':
+                try:
+                    proxy.stop()
+                except Exception:
+                    pass
+        if report is None:
             return 1
         dest = out or (Path(os.environ.get('XDG_STATE_HOME')
                             or (Path.home() / '.local' / 'state')) / 'microsdd' / 'bench-last')
         if os.name == 'nt' and out is None:
             dest = Path(os.environ.get('LOCALAPPDATA') or (Path.home() / 'AppData' / 'Local')) / 'microsdd' / 'bench-last'
+        # Siempre escribir reporte si hay celdas (incluye abort mid-celda con pendientes).
         write_report(report, dest)
         sanitized = sanitize_report(report)
         (dest / 'bench-report.sanitized.json').write_text(
             json.dumps(sanitized, indent=2, ensure_ascii=True) + '\n', encoding='utf-8')
         safe_print(format_report_md(report))
         safe_print(f'Reporte escrito en {dest}')
+        if report.get('aborted'):
+            print(f"ERROR: abortado: {report.get('abortReason')}", flush=True)
+            return 1
+        if run_exc is not None:
+            return 1
         return 0 if report['verdict'] != 'RECHAZA' else 2
     if sub == 'report':
         src = None

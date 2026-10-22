@@ -1,0 +1,10 @@
+{
+  "usage": 0.037115136,
+  "model": "deepseek/deepseek-v4-flash",
+  "pricingPromptPer1M": 0.091,
+  "pricingCompletionPer1M": 0.182,
+  "estimatedRequests": 3,
+  "maxSpendUsd": 0.49,
+  "budgetReset": true,
+  "priorRequests": 0
+}

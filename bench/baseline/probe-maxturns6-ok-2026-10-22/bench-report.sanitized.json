@@ -1,0 +1,128 @@
+{
+  "schema": "microsdd-bench-report/v1",
+  "ts": "2026-10-22T15:11:23+00:00",
+  "cheap": true,
+  "claim": "efficiency",
+  "n": 3,
+  "seed": 42,
+  "verdict": "NO CONCLUYENTE",
+  "success": {
+    "base": "1/1",
+    "treatment": "0/0",
+    "baseWilson": [
+      0.20654329147389294,
+      1.0
+    ],
+    "treatmentWilson": [
+      0.0,
+      0.0
+    ]
+  },
+  "tokens": {
+    "baseMedian": 121440.0,
+    "treatmentMedian": null,
+    "delta": -121440.0,
+    "ci95": [
+      0.0,
+      0.0
+    ]
+  },
+  "iterations": {
+    "baseMedian": 7.0,
+    "treatmentMedian": null,
+    "delta": -7.0,
+    "ci95": [
+      0.0,
+      0.0
+    ]
+  },
+  "tasks": [
+    {
+      "taskId": "01-correccion-localizada",
+      "base": {
+        "success": "1/1",
+        "successWilson": [
+          0.20654329147389294,
+          1.0
+        ],
+        "tokensMedian": 121440.0,
+        "tokensIqr": null,
+        "iterationsMedian": 7.0
+      },
+      "treatment": {
+        "success": "0/0",
+        "successWilson": [
+          0.0,
+          0.0
+        ],
+        "tokensMedian": null,
+        "tokensIqr": null,
+        "iterationsMedian": null
+      },
+      "deltaTokens": -121440.0,
+      "deltaTokensCI95": [
+        0.0,
+        0.0
+      ]
+    }
+  ],
+  "cells": [
+    {
+      "retries": 0,
+      "taskId": "01-correccion-localizada",
+      "repetition": 0,
+      "success": true,
+      "hostVersion": "2.1.197 (Claude Code)",
+      "modelId": "deepseek/deepseek-v4-flash",
+      "cacheRate": null,
+      "pending": false,
+      "tokens": 121440,
+      "exitCode": 1,
+      "isError": true,
+      "seed": null,
+      "status": "ok",
+      "stderrTruncated": "",
+      "iterations": 7,
+      "costUsd": 0.19246800000000003,
+      "durationMs": 17676,
+      "subtype": "error_max_turns",
+      "firstTry": true,
+      "variant": "base",
+      "calls": 7
+    }
+  ],
+  "costUsdTotal": 0.19246800000000003,
+  "notes": {
+    "dataPolicyFreeModels": "[No verificado]",
+    "seedClaudeCode": null
+  },
+  "models": [
+    "deepseek/deepseek-v4-flash"
+  ],
+  "baselineStatus": "probe",
+  "usageBefore": 0.109238715,
+  "usageAfter": 0.112526065,
+  "usageDelta": 0.0032873499999999944,
+  "maxSpendUsd": 0.49,
+  "requestsUsed": 6,
+  "requestBudget": 100,
+  "requestsEstimated": 6,
+  "maxTurnsPerCell": 6,
+  "pendingCells": [],
+  "risks": [
+    "Proxy rate limit: 20 req/min (espera/cola, no 429); solo POST de mensajes cuentan al tope; :free tipico 50 o 1000 req/d\u00eda seg\u00fan cr\u00e9ditos.",
+    "Candado: gasto m\u00e1ximo maxSpendUsd=0.49 por repo (usage antes/despu\u00e9s; aborta al acercarse ratio=0.8); limit de key <= maxPaidLimitUsd=10; modelos :free o pago econ\u00f3mico con tools.",
+    "[No verificado] Pol\u00edtica de datos y retenci\u00f3n de modelos OpenRouter.",
+    "Semilla Claude Code: seed=null (sin flag documentado).",
+    "Presupuesto: maxTurnsPerCell=6, maxRequestsPerRun=100; proxy local cuenta cada HTTP a OpenRouter (incl. small-fast) y rechaza el 101+ (fail-closed si el contador es ilegible; tope acumulado entre intentos).",
+    "minN desbloqueado (nb/nt >= expected) no implica veredicto favorable: efficiency o IC95 pueden seguir en NO CONCLUYENTE / RECHAZA."
+  ],
+  "privacy": "strict-aggregate",
+  "spendOk": true,
+  "proxyCount": 6,
+  "proxyMax": 100,
+  "probeSuccess": true,
+  "modelKind": "paid",
+  "pricingPromptPer1M": "0.091",
+  "pricingCompletionPer1M": "0.182"
+}
