@@ -1,0 +1,29 @@
+{
+  "probes": [
+    {
+      "model": "(skipped)",
+      "kind": "free",
+      "ok": false,
+      "status": null,
+      "note": "BENCH_SKIP_FREE=1; :free ya 429 en intento previo"
+    },
+    {
+      "model": "openai/gpt-oss-20b",
+      "kind": "paid",
+      "ok": true,
+      "status": 200,
+      "bodyTruncated": "{\"id\":\"msg_DFfCyLSSwFj0CEG72PPJ\",\"type\":\"message\",\"role\":\"assistant\",\"container\":null,\"content\":[{\"type\":\"thinking\",\"thinking\":\"The user writes \\\"di hola\\\". That seems Spanish: \\\"say\",\"signature\":\"\"}],\"model\":\"openai/gpt-oss-20b\",\"stop_reason\":\"max_tokens\",\"stop_details\":null,\"stop_sequence\":null,\"usage\":{\"input_tokens\":35,\"output_tokens\":16,\"output_tokens_details\":{\"thinking_tokens\":13},\"cache_creation_input_tokens\":null,\"cache_read_input_tokens\":32,\"cache_creation\":null,\"inference_geo\":null,\"server_tool_use\":null,\"service_tier\":null,\"speed\":\"standard\",\"cost\":0.00000409,\"is_byok\":false,\"cost_details\":{\"upstream_inference_cost\":0.00000409,\"upstream_inference_prompt_cost\":0.00000201,\"upstream_inference_completions_cost\":0.00000208}},\"context_management\":null,\"provider\":\"CoreWeave\"}"
+    }
+  ],
+  "chosen": "openai/gpt-oss-20b",
+  "kind": "paid",
+  "skipFree": true,
+  "pricingPer1M": {
+    "prompt": 0.018,
+    "completion": 0.09
+  },
+  "pricingRaw": {
+    "prompt": 1.8e-08,
+    "completion": 9e-08
+  }
+}

@@ -1,23 +1,23 @@
 # Línea base
 
-> **Estado: en curso (matriz nueva).** El cheap-partial de nemotron (16/14) está
-> archivado en `archive-nemotron-cheap-partial-2026-10-19/` y **no es comparable**.
+> **Estado: `cheap-partial` (matriz nueva).** Nemotron 16/14 archivado; no comparable.
 
-## Matriz nueva (22 oct 2026)
+## Cheap (N=3) — 2026-10-22 (run 39790751254)
 
 | Campo | Valor |
 |---|---|
-| Modelo | sonda `:free` ≤3; si fallan → pago económico con tools (ver reporte) |
-| Diseño | cheap N=3, 5 tareas × 2 brazos = 30 celdas; sin mezclar celdas viejas |
-| Tope HTTP | 100 acumulado/repo (solo POST mensajes reenviados); rate limit 20/min espera/cola |
-| Turnos | `maxTurnsPerCell=3` → 30×3=90 ≤ 100 |
-| Candado | gasto máximo **$5/repo** (usage antes/después; aborta al acercarse); key limit ≤ $10 |
+| Modelo | `openai/gpt-oss-20b` (pago; `:free` en 429) |
+| Precio | ~$0.018 / $0.09 por 1M (prompt/completion) |
+| Run | https://github.com/lgzarturo/microsdd/actions/runs/39790751254 |
+| Veredicto | `NO CONCLUYENTE` |
+| Celdas válidas / pendientes | 25 / 5 (de 30) |
+| Éxito | base 0/14 · treatment 0/11 |
+| Requests | 98 / 100 |
+| `usage` delta | ≈ $0.0347 (candado $5 OK) |
+| Archivos | `bench-report.sanitized.*`, `usage-*.json`, `or-proxy-count.json`, `smoke.sanitized.json`, `probe.sanitized.json` |
 
-Ver `request-estimate.md`.
+## Candado (Arturo 22 oct)
 
-## Candado (regla Arturo 22 oct 8:37)
-
-- Modelos `:free` preferidos; si fallan, pago económico con tool use.
-- Gasto máximo **$5 por repo**: `usage` antes y después; aborta si el delta se acerca al tope.
-- `limit` de la key finito y ≤ `maxPaidLimitUsd` (créditos en cuenta, p. ej. $10).
-- Key solo en el proxy; nunca impresa. Fail-closed ante campos ausentes/tipos raros.
+- Gasto máximo **$5/repo** (usage antes/después; aborta al acercarse).
+- Tope **100** HTTP acumulado (solo POST mensajes en head del PR; este run usó proxy previo).
+- Key solo en el proxy.

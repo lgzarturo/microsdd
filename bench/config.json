@@ -7,21 +7,21 @@
   "qualityTokenCeilingPct": 15,
   "claim": "efficiency",
   "models": [
-    "google/gemma-4-31b-it:free"
+    "openai/gpt-oss-20b"
   ],
-  "baselineStatus": "pending",
+  "baselineStatus": "cheap-partial",
   "maxPaidLimitUsd": 10,
   "maxSpendUsd": 5,
   "spendApproachRatio": 0.8,
   "maxTurnsPerCell": 3,
   "maxRequestsPerRun": 100,
   "notes": [
-    "Línea base: OPENROUTER_API_KEY; modelos :free o pago económico con tools.",
-    "Candado de gasto: delta usage ≤ maxSpendUsd ($5/repo); aborta al acercarse (ratio 0.8).",
-    "Techo del campo limit de la key: maxPaidLimitUsd ($10 créditos). null/ilimitado aborta.",
+    "L\u00ednea base: OPENROUTER_API_KEY; modelos :free o pago econ\u00f3mico con tools.",
+    "Candado de gasto: delta usage \u2264 maxSpendUsd ($5/repo); aborta al acercarse (ratio 0.8).",
+    "Techo del campo limit de la key: maxPaidLimitUsd ($10 cr\u00e9ditos). null/ilimitado aborta.",
     "Proxy: tope 100 solo POST mensajes reenviados; rate limit 20/min espera/cola (no 429). Key solo en el proxy.",
-    "Sonda ≤3 :free; si fallan → openai/gpt-oss-20b (pago económico + tools).",
-    "Matriz nueva 22 oct: maxTurnsPerCell=3 → 30×3=90 ≤ 100. Sin mezclar celdas viejas.",
+    "Sonda \u22643 :free; si fallan \u2192 openai/gpt-oss-20b (pago econ\u00f3mico + tools).",
+    "Matriz nueva 22 oct: maxTurnsPerCell=3 \u2192 30\u00d73=90 \u2264 100. Sin mezclar celdas viejas.",
     "Baseline nemotron 16/14 archivado (no comparable)."
   ]
 }
