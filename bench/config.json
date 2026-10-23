@@ -9,18 +9,17 @@
   "models": [
     "deepseek/deepseek-v4-flash"
   ],
-  "baselineStatus": "filling-pending",
+  "baselineStatus": "complete",
   "maxPaidLimitUsd": 10,
   "maxSpendUsd": 0.10,
   "spendApproachRatio": 0.8,
   "maxTurnsPerCell": 6,
   "maxRequestsPerRun": 100,
   "allowPartialRun": true,
-  "priorReport": "bench/baseline/bench-report.sanitized.json",
   "notes": [
-    "Fill 14 pending (r1 resto + r2) tras run 39802356050. Presupuesto NUEVO 100 req.",
-    "Candado usage Δ ≤ $0.10 (fail-closed; aborta ≥80% = $0.08).",
-    "Mismo modelo/config: deepseek/deepseek-v4-flash, maxTurns=6. Fusiona con 16 previas.",
-    "Proxy solo POST; rpm cola; key solo en proxy."
+    "Baseline cheap N=3 COMPLETE: run fill 39878723841 + previas 39802356050.",
+    "30/30 celdas. Veredicto RECHAZA (base 11/15 → treatment 8/15).",
+    "Fill: 85/100 req, usage Δ ≈ $0.080 ≤ $0.10. Tokens Δ 2085 IC95 [-3921, 5342].",
+    "Modelo deepseek/deepseek-v4-flash, maxTurns=6. No mezclar archivos viejos."
   ]
 }

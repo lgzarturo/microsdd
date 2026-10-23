@@ -1,0 +1,12 @@
+{
+  "usage": 0.283889968,
+  "usageBefore": 0.204148659,
+  "usageDelta": 0.07974130899999998,
+  "spendOk": true,
+  "maxSpendUsd": 0.1,
+  "proxyCount": 85,
+  "proxyMax": 100,
+  "model": "deepseek/deepseek-v4-flash",
+  "pricingPromptPer1M": "0.091",
+  "pricingCompletionPer1M": "0.182"
+}

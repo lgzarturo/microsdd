@@ -566,13 +566,13 @@ class BenchRequestBudgetTests(unittest.TestCase):
         self.assertIs(raw.get('allowPartialRun'), True)
         cfg = self.b.load_config()
         self.assertEqual(self.b.request_budget(cfg), (6, 100))
-        # Lifecycle del config real (no DEFAULT): pending → probe → running-cheap
-        # → cheap-partial / filling-pending / complete.
+        # Lifecycle del config real (no DEFAULT): pending → … → complete.
         self.assertIn(
             cfg.get('baselineStatus'),
             {'pending', 'probe', 'running-cheap', 'cheap-partial',
              'filling-pending', 'complete'},
         )
+        self.assertEqual(cfg.get('baselineStatus'), 'complete')
 
     # --- corrida real simulada ---
 
