@@ -1,28 +1,28 @@
 # Línea base
 
-> **Estado: `cheap-partial`.** Sonda DeepSeek OK @ maxTurns=6 → matriz N=3 intercalada; corte en 97/100 con 14 pending.
+> **Estado: `complete`.** DeepSeek cheap N=3 completo (30/30). Veredicto: **RECHAZA**.
 
-## Corrida DeepSeek (22 oct 2026) — run 39802356050
+## Fill + fusión (Arturo 22 oct 19:30 Cancún) — run 39878723841
 
 | Campo | Valor |
 |---|---|
 | Modelo | `deepseek/deepseek-v4-flash` |
-| Precio | $0.091 / $0.182 por 1M |
-| HEAD | `eb3d43e` |
-| maxTurnsPerCell | **6** (`allowPartialRun`) |
-| Sonda | `01-correccion-localizada` / `base` / r0 → **success** (6 req, Δ ≈ $0.0033) |
-| Matriz | N=3 intercalada por rep (r0→r1→r2) |
-| Celdas | **16 done** (10 ok / 6 fail) + **14 pending** |
-| Balance | r0: 10/10; r1: 6/10; r2: 0/10 pending |
-| Success | base 6/8 → treatment 4/8 |
-| Requests | **97 / 100** (prior sonda 6 incluido) |
-| Gasto usage Δ matriz | **≈ $0.075** (candado $0.49 OK; spendOk) |
-| Gasto total sonda+matriz | **≈ $0.078** |
-| Veredicto | `NO CONCLUYENTE` |
+| HEAD fill | `ef3955f` |
+| maxTurnsPerCell | 6 |
+| Celdas | **30/30** (0 pending) |
+| Success | base **11/15** → treatment **8/15** |
+| Tokens Δ | **2085.0** IC95 **[-3921.0, 5342.0]** |
+| Iterations Δ | **0.0** IC95 **[0.0, 0.0]** |
+| Requests fill | **85 / 100** (presupuesto nuevo; prior=0) |
+| Gasto real (usage Δ) | **≈ $0.080** ≤ $0.10 (spendOk; approach $0.08) |
+| costUsdModelEstimate | ≈ **$7.97** (suma `total_cost_usd` Claude Code; **no** es el candado) |
+| Previas | 16 celdas run 39802356050 (candado $0.49; Δ ≈ $0.078) |
+| Veredicto | **RECHAZA** (claim efficiency) |
 
 ## Archivos
 
-- Sonda OK: `probe-maxturns6-ok-2026-10-22/`
+- Resultado final: `bench-report.sanitized.*`, `fill-pending-2026-10-23/`
+- Parcial 16/30: `archive-deepseek-cheap-partial-2026-10-22/`
+- Sonda OK @6: `probe-maxturns6-ok-2026-10-22/`
 - Sonda fallida @3: `archive-deepseek-probe-failed-maxturns3-2026-10-22/`
-- gpt-oss parcial: `archive-gpt-oss-20b-cheap-partial-2026-10-22/`
-- nemotron parcial: `archive-nemotron-cheap-partial-2026-10-19/`
+- gpt-oss / nemotron: archives (no mezclar)

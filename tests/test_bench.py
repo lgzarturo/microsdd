@@ -566,12 +566,13 @@ class BenchRequestBudgetTests(unittest.TestCase):
         self.assertIs(raw.get('allowPartialRun'), True)
         cfg = self.b.load_config()
         self.assertEqual(self.b.request_budget(cfg), (6, 100))
-        # Lifecycle del config real (no DEFAULT): pending → probe → running-cheap
-        # → cheap-partial / complete. No fijar pending tras una corrida cheap.
+        # Lifecycle del config real (no DEFAULT): pending → … → complete.
         self.assertIn(
             cfg.get('baselineStatus'),
-            {'pending', 'probe', 'running-cheap', 'cheap-partial', 'complete'},
+            {'pending', 'probe', 'running-cheap', 'cheap-partial',
+             'filling-pending', 'complete'},
         )
+        self.assertEqual(cfg.get('baselineStatus'), 'complete')
 
     # --- corrida real simulada ---
 
@@ -699,6 +700,28 @@ class BenchRequestBudgetTests(unittest.TestCase):
         self.assertEqual(report['requestBudget'], 100)
         self.assertEqual(report['maxTurnsPerCell'], 6)
         self.assertIn('requests: None/100', self.b.format_report_md(report))
+        self.assertIn('costUsdModelEstimate', report)
+        self.assertNotIn('costUsdTotal', report)
+
+    def test_format_report_md_separates_model_estimate_from_usage_delta(self):
+        md = self.b.format_report_md({
+            'verdict': 'RECHAZA', 'ts': 't', 'cheap': True, 'n': 3, 'seed': 42,
+            'claim': 'efficiency',
+            'success': {'base': '11/15', 'treatment': '8/15'},
+            'tokens': {'delta': 1.0, 'ci95': [-1.0, 2.0]},
+            'iterations': {'delta': 0.0, 'ci95': [0.0, 0.0]},
+            'costUsdModelEstimate': 7.97,
+            'usageDelta': 0.08,
+            'maxSpendUsd': 0.1,
+            'requestsUsed': 85, 'requestBudget': 100,
+            'baselineStatus': 'complete', 'tasks': [], 'risks': [],
+        })
+        self.assertIn('costUsdModelEstimate: 7.97', md)
+        self.assertIn('estimacion Claude Code', md)
+        self.assertIn('usageDelta: 0.08', md)
+        self.assertIn('gasto real OpenRouter', md)
+        self.assertIn('baselineStatus: complete', md)
+        self.assertNotIn('costUsdTotal', md)
 
     def test_schedule_interleaved_by_repetition(self):
         # Orden: r0 todas tareas×brazos, luego r1, luego r2.
@@ -737,6 +760,52 @@ class BenchRequestBudgetTests(unittest.TestCase):
                 self.assertEqual(v_base, 'base')
                 self.assertEqual(v_treat, 'treatment')
             self.assertEqual([p[0] for p in pairs], sorted(p[0] for p in pairs))
+
+    def test_only_cells_merges_prior_report(self):
+        # Relleno selectivo: ejecuta onlyCells y conserva el resto del priorReport.
+        prior_cells = []
+        for tid in ('01-correccion-localizada', '02-regla-nueva'):
+            for variant in ('base', 'treatment'):
+                for rep in (0, 1):
+                    prior_cells.append({
+                        'taskId': tid, 'variant': variant, 'repetition': rep,
+                        'success': True, 'pending': False, 'status': 'ok',
+                        'iterations': 1, 'retries': 0, 'calls': 1,
+                        'tokens': 10, 'costUsd': 0.0, 'durationMs': 1,
+                        'cacheRate': 0.0, 'firstTry': True,
+                        'modelId': 'meta/llama:free', 'seed': None,
+                    })
+        # Marca exactamente las onlyCells como pending en el prior.
+        only = [
+            {'taskId': '02-regla-nueva', 'variant': 'base', 'repetition': 1},
+            {'taskId': '02-regla-nueva', 'variant': 'treatment', 'repetition': 1},
+        ]
+        only_keys = {(o['taskId'], o['variant'], o['repetition']) for o in only}
+        for c in prior_cells:
+            if (c['taskId'], c['variant'], c['repetition']) in only_keys:
+                c['pending'] = True
+                c['success'] = False
+                c['status'] = 'pending'
+        with tempfile.TemporaryDirectory() as tmp:
+            prior_path = Path(tmp) / 'prior.json'
+            prior_path.write_text(
+                json.dumps({'cells': prior_cells}), encoding='utf-8')
+            cfg = self._cfg(
+                maxTurnsPerCell=1, maxRequestsPerRun=100,
+                allowPartialRun=False, onlyCells=only,
+                priorReport=str(prior_path), models=['meta/llama:free'])
+            stub = self._stub(1)
+            report = self.b.run_bench(
+                provider=stub, cheap=True, config=cfg, skip_key_check=True)
+        self.assertEqual(stub.count, 2)
+        self.assertEqual(len(report['cells']), 8)  # 6 kept + 2 filled
+        self.assertEqual(report['pendingCells'], [])
+        filled = [
+            c for c in report['cells']
+            if c['taskId'] == '02-regla-nueva' and c['repetition'] == 1
+        ]
+        self.assertEqual(len(filled), 2)
+        self.assertTrue(all(not c.get('pending') for c in filled))
 
     def test_min_interval_comment_does_not_promise_rpm(self):
         src = BENCH_PATH.read_text(encoding='utf-8')
