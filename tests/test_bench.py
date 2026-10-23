@@ -700,6 +700,28 @@ class BenchRequestBudgetTests(unittest.TestCase):
         self.assertEqual(report['requestBudget'], 100)
         self.assertEqual(report['maxTurnsPerCell'], 6)
         self.assertIn('requests: None/100', self.b.format_report_md(report))
+        self.assertIn('costUsdModelEstimate', report)
+        self.assertNotIn('costUsdTotal', report)
+
+    def test_format_report_md_separates_model_estimate_from_usage_delta(self):
+        md = self.b.format_report_md({
+            'verdict': 'RECHAZA', 'ts': 't', 'cheap': True, 'n': 3, 'seed': 42,
+            'claim': 'efficiency',
+            'success': {'base': '11/15', 'treatment': '8/15'},
+            'tokens': {'delta': 1.0, 'ci95': [-1.0, 2.0]},
+            'iterations': {'delta': 0.0, 'ci95': [0.0, 0.0]},
+            'costUsdModelEstimate': 7.97,
+            'usageDelta': 0.08,
+            'maxSpendUsd': 0.1,
+            'requestsUsed': 85, 'requestBudget': 100,
+            'baselineStatus': 'complete', 'tasks': [], 'risks': [],
+        })
+        self.assertIn('costUsdModelEstimate: 7.97', md)
+        self.assertIn('estimacion Claude Code', md)
+        self.assertIn('usageDelta: 0.08', md)
+        self.assertIn('gasto real OpenRouter', md)
+        self.assertIn('baselineStatus: complete', md)
+        self.assertNotIn('costUsdTotal', md)
 
     def test_schedule_interleaved_by_repetition(self):
         # Orden: r0 todas tareas×brazos, luego r1, luego r2.

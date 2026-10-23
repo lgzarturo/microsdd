@@ -1220,15 +1220,27 @@ def aggregate_report(
         },
         'tasks': rows,
         'cells': cells,
-        'costUsdTotal': sum(float(c.get('costUsd') or 0) for c in cells),
+        # Suma de total_cost_usd de Claude Code (estimacion del modelo).
+        # No confundir con usageDelta (gasto real OpenRouter / candado maxSpendUsd).
+        'costUsdModelEstimate': sum(float(c.get('costUsd') or 0) for c in cells),
         'notes': {
             'dataPolicyFreeModels': '[No verificado]',
             'seedClaudeCode': None,
+            'costUsdModelEstimate': (
+                'Suma de total_cost_usd reportado por Claude Code por celda; '
+                'no es el gasto facturado OpenRouter (ver usageDelta).'
+            ),
         },
     }
 
 
 def format_report_md(report: dict) -> str:
+    model_est = report.get('costUsdModelEstimate')
+    if model_est is None:
+        # Compat reportes antiguos con costUsdTotal.
+        model_est = report.get('costUsdTotal')
+    usage_delta = report.get('usageDelta')
+    max_spend = report.get('maxSpendUsd')
     lines = [
         f"# Bench report ({report.get('verdict')})",
         '',
@@ -1238,7 +1250,10 @@ def format_report_md(report: dict) -> str:
         f"- success: base {report['success']['base']} -> treatment {report['success']['treatment']}",
         f"- tokens delta: {report['tokens']['delta']} IC95 {report['tokens']['ci95']}",
         f"- iterations delta: {report['iterations']['delta']} IC95 {report['iterations']['ci95']}",
-        f"- costUsdTotal: {report.get('costUsdTotal')}",
+        f"- costUsdModelEstimate: {model_est} "
+        f"(estimacion Claude Code; no es el candado de gasto)",
+        f"- usageDelta: {usage_delta} "
+        f"(gasto real OpenRouter; candado maxSpendUsd={max_spend})",
         f"- requests: {report.get('requestsUsed')}/{report.get('requestBudget')}",
         f"- baselineStatus: {report.get('baselineStatus')}",
         '',

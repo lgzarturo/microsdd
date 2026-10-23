@@ -900,15 +900,15 @@
       "repetition": 2
     }
   ],
-  "costUsdTotal": 7.9704735,
   "notes": {
     "dataPolicyFreeModels": "[No verificado]",
-    "seedClaudeCode": null
+    "seedClaudeCode": null,
+    "costUsdModelEstimate": "Suma de total_cost_usd reportado por Claude Code por celda; no es el gasto facturado OpenRouter (ver usageDelta)."
   },
   "models": [
     "deepseek/deepseek-v4-flash"
   ],
-  "baselineStatus": "filling-pending",
+  "baselineStatus": "complete",
   "usageBefore": 0.204148659,
   "usageAfter": 0.283889968,
   "usageDelta": 0.07974130899999998,
@@ -931,5 +931,6 @@
   "pricingPromptPer1M": "0.091",
   "pricingCompletionPer1M": "0.182",
   "proxyCount": 85,
-  "proxyMax": 100
+  "proxyMax": 100,
+  "costUsdModelEstimate": 7.9704735
 }

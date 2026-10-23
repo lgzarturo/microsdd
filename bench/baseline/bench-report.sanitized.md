@@ -6,9 +6,10 @@
 - success: base 11/15 -> treatment 8/15
 - tokens delta: 2085.0 IC95 [-3921.0, 5342.0]
 - iterations delta: 0.0 IC95 [0.0, 0.0]
-- costUsdTotal: 7.9704735
+- costUsdModelEstimate: 7.9704735 (estimacion Claude Code; no es el candado de gasto)
+- usageDelta: 0.07974130899999998 (gasto real OpenRouter; candado maxSpendUsd=0.1)
 - requests: 85/100
-- baselineStatus: filling-pending
+- baselineStatus: complete
 
 | task | base success | treat success | delta tokens | IC95 |
 |---|---|---|---|---|

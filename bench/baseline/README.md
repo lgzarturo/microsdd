@@ -14,7 +14,8 @@
 | Tokens Δ | **2085.0** IC95 **[-3921.0, 5342.0]** |
 | Iterations Δ | **0.0** IC95 **[0.0, 0.0]** |
 | Requests fill | **85 / 100** (presupuesto nuevo; prior=0) |
-| Gasto usage Δ fill | **≈ $0.080** ≤ $0.10 (spendOk; approach $0.08) |
+| Gasto real (usage Δ) | **≈ $0.080** ≤ $0.10 (spendOk; approach $0.08) |
+| costUsdModelEstimate | ≈ **$7.97** (suma `total_cost_usd` Claude Code; **no** es el candado) |
 | Previas | 16 celdas run 39802356050 (candado $0.49; Δ ≈ $0.078) |
 | Veredicto | **RECHAZA** (claim efficiency) |
 
