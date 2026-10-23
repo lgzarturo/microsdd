@@ -1,28 +1,24 @@
 # Línea base
 
-> **Estado: `cheap-partial`.** Sonda DeepSeek OK @ maxTurns=6 → matriz N=3 intercalada; corte en 97/100 con 14 pending.
+> **Estado: `filling-pending`.** Relleno de 14 celdas pending (r1 resto + r2) con presupuesto nuevo 100 req / $0.10.
 
-## Corrida DeepSeek (22 oct 2026) — run 39802356050
+## Fill pendiente (Arturo 22 oct 19:30 Cancún)
 
 | Campo | Valor |
 |---|---|
 | Modelo | `deepseek/deepseek-v4-flash` |
-| Precio | $0.091 / $0.182 por 1M |
-| HEAD | `eb3d43e` |
-| maxTurnsPerCell | **6** (`allowPartialRun`) |
-| Sonda | `01-correccion-localizada` / `base` / r0 → **success** (6 req, Δ ≈ $0.0033) |
-| Matriz | N=3 intercalada por rep (r0→r1→r2) |
-| Celdas | **16 done** (10 ok / 6 fail) + **14 pending** |
-| Balance | r0: 10/10; r1: 6/10; r2: 0/10 pending |
-| Success | base 6/8 → treatment 4/8 |
-| Requests | **97 / 100** (prior sonda 6 incluido) |
-| Gasto usage Δ matriz | **≈ $0.075** (candado $0.49 OK; spendOk) |
-| Gasto total sonda+matriz | **≈ $0.078** |
-| Veredicto | `NO CONCLUYENTE` |
+| maxTurnsPerCell | 6 |
+| Celdas a rellenar | **14** (vía `onlyCells` + `priorReport`) |
+| Previas | 16 done (run 39802356050) |
+| Presupuesto HTTP | **100** (reiniciado; prior=0) |
+| Candado gasto | **$0.10** usage Δ (fail-closed; aborta ≥ $0.08) |
+| Estimación | 14 × 6 = 84 ≤ 100 |
+
+Veredicto final sobre las **30** celdas tras el fill.
 
 ## Archivos
 
+- Parcial maxTurns=6: `bench-report.sanitized.*` (16 done + 14 pending) hasta que el fill lo reemplace
 - Sonda OK: `probe-maxturns6-ok-2026-10-22/`
 - Sonda fallida @3: `archive-deepseek-probe-failed-maxturns3-2026-10-22/`
-- gpt-oss parcial: `archive-gpt-oss-20b-cheap-partial-2026-10-22/`
-- nemotron parcial: `archive-nemotron-cheap-partial-2026-10-19/`
+- gpt-oss / nemotron: archives (no mezclar)

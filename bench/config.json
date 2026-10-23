@@ -9,17 +9,18 @@
   "models": [
     "deepseek/deepseek-v4-flash"
   ],
-  "baselineStatus": "cheap-partial",
+  "baselineStatus": "filling-pending",
   "maxPaidLimitUsd": 10,
-  "maxSpendUsd": 0.49,
+  "maxSpendUsd": 0.10,
   "spendApproachRatio": 0.8,
   "maxTurnsPerCell": 6,
   "maxRequestsPerRun": 100,
   "allowPartialRun": true,
+  "priorReport": "bench/baseline/bench-report.sanitized.json",
   "notes": [
-    "Run 39802356050: sonda OK @6 + matriz partial 16/30 (97/100 req).",
-    "Usage Δ total ≈ $0.078 ≤ $0.49. Veredicto NO CONCLUYENTE.",
-    "r0 completo; r1 parcial (6/10); r2 pending. No mezclar archivos viejos.",
-    "Modelo deepseek/deepseek-v4-flash. Proxy solo POST; rpm cola."
+    "Fill 14 pending (r1 resto + r2) tras run 39802356050. Presupuesto NUEVO 100 req.",
+    "Candado usage Δ ≤ $0.10 (fail-closed; aborta ≥80% = $0.08).",
+    "Mismo modelo/config: deepseek/deepseek-v4-flash, maxTurns=6. Fusiona con 16 previas.",
+    "Proxy solo POST; rpm cola; key solo en proxy."
   ]
 }
