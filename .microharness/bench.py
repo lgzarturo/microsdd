@@ -55,12 +55,20 @@ FREE_RPD_HIGH = 1000
 # Modelo baseline pago (Arturo 22 oct 9:51 Cancún).
 DEFAULT_PAID_FALLBACK_MODEL = 'deepseek/deepseek-v4-flash'
 # T-034: topes duros fail-closed del comando A/B (proxy cuenta solo POST mensajes).
+# Peor caso previsto = celdas × maxTurns DEBE quedar con margen bajo el tope
+# (extras small-fast / initial_count no deben empujar a pending por igualdad exacta).
+# free:    50×6=300 < 500 (margen 200). deepseek: 50×5=250 < 300 (margen 50).
 AB_CAPS = {'free': 500, 'deepseek': 300}
+AB_TURNS = {'free': 6, 'deepseek': 5}
 AB_DEFAULT_MODELS = {
     'free': 'openai/gpt-oss-20b:free',
     'deepseek': DEFAULT_PAID_FALLBACK_MODEL,
 }
-AB_MIN_TURNS = 6
+AB_MIN_TURNS = 5  # mínimo absoluto CLI; deepseek usa 5, free usa 6 (ver AB_TURNS)
+SECRET_ENV_KEYS = (
+    'OPENROUTER_API_KEY', 'DEEPSEEK_API_KEY',
+    'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_API_KEY',
+)
 EMPTY_MEMORY_JSON = (
     '{"schema_version":1,"project":{"observations":[],"decisions":[],'
     '"progress":[],"discoveries":[]},"tasks":{}}\n'
@@ -571,11 +579,37 @@ class FakeProvider:
 def _scrub_secrets(text: str) -> str:
     """Quita valores de keys del texto (nunca imprimir secrets)."""
     out = text or ''
-    for env_key in ('OPENROUTER_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_API_KEY'):
+    for env_key in SECRET_ENV_KEYS:
         val = os.environ.get(env_key) or ''
         if len(val) >= 8:
             out = out.replace(val, '[REDACTED]')
     return out
+
+
+def resolve_provider_api_key(provider: str | None = None) -> tuple[str, str]:
+    """Elige la clave del proveedor. Devuelve (key, nombre_env). Fail-closed si falta."""
+    name = (provider or '').strip().lower()
+    if name == 'free':
+        key = (os.environ.get('OPENROUTER_API_KEY') or '').strip()
+        if not key:
+            raise BenchError(
+                'OPENROUTER_API_KEY ausente; exporta la clave en el entorno '
+                '(nunca en archivos ni en el PR).')
+        return key, 'OPENROUTER_API_KEY'
+    if name == 'deepseek':
+        for env_name in ('OPENROUTER_API_KEY', 'DEEPSEEK_API_KEY'):
+            key = (os.environ.get(env_name) or '').strip()
+            if key:
+                return key, env_name
+        raise BenchError(
+            'Falta OPENROUTER_API_KEY o DEEPSEEK_API_KEY para --provider deepseek.')
+    # Genérico (bench run --provider openrouter): OR primero, luego DeepSeek.
+    for env_name in ('OPENROUTER_API_KEY', 'DEEPSEEK_API_KEY'):
+        key = (os.environ.get(env_name) or '').strip()
+        if key:
+            return key, env_name
+    raise BenchError(
+        'OPENROUTER_API_KEY (o DEEPSEEK_API_KEY) ausente; no se lanza la línea base real.')
 
 
 def _load_or_proxy():
@@ -695,7 +729,7 @@ class ClaudeCodeProvider:
             with tempfile.TemporaryDirectory(prefix='microsdd-claude-home-') as home:
                 env = self._env(home=home)
                 # Defensa: la key real no debe aparecer en el env del cliente.
-                for forbidden in ('OPENROUTER_API_KEY',):
+                for forbidden in ('OPENROUTER_API_KEY', 'DEEPSEEK_API_KEY'):
                     if env.get(forbidden):
                         raise BenchError(
                             f'{forbidden} filtrada al entorno de Claude (fail-closed).')
@@ -807,8 +841,17 @@ def copy_fixture(task_dir: Path, dest: Path) -> None:
         dest.mkdir(parents=True)
 
 
-def install_harness(dest: Path, source: Path | None = None) -> dict:
-    """Copia el preset microsdd al workdir del brazo CON arnés. No toca el repo."""
+def install_harness(
+    dest: Path,
+    source: Path | None = None,
+    *,
+    model_id: str | None = None,
+) -> dict:
+    """Copia el preset microsdd al workdir del brazo CON arnés. No toca el repo.
+
+    Si model_id está definido, reescribe `.claude/settings.json` model para que
+    coincida con el modelo A/B (--model), no con claude-opus del preset.
+    """
     src_root = Path(source) if source is not None else ROOT
     dest = Path(dest)
     dest.mkdir(parents=True, exist_ok=True)
@@ -828,6 +871,8 @@ def install_harness(dest: Path, source: Path | None = None) -> dict:
     if not mem.is_file():
         mem.write_text(EMPTY_MEMORY_JSON, encoding='utf-8')
         installed.append('.microharness/memory.json')
+    if model_id:
+        _rewrite_settings_model(dest, model_id)
     if not installed:
         raise BenchError(
             f'arnés no cargado: ningún archivo de HARNESS_FILES en {src_root}')
@@ -838,6 +883,7 @@ def install_harness(dest: Path, source: Path | None = None) -> dict:
         'missing': missing,
         'fingerprint': prompt_fingerprint(dest),
         'settingsModel': _read_settings_model(dest),
+        'modelId': model_id,
     }
 
 
@@ -852,6 +898,23 @@ def _read_settings_model(root: Path) -> str | None:
     if isinstance(data, dict) and isinstance(data.get('model'), str):
         return data['model']
     return None
+
+
+def _rewrite_settings_model(root: Path, model_id: str) -> None:
+    """Fija settings.model al modelo A/B (mismo en ambos brazos vía --model)."""
+    if not isinstance(model_id, str) or not model_id.strip():
+        raise BenchError(f'model_id inválido para settings: {model_id!r}')
+    path = Path(root) / '.claude' / 'settings.json'
+    if not path.is_file():
+        raise BenchError(f'falta {path} para reescribir model')
+    try:
+        data = json.loads(path.read_text(encoding='utf-8'))
+    except (OSError, ValueError) as exc:
+        raise BenchError(f'settings.json ilegible: {exc}') from exc
+    if not isinstance(data, dict):
+        raise BenchError('settings.json debe ser un objeto')
+    data['model'] = model_id.strip()
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
 
 
 def harness_loaded(root: Path) -> bool:
@@ -871,17 +934,25 @@ def prepare_cell_workdir(
     variant: str,
     *,
     harness_root: Path | None = None,
+    model_id: str | None = None,
 ) -> dict:
-    """Fixture en temp; solo treatment recibe el arnés (fix T-034)."""
+    """Fixture en temp; solo treatment recibe el arnés (fix T-034).
+
+    Ambos brazos usan el mismo model_id de --model; treatment lo escribe en settings.
+    """
     if variant not in ('base', 'treatment'):
         raise BenchError(f'variant inválida: {variant!r}')
     copy_fixture(Path(task_dir), Path(dest))
     if variant == 'treatment':
-        info = install_harness(dest, harness_root)
+        info = install_harness(dest, harness_root, model_id=model_id)
         if not harness_loaded(dest):
             raise BenchError('treatment: arnés no quedó cargado tras install_harness')
+        if model_id and info.get('settingsModel') != model_id:
+            raise BenchError(
+                f'treatment settings.model={info.get("settingsModel")!r} '
+                f'!= model_id={model_id!r}')
         return info
-    # base: asegurar que NO hay arnés residual
+    # base: sin arnés; el modelo A/B vive en el provider (--model), no en settings.
     return {
         'preset': None,
         'loaded': False,
@@ -889,6 +960,7 @@ def prepare_cell_workdir(
         'missing': list(HARNESS_FILES),
         'fingerprint': prompt_fingerprint(dest),
         'settingsModel': None,
+        'modelId': model_id,
     }
 
 
@@ -912,29 +984,55 @@ def resolve_ab_provider(provider: str) -> tuple[str, int, str]:
 
 def require_api_key(provider: str) -> str:
     """Claves solo del entorno; nunca se imprimen. Mensaje claro si faltan."""
-    if provider == 'free':
-        key = os.environ.get('OPENROUTER_API_KEY') or ''
-        if not key.strip():
-            raise BenchError(
-                'OPENROUTER_API_KEY ausente; exporta la clave en el entorno '
-                '(nunca en archivos ni en el PR).')
-        return key.strip()
-    # deepseek: OpenRouter (proxy Anthropic) o DEEPSEEK_API_KEY como alias de entorno.
-    key = (os.environ.get('OPENROUTER_API_KEY')
-           or os.environ.get('DEEPSEEK_API_KEY') or '')
-    if not key.strip():
+    key, _env_name = resolve_provider_api_key(provider)
+    return key
+
+
+def ab_run_dims(
+    provider: str,
+    *,
+    n: int = 5,
+    tasks: int = 5,
+) -> dict:
+    """Dimensiona N×tareas×2 brazos con margen bajo el tope (no 50×6=300 exacto)."""
+    name, cap, _model = resolve_ab_provider(provider)
+    if type(n) is not int or n < 1:
+        raise BenchError(f'n inválido: {n!r}')
+    if type(tasks) is not int or tasks < 1:
+        raise BenchError(f'tasks inválido: {tasks!r}')
+    turns = AB_TURNS[name]
+    cells = n * tasks * 2
+    planned = cells * turns
+    margin = cap - planned
+    if margin < 1:
         raise BenchError(
-            'Falta OPENROUTER_API_KEY o DEEPSEEK_API_KEY para --provider deepseek.')
-    return key.strip()
+            f'sin margen: {cells} celdas × {turns} turns = {planned} >= tope {cap}')
+    return {
+        'provider': name,
+        'n': n,
+        'tasks': tasks,
+        'cells': cells,
+        'maxTurns': turns,
+        'planned': planned,
+        'cap': cap,
+        'margin': margin,
+        'formula': f'{cells}×{turns}={planned} < {cap} (margen {margin})',
+    }
 
 
 def dry_run_harness_check(
     *,
     harness_root: Path | None = None,
     task_id: str | None = None,
+    model_id: str | None = None,
+    provider: str = 'deepseek',
 ) -> dict:
-    """Sin red ni requests: demuestra treatment CON arnés y base SIN arnés."""
+    """Sin red ni requests: treatment CON arnés, base SIN; mismo model_id en ambos."""
     root = Path(harness_root) if harness_root is not None else ROOT
+    _name, _cap, default_model = resolve_ab_provider(provider)
+    model = model_id or default_model
+    assert_bench_model(model)
+    dims = ab_run_dims(provider, n=5, tasks=5)
     tasks = list_tasks()
     task = tasks[0]
     if task_id:
@@ -946,9 +1044,10 @@ def dry_run_harness_check(
         base_dir = Path(tmp) / 'base'
         treat_dir = Path(tmp) / 'treatment'
         base_info = prepare_cell_workdir(
-            Path(task['_dir']), base_dir, 'base', harness_root=root)
+            Path(task['_dir']), base_dir, 'base', harness_root=root, model_id=model)
         treat_info = prepare_cell_workdir(
-            Path(task['_dir']), treat_dir, 'treatment', harness_root=root)
+            Path(task['_dir']), treat_dir, 'treatment', harness_root=root,
+            model_id=model)
         base_ok = (not harness_loaded(base_dir)) and (not base_info['loaded'])
         treat_ok = harness_loaded(treat_dir) and treat_info['loaded']
         # Fingerprint treatment debe incluir capas del arnés; base no.
@@ -971,25 +1070,38 @@ def dry_run_harness_check(
             raise BenchError(
                 f'dry-run falló: base_loaded={base_info["loaded"]} '
                 f'treatment_loaded={treat_info["loaded"]}')
+        treat_settings = treat_info.get('settingsModel')
+        if treat_settings != model:
+            raise BenchError(
+                f'dry-run: treatment settings.model={treat_settings!r} != {model!r}')
+        if treat_settings == 'claude-opus-5-5' and model != 'claude-opus-5-5':
+            raise BenchError('dry-run: settings.model quedó en claude-opus-5-5 del preset')
         return {
             'ok': True,
             'taskId': task['id'],
+            'modelId': model,
+            'sameModel': True,
             'base': {
                 'loaded': False,
                 'preset': None,
+                'modelId': model,
+                'settingsModel': None,
                 'fingerprint': fp_base,
                 'files': base_info.get('files') or [],
             },
             'treatment': {
                 'loaded': True,
                 'preset': treat_info.get('preset'),
+                'modelId': model,
                 'fingerprint': fp_treat,
                 'files': treat_info.get('files') or [],
-                'settingsModel': treat_info.get('settingsModel'),
+                'settingsModel': treat_settings,
                 'fileCount': len(treat_info.get('files') or []),
             },
-            'maxTurnsMin': AB_MIN_TURNS,
+            'maxTurns': dims['maxTurns'],
             'caps': dict(AB_CAPS),
+            'turns': dict(AB_TURNS),
+            'budget': dims,
         }
 
 
@@ -1058,6 +1170,8 @@ def run_bench(
     config: dict | None = None,
     models: list[str] | None = None,
     skip_key_check: bool = False,
+    api_key: str | None = None,
+    ab_provider: str | None = None,
 ) -> dict:
     cfg = config or load_config()
     max_turns, max_requests = request_budget(cfg)
@@ -1073,7 +1187,6 @@ def run_bench(
     if prior_path is not None and not prior_path.is_absolute():
         prior_path = ROOT / prior_path
     prior_cells = _load_prior_cells(prior_path) if only is not None else []
-    api_key: str | None = None
     usage_before: float | None = None
     estimated: int | None = None
     remaining: int | None = None  # cuota :free; None = solo tope proxy/gasto
@@ -1098,7 +1211,7 @@ def run_bench(
                 schedule.append((task, 'treatment', rep))
         rng.shuffle(schedule)
         # Intercalado por repetición: r0 todas las tareas×brazos, luego r1, luego r2.
-        # Si el tope 100 corta, lo ejecutado queda balanceado entre brazos/tareas.
+        # Si el tope corta, lo ejecutado queda balanceado; resto → pending.
         schedule.sort(key=lambda x: (x[2], x[0]['id'], 0 if x[1] == 'base' else 1))
         n_schedule = len(schedule)
 
@@ -1109,7 +1222,8 @@ def run_bench(
         for mid in model_list:
             assert_bench_model(mid)
         estimated = planned_requests(cfg, n_schedule)
-        api_key = os.environ.get('OPENROUTER_API_KEY')
+        if not api_key:
+            api_key, _env_used = resolve_provider_api_key(ab_provider)
         max_cap = cfg.get('maxPaidLimitUsd', DEFAULT_CONFIG['maxPaidLimitUsd'])
         need_free_quota = all(is_free_model(m) for m in model_list)
         key_data = check_openrouter_spend_lock(
@@ -1166,7 +1280,8 @@ def run_bench(
                         continue
                 work = tmp_path / f"{task['id']}-{variant}-{rep}"
                 harness_info = prepare_cell_workdir(
-                    Path(task['_dir']), work, variant, harness_root=ROOT)
+                    Path(task['_dir']), work, variant, harness_root=ROOT,
+                    model_id=model_id)
                 try:
                     result = provider.run_cell(task, variant, rep, workdir=work)
                 except TypeError:
@@ -1664,27 +1779,37 @@ def _start_openrouter_provider(
 
 
 def cmd_bench_dry_run(argv: list[str]) -> int:
-    """Sin red: verifica que treatment carga arnés y base no."""
+    """Sin red: verifica que treatment carga arnés y base no; mismo --model."""
     i = 0
     task_id = None
+    model = None
+    provider = 'deepseek'
     while i < len(argv):
         if argv[i] == '--task' and i + 1 < len(argv):
             task_id = argv[i + 1]
+            i += 2
+        elif argv[i] == '--model' and i + 1 < len(argv):
+            model = argv[i + 1]
+            i += 2
+        elif argv[i] == '--provider' and i + 1 < len(argv):
+            provider = argv[i + 1]
             i += 2
         else:
             print(f'ERROR: argumento desconocido {argv[i]}', flush=True)
             return 1
     try:
-        result = dry_run_harness_check(task_id=task_id)
+        result = dry_run_harness_check(
+            task_id=task_id, model_id=model, provider=provider)
     except BenchError as exc:
         print(f'ERROR: {exc}', flush=True)
         return 1
     safe_print(json.dumps(result, indent=2, ensure_ascii=True))
     safe_print(
-        f"dry-run OK: treatment preset={result['treatment']['preset']} "
-        f"files={result['treatment']['fileCount']} "
-        f"fp={result['treatment']['fingerprint'][:12]}…; "
-        f"base loaded=false fp={result['base']['fingerprint'][:12]}…"
+        f"dry-run OK: sameModel={result['sameModel']} modelId={result['modelId']} "
+        f"treatment preset={result['treatment']['preset']} "
+        f"settings.model={result['treatment']['settingsModel']} "
+        f"files={result['treatment']['fileCount']}; "
+        f"base loaded=false; budget={result['budget']['formula']}"
     )
     return 0
 
@@ -1725,7 +1850,10 @@ def cmd_bench_ab(argv: list[str]) -> int:
             print(f'ERROR: argumento desconocido {argv[i]}', flush=True)
             return 1
     if dry:
-        return cmd_bench_dry_run([])
+        dry_argv: list[str] = ['--provider', provider_flag]
+        if model:
+            dry_argv.extend(['--model', model])
+        return cmd_bench_dry_run(dry_argv)
     try:
         prov_name, max_req, default_model = resolve_ab_provider(provider_flag)
         api_key = require_api_key(prov_name)
@@ -1734,12 +1862,14 @@ def cmd_bench_ab(argv: list[str]) -> int:
         if prov_name == 'free':
             assert_free_model(model_id)
         cfg = load_config()
-        cfg['maxRequestsPerRun'] = max_req
-        cfg['maxTurnsPerCell'] = max(int(cfg.get('maxTurnsPerCell') or AB_MIN_TURNS), AB_MIN_TURNS)
+        n_run = int(cfg.get('nCheap') if cheap else (cfg.get('n') or 5))
+        dims = ab_run_dims(prov_name, n=n_run, tasks=5)
+        cfg['maxRequestsPerRun'] = dims['cap']
+        cfg['maxTurnsPerCell'] = dims['maxTurns']
         cfg['allowPartialRun'] = True
         cfg['models'] = [model_id]
         if not cheap:
-            cfg['n'] = int(cfg.get('n') or 5)
+            cfg['n'] = n_run
         provider, proxy = _start_openrouter_provider(
             cfg, api_key=api_key, models=[model_id], cheap=cheap)
     except BenchError as exc:
@@ -1752,7 +1882,8 @@ def cmd_bench_ab(argv: list[str]) -> int:
     try:
         report = run_bench(
             provider=provider, cheap=cheap, claim=claim, config=cfg,
-            models=[model_id], skip_key_check=False)
+            models=[model_id], skip_key_check=False, api_key=api_key,
+            ab_provider=prov_name)
     except BenchError as exc:
         print(f'ERROR: {exc}', flush=True)
         return 1
@@ -1766,6 +1897,7 @@ def cmd_bench_ab(argv: list[str]) -> int:
     dest = out or default_ab_out_dir()
     report['abProvider'] = prov_name
     report['abCap'] = max_req
+    report['abBudget'] = dims
     _write_bench_out(report, dest)
     if report.get('topeAlcanzado'):
         print('ERROR: tope alcanzado (reporte parcial escrito)', flush=True)
@@ -1812,6 +1944,7 @@ def cmd_bench(argv: list[str]) -> int:
                 return 1
         cfg = load_config()
         proxy = None
+        api_key: str | None = None
         if provider_name == 'fake':
             provider = FakeProvider(seed=int(cfg.get('seed', 42)))
             skip = True
@@ -1824,11 +1957,7 @@ def cmd_bench(argv: list[str]) -> int:
                         'bench.config models vacío; indica IDs :free o pago económico.')
                 for m in models:
                     assert_bench_model(m)
-                api_key = os.environ.get('OPENROUTER_API_KEY')
-                if not api_key:
-                    raise BenchError(
-                        'OPENROUTER_API_KEY ausente; no se lanza la línea base real. '
-                        'Usa --provider fake para pruebas deterministas.')
+                api_key, _env_used = resolve_provider_api_key(None)
                 provider, proxy = _start_openrouter_provider(
                     cfg, api_key=api_key, models=models, cheap=cheap)
             except BenchError as exc:
@@ -1848,7 +1977,8 @@ def cmd_bench(argv: list[str]) -> int:
         run_exc: BenchError | None = None
         try:
             report = run_bench(
-                provider=provider, cheap=cheap, claim=claim, config=cfg, skip_key_check=skip)
+                provider=provider, cheap=cheap, claim=claim, config=cfg,
+                skip_key_check=skip, api_key=api_key)
         except BenchError as exc:
             # Fallo antes de tener celdas (candado/config): sin reporte parcial.
             run_exc = exc
