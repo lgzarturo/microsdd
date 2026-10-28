@@ -1,0 +1,3 @@
+# especificaciones
+
+Pendiente de inspección.
