@@ -332,7 +332,7 @@ def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     if not args or args[0] in ('-h', '--help'):
         print('usage: metrics.py hook <SubagentStop|SessionEnd> | purge | schema-hash')
-        print('       metrics.py bench run|report …')
+        print('       metrics.py bench run|ab|dry-run|report …')
         print('       metrics.py prompt-diff <dirA> <dirB>')
         return 0
     cmd = args[0]

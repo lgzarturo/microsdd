@@ -10,4 +10,6 @@ python .microharness/metrics.py bench report --from /tmp/microsdd-bench
 python .microharness/metrics.py prompt-diff . /otra/copia
 ```
 
+A/B CON/SIN arnés (T-034): ver `bench/AB.md` (`bench ab` / `bench dry-run`).
+
 Resultados: fuera del repo (estado XDG/LOCALAPPDATA o `--out`). Nunca en `docs/` ni `spec/`.
