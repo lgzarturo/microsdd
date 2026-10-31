@@ -279,6 +279,25 @@
       "sealed_assertions": {
         "tests/test_sdd.py": 375
       }
+    },
+    "symbol-map": {
+      "approvals": {
+        "spec": null,
+        "close": null
+      },
+      "witness": null,
+      "sealed_tests": {},
+      "review": null,
+      "review_fingerprint": null,
+      "iterations": 0,
+      "odd_retries": 0,
+      "receipt": null,
+      "events": [
+        {
+          "at": "2026-10-31T07:14:33+00:00",
+          "event": "creada"
+        }
+      ]
     }
   }
 }
