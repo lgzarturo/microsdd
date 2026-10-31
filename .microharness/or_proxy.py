@@ -502,8 +502,11 @@ class OpenRouterCountingProxy:
     def client_env(self, model_id: str, *, home: str | None = None) -> dict[str, str]:
         """Entorno para Claude Code: sin key real; solo apunta al proxy."""
         env = os.environ.copy()
-        # Quitar keys reales del entorno del cliente.
-        for k in ('OPENROUTER_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_API_KEY'):
+        # Quitar keys reales del entorno del cliente (incl. alias DeepSeek).
+        for k in (
+            'OPENROUTER_API_KEY', 'DEEPSEEK_API_KEY',
+            'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_API_KEY',
+        ):
             env.pop(k, None)
         if home:
             env['HOME'] = home

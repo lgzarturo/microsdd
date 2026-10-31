@@ -54,6 +54,45 @@ FREE_RPD_LOW = 50  # < 10 créditos comprados
 FREE_RPD_HIGH = 1000
 # Modelo baseline pago (Arturo 22 oct 9:51 Cancún).
 DEFAULT_PAID_FALLBACK_MODEL = 'deepseek/deepseek-v4-flash'
+# T-034: topes duros fail-closed del comando A/B (proxy cuenta solo POST mensajes).
+# Peor caso previsto = celdas × maxTurns DEBE quedar con margen bajo el tope
+# (extras small-fast / initial_count no deben empujar a pending por igualdad exacta).
+# free:    50×6=300 < 500 (margen 200). deepseek: 50×5=250 < 300 (margen 50).
+AB_CAPS = {'free': 500, 'deepseek': 300}
+AB_TURNS = {'free': 6, 'deepseek': 5}
+AB_DEFAULT_MODELS = {
+    'free': 'openai/gpt-oss-20b:free',
+    'deepseek': DEFAULT_PAID_FALLBACK_MODEL,
+}
+AB_MIN_TURNS = 5  # mínimo absoluto CLI; deepseek usa 5, free usa 6 (ver AB_TURNS)
+SECRET_ENV_KEYS = (
+    'OPENROUTER_API_KEY', 'DEEPSEEK_API_KEY',
+    'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_API_KEY',
+)
+EMPTY_MEMORY_JSON = (
+    '{"schema_version":1,"project":{"observations":[],"decisions":[],'
+    '"progress":[],"discoveries":[]},"tasks":{}}\n'
+)
+# Archivos del arnés que DEBEN existir en el brazo treatment (causa baseline inválida:
+# run_bench solo copiaba el fixture → treatment ≡ base).
+HARNESS_FILES = (
+    'CLAUDE.md',
+    '.claude/settings.json',
+    '.claude/agents/lider.md',
+    '.claude/agents/autor.md',
+    '.claude/agents/implementador.md',
+    '.claude/agents/revisor.md',
+    '.claude/hooks/pretool.py',
+    '.claude/skills/sdd/SKILL.md',
+    '.microharness/sdd.py',
+    '.microharness/python.sh',
+    '.microharness/python.ps1',
+    '.microharness/python.cmd',
+    'docs/AGENT.md',
+    'docs/arquitectura.md',
+    'docs/convenciones.md',
+    'docs/especificaciones.md',
+)
 
 
 class BenchError(Exception):
@@ -411,6 +450,7 @@ def sanitize_report(report: dict) -> dict:
         'retries', 'calls', 'tokens', 'costUsd', 'durationMs', 'cacheRate',
         'firstTry', 'modelId', 'seed', 'hostVersion', 'status',
         'exitCode', 'stderrTruncated', 'subtype', 'isError', 'errorClass',
+        'harnessLoaded', 'harnessPreset', 'harnessFingerprint',
     })
     # aborted / abortReason se conservan en el scrub genérico (no están en forbidden).
 
@@ -539,11 +579,37 @@ class FakeProvider:
 def _scrub_secrets(text: str) -> str:
     """Quita valores de keys del texto (nunca imprimir secrets)."""
     out = text or ''
-    for env_key in ('OPENROUTER_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_API_KEY'):
+    for env_key in SECRET_ENV_KEYS:
         val = os.environ.get(env_key) or ''
         if len(val) >= 8:
             out = out.replace(val, '[REDACTED]')
     return out
+
+
+def resolve_provider_api_key(provider: str | None = None) -> tuple[str, str]:
+    """Elige la clave del proveedor. Devuelve (key, nombre_env). Fail-closed si falta."""
+    name = (provider or '').strip().lower()
+    if name == 'free':
+        key = (os.environ.get('OPENROUTER_API_KEY') or '').strip()
+        if not key:
+            raise BenchError(
+                'OPENROUTER_API_KEY ausente; exporta la clave en el entorno '
+                '(nunca en archivos ni en el PR).')
+        return key, 'OPENROUTER_API_KEY'
+    if name == 'deepseek':
+        for env_name in ('OPENROUTER_API_KEY', 'DEEPSEEK_API_KEY'):
+            key = (os.environ.get(env_name) or '').strip()
+            if key:
+                return key, env_name
+        raise BenchError(
+            'Falta OPENROUTER_API_KEY o DEEPSEEK_API_KEY para --provider deepseek.')
+    # Genérico (bench run --provider openrouter): OR primero, luego DeepSeek.
+    for env_name in ('OPENROUTER_API_KEY', 'DEEPSEEK_API_KEY'):
+        key = (os.environ.get(env_name) or '').strip()
+        if key:
+            return key, env_name
+    raise BenchError(
+        'OPENROUTER_API_KEY (o DEEPSEEK_API_KEY) ausente; no se lanza la línea base real.')
 
 
 def _load_or_proxy():
@@ -663,7 +729,7 @@ class ClaudeCodeProvider:
             with tempfile.TemporaryDirectory(prefix='microsdd-claude-home-') as home:
                 env = self._env(home=home)
                 # Defensa: la key real no debe aparecer en el env del cliente.
-                for forbidden in ('OPENROUTER_API_KEY',):
+                for forbidden in ('OPENROUTER_API_KEY', 'DEEPSEEK_API_KEY'):
                     if env.get(forbidden):
                         raise BenchError(
                             f'{forbidden} filtrada al entorno de Claude (fail-closed).')
@@ -775,6 +841,270 @@ def copy_fixture(task_dir: Path, dest: Path) -> None:
         dest.mkdir(parents=True)
 
 
+def install_harness(
+    dest: Path,
+    source: Path | None = None,
+    *,
+    model_id: str | None = None,
+) -> dict:
+    """Copia el preset microsdd al workdir del brazo CON arnés. No toca el repo.
+
+    Si model_id está definido, reescribe `.claude/settings.json` model para que
+    coincida con el modelo A/B (--model), no con claude-opus del preset.
+    """
+    src_root = Path(source) if source is not None else ROOT
+    dest = Path(dest)
+    dest.mkdir(parents=True, exist_ok=True)
+    installed: list[str] = []
+    missing: list[str] = []
+    for rel in HARNESS_FILES:
+        src = src_root / rel
+        if not src.is_file():
+            missing.append(rel)
+            continue
+        target = dest / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, target)
+        installed.append(rel)
+    mem = dest / '.microharness' / 'memory.json'
+    mem.parent.mkdir(parents=True, exist_ok=True)
+    if not mem.is_file():
+        mem.write_text(EMPTY_MEMORY_JSON, encoding='utf-8')
+        installed.append('.microharness/memory.json')
+    if model_id:
+        _rewrite_settings_model(dest, model_id)
+    if not installed:
+        raise BenchError(
+            f'arnés no cargado: ningún archivo de HARNESS_FILES en {src_root}')
+    return {
+        'preset': 'microsdd',
+        'loaded': True,
+        'files': installed,
+        'missing': missing,
+        'fingerprint': prompt_fingerprint(dest),
+        'settingsModel': _read_settings_model(dest),
+        'modelId': model_id,
+    }
+
+
+def _read_settings_model(root: Path) -> str | None:
+    path = root / '.claude' / 'settings.json'
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return None
+    if isinstance(data, dict) and isinstance(data.get('model'), str):
+        return data['model']
+    return None
+
+
+def _rewrite_settings_model(root: Path, model_id: str) -> None:
+    """Fija settings.model al modelo A/B (mismo en ambos brazos vía --model)."""
+    if not isinstance(model_id, str) or not model_id.strip():
+        raise BenchError(f'model_id inválido para settings: {model_id!r}')
+    path = Path(root) / '.claude' / 'settings.json'
+    if not path.is_file():
+        raise BenchError(f'falta {path} para reescribir model')
+    try:
+        data = json.loads(path.read_text(encoding='utf-8'))
+    except (OSError, ValueError) as exc:
+        raise BenchError(f'settings.json ilegible: {exc}') from exc
+    if not isinstance(data, dict):
+        raise BenchError('settings.json debe ser un objeto')
+    data['model'] = model_id.strip()
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
+
+
+def harness_loaded(root: Path) -> bool:
+    """True si el workdir tiene señales mínimas del arnés (settings + CLAUDE + sdd)."""
+    root = Path(root)
+    return (
+        (root / 'CLAUDE.md').is_file()
+        and (root / '.claude' / 'settings.json').is_file()
+        and (root / '.microharness' / 'sdd.py').is_file()
+        and (root / '.claude' / 'agents' / 'lider.md').is_file()
+    )
+
+
+def prepare_cell_workdir(
+    task_dir: Path,
+    dest: Path,
+    variant: str,
+    *,
+    harness_root: Path | None = None,
+    model_id: str | None = None,
+) -> dict:
+    """Fixture en temp; solo treatment recibe el arnés (fix T-034).
+
+    Ambos brazos usan el mismo model_id de --model; treatment lo escribe en settings.
+    """
+    if variant not in ('base', 'treatment'):
+        raise BenchError(f'variant inválida: {variant!r}')
+    copy_fixture(Path(task_dir), Path(dest))
+    if variant == 'treatment':
+        info = install_harness(dest, harness_root, model_id=model_id)
+        if not harness_loaded(dest):
+            raise BenchError('treatment: arnés no quedó cargado tras install_harness')
+        if model_id and info.get('settingsModel') != model_id:
+            raise BenchError(
+                f'treatment settings.model={info.get("settingsModel")!r} '
+                f'!= model_id={model_id!r}')
+        return info
+    # base: sin arnés; el modelo A/B vive en el provider (--model), no en settings.
+    return {
+        'preset': None,
+        'loaded': False,
+        'files': [],
+        'missing': list(HARNESS_FILES),
+        'fingerprint': prompt_fingerprint(dest),
+        'settingsModel': None,
+        'modelId': model_id,
+    }
+
+
+def default_ab_out_dir() -> Path:
+    """Reporte fuera del repo: ~/.cache/microsdd-ab/ (o LOCALAPPDATA en Windows)."""
+    if os.name == 'nt':
+        base = Path(os.environ.get('LOCALAPPDATA') or (Path.home() / 'AppData' / 'Local'))
+        return base / 'microsdd-ab'
+    cache = Path(os.environ.get('XDG_CACHE_HOME') or (Path.home() / '.cache'))
+    return cache / 'microsdd-ab'
+
+
+def resolve_ab_provider(provider: str) -> tuple[str, int, str]:
+    """Devuelve (provider, max_requests, default_model)."""
+    name = (provider or '').strip().lower()
+    if name not in AB_CAPS:
+        raise BenchError(
+            f'--provider inválido: {provider!r} (usa free|deepseek)')
+    return name, AB_CAPS[name], AB_DEFAULT_MODELS[name]
+
+
+def require_api_key(provider: str) -> str:
+    """Claves solo del entorno; nunca se imprimen. Mensaje claro si faltan."""
+    key, _env_name = resolve_provider_api_key(provider)
+    return key
+
+
+def ab_run_dims(
+    provider: str,
+    *,
+    n: int = 5,
+    tasks: int = 5,
+) -> dict:
+    """Dimensiona N×tareas×2 brazos con margen bajo el tope (no 50×6=300 exacto)."""
+    name, cap, _model = resolve_ab_provider(provider)
+    if type(n) is not int or n < 1:
+        raise BenchError(f'n inválido: {n!r}')
+    if type(tasks) is not int or tasks < 1:
+        raise BenchError(f'tasks inválido: {tasks!r}')
+    turns = AB_TURNS[name]
+    cells = n * tasks * 2
+    planned = cells * turns
+    margin = cap - planned
+    if margin < 1:
+        raise BenchError(
+            f'sin margen: {cells} celdas × {turns} turns = {planned} >= tope {cap}')
+    return {
+        'provider': name,
+        'n': n,
+        'tasks': tasks,
+        'cells': cells,
+        'maxTurns': turns,
+        'planned': planned,
+        'cap': cap,
+        'margin': margin,
+        'formula': f'{cells}×{turns}={planned} < {cap} (margen {margin})',
+    }
+
+
+def dry_run_harness_check(
+    *,
+    harness_root: Path | None = None,
+    task_id: str | None = None,
+    model_id: str | None = None,
+    provider: str = 'deepseek',
+) -> dict:
+    """Sin red ni requests: treatment CON arnés, base SIN; mismo model_id en ambos."""
+    root = Path(harness_root) if harness_root is not None else ROOT
+    _name, _cap, default_model = resolve_ab_provider(provider)
+    model = model_id or default_model
+    assert_bench_model(model)
+    dims = ab_run_dims(provider, n=5, tasks=5)
+    tasks = list_tasks()
+    task = tasks[0]
+    if task_id:
+        found = next((t for t in tasks if t['id'] == task_id), None)
+        if found is None:
+            raise BenchError(f'tarea desconocida: {task_id!r}')
+        task = found
+    with tempfile.TemporaryDirectory(prefix='microsdd-ab-dry-') as tmp:
+        base_dir = Path(tmp) / 'base'
+        treat_dir = Path(tmp) / 'treatment'
+        base_info = prepare_cell_workdir(
+            Path(task['_dir']), base_dir, 'base', harness_root=root, model_id=model)
+        treat_info = prepare_cell_workdir(
+            Path(task['_dir']), treat_dir, 'treatment', harness_root=root,
+            model_id=model)
+        base_ok = (not harness_loaded(base_dir)) and (not base_info['loaded'])
+        treat_ok = harness_loaded(treat_dir) and treat_info['loaded']
+        # Fingerprint treatment debe incluir capas del arnés; base no.
+        fp_base = base_info['fingerprint']
+        fp_treat = treat_info['fingerprint']
+        if fp_base == fp_treat:
+            raise BenchError(
+                'dry-run: fingerprints base/treatment idénticos; el arnés no se cargó')
+        required = (
+            'CLAUDE.md', '.claude/settings.json', '.microharness/sdd.py',
+            '.claude/agents/lider.md',
+        )
+        missing_req = [r for r in required if not (treat_dir / r).is_file()]
+        if missing_req:
+            raise BenchError(f'dry-run: treatment falta {missing_req}')
+        leaked = [r for r in required if (base_dir / r).is_file()]
+        if leaked:
+            raise BenchError(f'dry-run: base no debe tener arnés; encontró {leaked}')
+        if not (base_ok and treat_ok):
+            raise BenchError(
+                f'dry-run falló: base_loaded={base_info["loaded"]} '
+                f'treatment_loaded={treat_info["loaded"]}')
+        treat_settings = treat_info.get('settingsModel')
+        if treat_settings != model:
+            raise BenchError(
+                f'dry-run: treatment settings.model={treat_settings!r} != {model!r}')
+        if treat_settings == 'claude-opus-5-5' and model != 'claude-opus-5-5':
+            raise BenchError('dry-run: settings.model quedó en claude-opus-5-5 del preset')
+        return {
+            'ok': True,
+            'taskId': task['id'],
+            'modelId': model,
+            'sameModel': True,
+            'base': {
+                'loaded': False,
+                'preset': None,
+                'modelId': model,
+                'settingsModel': None,
+                'fingerprint': fp_base,
+                'files': base_info.get('files') or [],
+            },
+            'treatment': {
+                'loaded': True,
+                'preset': treat_info.get('preset'),
+                'modelId': model,
+                'fingerprint': fp_treat,
+                'files': treat_info.get('files') or [],
+                'settingsModel': treat_settings,
+                'fileCount': len(treat_info.get('files') or []),
+            },
+            'maxTurns': dims['maxTurns'],
+            'caps': dict(AB_CAPS),
+            'turns': dict(AB_TURNS),
+            'budget': dims,
+        }
+
+
 def _pending_cell(task: dict, variant: str, rep: int, model_id: str | None) -> dict:
     return {
         'taskId': task['id'], 'variant': variant, 'repetition': rep,
@@ -840,6 +1170,8 @@ def run_bench(
     config: dict | None = None,
     models: list[str] | None = None,
     skip_key_check: bool = False,
+    api_key: str | None = None,
+    ab_provider: str | None = None,
 ) -> dict:
     cfg = config or load_config()
     max_turns, max_requests = request_budget(cfg)
@@ -855,7 +1187,6 @@ def run_bench(
     if prior_path is not None and not prior_path.is_absolute():
         prior_path = ROOT / prior_path
     prior_cells = _load_prior_cells(prior_path) if only is not None else []
-    api_key: str | None = None
     usage_before: float | None = None
     estimated: int | None = None
     remaining: int | None = None  # cuota :free; None = solo tope proxy/gasto
@@ -880,7 +1211,7 @@ def run_bench(
                 schedule.append((task, 'treatment', rep))
         rng.shuffle(schedule)
         # Intercalado por repetición: r0 todas las tareas×brazos, luego r1, luego r2.
-        # Si el tope 100 corta, lo ejecutado queda balanceado entre brazos/tareas.
+        # Si el tope corta, lo ejecutado queda balanceado; resto → pending.
         schedule.sort(key=lambda x: (x[2], x[0]['id'], 0 if x[1] == 'base' else 1))
         n_schedule = len(schedule)
 
@@ -891,7 +1222,8 @@ def run_bench(
         for mid in model_list:
             assert_bench_model(mid)
         estimated = planned_requests(cfg, n_schedule)
-        api_key = os.environ.get('OPENROUTER_API_KEY')
+        if not api_key:
+            api_key, _env_used = resolve_provider_api_key(ab_provider)
         max_cap = cfg.get('maxPaidLimitUsd', DEFAULT_CONFIG['maxPaidLimitUsd'])
         need_free_quota = all(is_free_model(m) for m in model_list)
         key_data = check_openrouter_spend_lock(
@@ -939,10 +1271,17 @@ def run_bench(
                         headroom = min(headroom, remaining)
                     if headroom < max_turns:
                         pending_rest = True
+                        abort_reason = (
+                            abort_reason
+                            or f'tope alcanzado: headroom={headroom} < maxTurns={max_turns} '
+                               f'(requests={used_now}/{max_requests})'
+                        )
                         cells.append(_pending_cell(task, variant, rep, model_id))
                         continue
                 work = tmp_path / f"{task['id']}-{variant}-{rep}"
-                copy_fixture(Path(task['_dir']), work)
+                harness_info = prepare_cell_workdir(
+                    Path(task['_dir']), work, variant, harness_root=ROOT,
+                    model_id=model_id)
                 try:
                     result = provider.run_cell(task, variant, rep, workdir=work)
                 except TypeError:
@@ -951,6 +1290,9 @@ def run_bench(
                     'taskId': task['id'],
                     'variant': variant,
                     'repetition': rep,
+                    'harnessLoaded': bool(harness_info.get('loaded')),
+                    'harnessPreset': harness_info.get('preset'),
+                    'harnessFingerprint': harness_info.get('fingerprint'),
                     **result,
                 })
                 if real:
@@ -978,9 +1320,9 @@ def run_bench(
                                 f'contador de requests ilegible tras celda (fail-closed): {exc}'
                             ) from exc
                         if getattr(proxy.server, 'aborted', False):
-                            raise BenchError(
-                                f'proxy OpenRouter abortado: '
-                                f'{getattr(proxy.server, "abort_reason", None) or "aborted"}')
+                            reason = (
+                                getattr(proxy.server, 'abort_reason', None) or 'aborted')
+                            raise BenchError(f'tope alcanzado: {reason}')
                     else:
                         calls = result.get('calls')
                         turns = calls if type(calls) is int else max_turns
@@ -1063,9 +1405,23 @@ def run_bench(
         {'taskId': c['taskId'], 'variant': c['variant'], 'repetition': c['repetition']}
         for c in cells if c.get('pending')
     ]
+    tope = bool(
+        pending_rest
+        or (abort_reason and 'tope' in abort_reason.lower())
+        or (
+            requests_used is not None
+            and type(requests_used) is int
+            and requests_used >= max_requests
+            and any(c.get('pending') for c in cells)
+        )
+    )
     if abort_reason:
         report['aborted'] = True
         report['abortReason'] = abort_reason
+    if tope:
+        report['topeAlcanzado'] = True
+        report['status'] = 'tope alcanzado'
+    report['harnessHelped'] = _harness_helped_label(report)
     report['risks'] = [
         f'Proxy rate limit: {FREE_RPM} req/min (espera/cola, no 429); '
         f'solo POST de mensajes cuentan al tope; '
@@ -1094,6 +1450,16 @@ def _by_variant(cells: list[dict], task_id: str | None = None) -> dict[str, list
             continue
         out[c['variant']].append(c)
     return out
+
+
+def _harness_helped_label(report: dict) -> str:
+    """Veredicto humano T-034: ayudó / no ayudó / no concluyente (regla escrita)."""
+    verdict = report.get('verdict')
+    if verdict == 'ACEPTA':
+        return 'el arnés ayudó'
+    if verdict == 'RECHAZA':
+        return 'el arnés no ayudó'
+    return 'no concluyente'
 
 
 def aggregate_report(
@@ -1256,6 +1622,8 @@ def format_report_md(report: dict) -> str:
         f"(gasto real OpenRouter; candado maxSpendUsd={max_spend})",
         f"- requests: {report.get('requestsUsed')}/{report.get('requestBudget')}",
         f"- baselineStatus: {report.get('baselineStatus')}",
+        f"- harnessHelped: {report.get('harnessHelped')}",
+        f"- status: {report.get('status') or ('tope alcanzado' if report.get('topeAlcanzado') else 'ok')}",
         '',
         '| task | base success | treat success | delta tokens | IC95 |',
         '|---|---|---|---|---|',
@@ -1354,12 +1722,205 @@ def prompt_diff(root_a: Path, root_b: Path) -> dict:
     }
 
 
+def _write_bench_out(report: dict, dest: Path) -> None:
+    write_report(report, dest)
+    sanitized = sanitize_report(report)
+    (dest / 'bench-report.sanitized.json').write_text(
+        json.dumps(sanitized, indent=2, ensure_ascii=True) + '\n', encoding='utf-8')
+    safe_print(format_report_md(report))
+    safe_print(f'Reporte escrito en {dest}')
+
+
+def _start_openrouter_provider(
+    cfg: dict,
+    *,
+    api_key: str,
+    models: list[str],
+    cheap: bool,
+) -> tuple[Any, Any]:
+    """Arranca proxy + ClaudeCodeProvider. Caller debe proxy.stop()."""
+    max_turns, max_requests = request_budget(cfg)
+    if max_turns < AB_MIN_TURNS:
+        raise BenchError(f'maxTurnsPerCell={max_turns} < mínimo {AB_MIN_TURNS}')
+    only = _parse_only_cells(cfg.get('onlyCells'))
+    if only is not None:
+        n_est = len(only)
+    else:
+        n_est = int(cfg['nCheap'] if cheap else cfg['n']) * 5 * 2
+    max_cap = cfg.get('maxPaidLimitUsd', DEFAULT_CONFIG['maxPaidLimitUsd'])
+    max_spend = cfg.get('maxSpendUsd', DEFAULT_CONFIG['maxSpendUsd'])
+    need_free = all(is_free_model(m) for m in models)
+    check_openrouter_spend_lock(
+        api_key, planned_requests(cfg, n_est),
+        max_paid_limit_usd=max_cap, max_spend_usd=max_spend,
+        require_free_quota=need_free)
+    for m in models:
+        verify_openrouter_model_pricing(
+            api_key, m, allow_paid=not is_free_model(m))
+    or_proxy = _load_or_proxy()
+    state_env = os.environ.get('BENCH_PROXY_STATE')
+    state = Path(state_env) if state_env else (
+        Path(tempfile.gettempdir()) / 'microsdd-or-proxy-count.json')
+    prior_raw = os.environ.get('BENCH_PRIOR_REQUESTS', '0')
+    try:
+        prior_n = int(prior_raw)
+    except ValueError as exc:
+        raise BenchError(f'BENCH_PRIOR_REQUESTS inválido: {prior_raw!r}') from exc
+    if type(cfg.get('requestsAlreadyUsed')) is int:
+        prior_n = max(prior_n, int(cfg['requestsAlreadyUsed']))
+    proxy = or_proxy.OpenRouterCountingProxy(
+        api_key, max_requests=max_requests, state_path=state,
+        initial_count=prior_n,
+        max_requests_per_minute=FREE_RPM)
+    proxy.start()
+    proxy.assert_readable()
+    provider = ClaudeCodeProvider(models[0], max_turns=max_turns, proxy=proxy)
+    return provider, proxy
+
+
+def cmd_bench_dry_run(argv: list[str]) -> int:
+    """Sin red: verifica que treatment carga arnés y base no; mismo --model."""
+    i = 0
+    task_id = None
+    model = None
+    provider = 'deepseek'
+    while i < len(argv):
+        if argv[i] == '--task' and i + 1 < len(argv):
+            task_id = argv[i + 1]
+            i += 2
+        elif argv[i] == '--model' and i + 1 < len(argv):
+            model = argv[i + 1]
+            i += 2
+        elif argv[i] == '--provider' and i + 1 < len(argv):
+            provider = argv[i + 1]
+            i += 2
+        else:
+            print(f'ERROR: argumento desconocido {argv[i]}', flush=True)
+            return 1
+    try:
+        result = dry_run_harness_check(
+            task_id=task_id, model_id=model, provider=provider)
+    except BenchError as exc:
+        print(f'ERROR: {exc}', flush=True)
+        return 1
+    safe_print(json.dumps(result, indent=2, ensure_ascii=True))
+    safe_print(
+        f"dry-run OK: sameModel={result['sameModel']} modelId={result['modelId']} "
+        f"treatment preset={result['treatment']['preset']} "
+        f"settings.model={result['treatment']['settingsModel']} "
+        f"files={result['treatment']['fileCount']}; "
+        f"base loaded=false; budget={result['budget']['formula']}"
+    )
+    return 0
+
+
+def cmd_bench_ab(argv: list[str]) -> int:
+    """T-034: ambos brazos, N=5, reporte fuera del repo; --dry-run no gasta requests."""
+    if argv and argv[0] in ('-h', '--help'):
+        print('usage: metrics.py bench ab --provider free|deepseek [--model ID] '
+              '[--out DIR] [--dry-run] [--cheap]')
+        return 0
+    provider_flag = 'deepseek'
+    model = None
+    out: Path | None = None
+    dry = False
+    cheap = False
+    claim = None
+    i = 0
+    while i < len(argv):
+        if argv[i] == '--provider' and i + 1 < len(argv):
+            provider_flag = argv[i + 1]
+            i += 2
+        elif argv[i] == '--model' and i + 1 < len(argv):
+            model = argv[i + 1]
+            i += 2
+        elif argv[i] == '--out' and i + 1 < len(argv):
+            out = Path(argv[i + 1])
+            i += 2
+        elif argv[i] == '--claim' and i + 1 < len(argv):
+            claim = argv[i + 1]
+            i += 2
+        elif argv[i] == '--dry-run':
+            dry = True
+            i += 1
+        elif argv[i] == '--cheap':
+            cheap = True
+            i += 1
+        else:
+            print(f'ERROR: argumento desconocido {argv[i]}', flush=True)
+            return 1
+    if dry:
+        dry_argv: list[str] = ['--provider', provider_flag]
+        if model:
+            dry_argv.extend(['--model', model])
+        return cmd_bench_dry_run(dry_argv)
+    try:
+        prov_name, max_req, default_model = resolve_ab_provider(provider_flag)
+        api_key = require_api_key(prov_name)
+        model_id = model or default_model
+        assert_bench_model(model_id)
+        if prov_name == 'free':
+            assert_free_model(model_id)
+        cfg = load_config()
+        n_run = int(cfg.get('nCheap') if cheap else (cfg.get('n') or 5))
+        dims = ab_run_dims(prov_name, n=n_run, tasks=5)
+        cfg['maxRequestsPerRun'] = dims['cap']
+        cfg['maxTurnsPerCell'] = dims['maxTurns']
+        cfg['allowPartialRun'] = True
+        cfg['models'] = [model_id]
+        if not cheap:
+            cfg['n'] = n_run
+        provider, proxy = _start_openrouter_provider(
+            cfg, api_key=api_key, models=[model_id], cheap=cheap)
+    except BenchError as exc:
+        print(f'ERROR: {exc}', flush=True)
+        return 1
+    except Exception as exc:
+        print(f'ERROR: proxy OpenRouter: {exc}', flush=True)
+        return 1
+    report = None
+    try:
+        report = run_bench(
+            provider=provider, cheap=cheap, claim=claim, config=cfg,
+            models=[model_id], skip_key_check=False, api_key=api_key,
+            ab_provider=prov_name)
+    except BenchError as exc:
+        print(f'ERROR: {exc}', flush=True)
+        return 1
+    finally:
+        try:
+            proxy.stop()
+        except Exception:
+            pass
+    if report is None:
+        return 1
+    dest = out or default_ab_out_dir()
+    report['abProvider'] = prov_name
+    report['abCap'] = max_req
+    report['abBudget'] = dims
+    _write_bench_out(report, dest)
+    if report.get('topeAlcanzado'):
+        print('ERROR: tope alcanzado (reporte parcial escrito)', flush=True)
+        return 1
+    if report.get('aborted'):
+        print(f"ERROR: abortado: {report.get('abortReason')}", flush=True)
+        return 1
+    return 0 if report['verdict'] != 'RECHAZA' else 2
+
+
 def cmd_bench(argv: list[str]) -> int:
     if not argv or argv[0] in ('-h', '--help'):
         print('usage: metrics.py bench run [--cheap] [--provider fake|openrouter] [--out DIR]')
+        print('       metrics.py bench ab --provider free|deepseek [--model ID] '
+              '[--out DIR] [--dry-run]')
+        print('       metrics.py bench dry-run')
         print('       metrics.py bench report --from DIR')
         return 0
     sub = argv[0]
+    if sub == 'dry-run':
+        return cmd_bench_dry_run(argv[1:])
+    if sub == 'ab':
+        return cmd_bench_ab(argv[1:])
     if sub == 'run':
         cheap = '--cheap' in argv
         provider_name = 'fake'
@@ -1382,12 +1943,13 @@ def cmd_bench(argv: list[str]) -> int:
                 print(f'ERROR: argumento desconocido {argv[i]}', flush=True)
                 return 1
         cfg = load_config()
+        proxy = None
+        api_key: str | None = None
         if provider_name == 'fake':
             provider = FakeProvider(seed=int(cfg.get('seed', 42)))
             skip = True
         elif provider_name == 'openrouter':
             skip = False
-            proxy = None
             try:
                 models = list(cfg.get('models') or [])
                 if not models:
@@ -1395,47 +1957,9 @@ def cmd_bench(argv: list[str]) -> int:
                         'bench.config models vacío; indica IDs :free o pago económico.')
                 for m in models:
                     assert_bench_model(m)
-                api_key = os.environ.get('OPENROUTER_API_KEY')
-                if not api_key:
-                    raise BenchError(
-                        'OPENROUTER_API_KEY ausente; no se lanza la línea base real. '
-                        'Usa --provider fake para pruebas deterministas.')
-                max_turns, max_requests = request_budget(cfg)
-                only = _parse_only_cells(cfg.get('onlyCells'))
-                if only is not None:
-                    n_est = len(only)
-                else:
-                    n_est = int(cfg['nCheap'] if cheap else cfg['n']) * 5 * 2
-                max_cap = cfg.get('maxPaidLimitUsd', DEFAULT_CONFIG['maxPaidLimitUsd'])
-                max_spend = cfg.get('maxSpendUsd', DEFAULT_CONFIG['maxSpendUsd'])
-                need_free = all(is_free_model(m) for m in models)
-                check_openrouter_spend_lock(
-                    api_key, planned_requests(cfg, n_est),
-                    max_paid_limit_usd=max_cap, max_spend_usd=max_spend,
-                    require_free_quota=need_free)
-                for m in models:
-                    verify_openrouter_model_pricing(
-                        api_key, m, allow_paid=not is_free_model(m))
-                or_proxy = _load_or_proxy()
-                state_env = os.environ.get('BENCH_PROXY_STATE')
-                state = Path(state_env) if state_env else (
-                    Path(tempfile.gettempdir()) / 'microsdd-or-proxy-count.json')
-                prior_raw = os.environ.get('BENCH_PRIOR_REQUESTS', '0')
-                try:
-                    prior_n = int(prior_raw)
-                except ValueError as exc:
-                    raise BenchError(
-                        f'BENCH_PRIOR_REQUESTS inválido: {prior_raw!r}') from exc
-                if type(cfg.get('requestsAlreadyUsed')) is int:
-                    prior_n = max(prior_n, int(cfg['requestsAlreadyUsed']))
-                proxy = or_proxy.OpenRouterCountingProxy(
-                    api_key, max_requests=max_requests, state_path=state,
-                    initial_count=prior_n,
-                    max_requests_per_minute=FREE_RPM)
-                proxy.start()
-                proxy.assert_readable()
-                provider = ClaudeCodeProvider(
-                    models[0], max_turns=max_turns, proxy=proxy)
+                api_key, _env_used = resolve_provider_api_key(None)
+                provider, proxy = _start_openrouter_provider(
+                    cfg, api_key=api_key, models=models, cheap=cheap)
             except BenchError as exc:
                 if proxy is not None:
                     proxy.stop()
@@ -1453,13 +1977,14 @@ def cmd_bench(argv: list[str]) -> int:
         run_exc: BenchError | None = None
         try:
             report = run_bench(
-                provider=provider, cheap=cheap, claim=claim, config=cfg, skip_key_check=skip)
+                provider=provider, cheap=cheap, claim=claim, config=cfg,
+                skip_key_check=skip, api_key=api_key)
         except BenchError as exc:
             # Fallo antes de tener celdas (candado/config): sin reporte parcial.
             run_exc = exc
             print(f'ERROR: {exc}', flush=True)
         finally:
-            if provider_name == 'openrouter':
+            if proxy is not None:
                 try:
                     proxy.stop()
                 except Exception:
@@ -1471,14 +1996,13 @@ def cmd_bench(argv: list[str]) -> int:
         if os.name == 'nt' and out is None:
             dest = Path(os.environ.get('LOCALAPPDATA') or (Path.home() / 'AppData' / 'Local')) / 'microsdd' / 'bench-last'
         # Siempre escribir reporte si hay celdas (incluye abort mid-celda con pendientes).
-        write_report(report, dest)
-        sanitized = sanitize_report(report)
-        (dest / 'bench-report.sanitized.json').write_text(
-            json.dumps(sanitized, indent=2, ensure_ascii=True) + '\n', encoding='utf-8')
-        safe_print(format_report_md(report))
-        safe_print(f'Reporte escrito en {dest}')
-        if report.get('aborted'):
-            print(f"ERROR: abortado: {report.get('abortReason')}", flush=True)
+        _write_bench_out(report, dest)
+        if report.get('topeAlcanzado') or report.get('aborted'):
+            print(
+                f"ERROR: {'tope alcanzado' if report.get('topeAlcanzado') else 'abortado'}: "
+                f"{report.get('abortReason') or report.get('status')}",
+                flush=True,
+            )
             return 1
         if run_exc is not None:
             return 1

@@ -1,0 +1,3 @@
+# convenciones
+
+Pendiente de inspección.

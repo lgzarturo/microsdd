@@ -276,16 +276,20 @@ class ProxyServerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as home:
             with mock.patch.dict(os.environ, {
                 'OPENROUTER_API_KEY': 'sk-real-secret-key',
+                'DEEPSEEK_API_KEY': 'sk-deepseek-secret-key',
                 'ANTHROPIC_AUTH_TOKEN': 'sk-real-secret-key',
                 'ANTHROPIC_API_KEY': 'sk-leak',
             }):
                 env = self.proxy.client_env('meta/llama:free', home=home)
         self.assertNotIn('OPENROUTER_API_KEY', env)
+        self.assertNotIn('DEEPSEEK_API_KEY', env)
         self.assertEqual(env['ANTHROPIC_AUTH_TOKEN'], self.or_mod.OpenRouterCountingProxy.LOCAL_TOKEN)
         self.assertEqual(env['ANTHROPIC_API_KEY'], '')
         self.assertEqual(env['ANTHROPIC_BASE_URL'], self.proxy.base_url)
         self.assertEqual(env['HOME'], home)
-        self.assertNotIn('sk-real-secret-key', json.dumps(env))
+        dump = json.dumps(env)
+        self.assertNotIn('sk-real-secret-key', dump)
+        self.assertNotIn('sk-deepseek-secret-key', dump)
 
     def test_health_ok_and_unreadable_aborts(self):
         with urllib.request.urlopen(self.proxy.base_url + '/health', timeout=5) as resp:
