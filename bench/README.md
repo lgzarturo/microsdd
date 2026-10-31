@@ -12,4 +12,6 @@ python .microharness/metrics.py prompt-diff . /otra/copia
 
 A/B CON/SIN arnés (T-034): ver `bench/AB.md` (`bench ab` / `bench dry-run`).
 
+Una celda solo cuenta como éxito si `unittest` termina con código 0 y ejecuta al menos una prueba que pasa; `tests/test_bench_senal.py` lo comprueba en las cinco tareas, sin red.
+
 Resultados: fuera del repo (estado XDG/LOCALAPPDATA o `--out`). Nunca en `docs/` ni `spec/`.

@@ -17,9 +17,9 @@
   "maxRequestsPerRun": 100,
   "allowPartialRun": true,
   "notes": [
-    "Baseline cheap N=3 COMPLETE: run fill 39878723841 + previas 39802356050.",
-    "30/30 celdas. Veredicto RECHAZA (base 11/15 → treatment 8/15).",
-    "Fill: 85/100 req, usage Δ ≈ $0.080 ≤ $0.10. Tokens Δ 2085 IC95 [-3921, 5342].",
-    "Modelo deepseek/deepseek-v4-flash, maxTurns=6. No mezclar archivos viejos."
+    "AVISO: este baseline no es evidencia sobre MicroSDD; ver bench/baseline/README.md.",
+    "Brazos equivalentes según 1f3a731 (treatment solo copiaba el fixture); confirmado en eb3d43e (16 celdas, run 39802356050) y ef3955f (14 celdas, run 39878723841). Su veredicto no compara con y sin arnés.",
+    "Señal de éxito no fiable: 0 pruebas recogidas y código 5 con Python 3.12 sin editar; las tareas 03, 04 y 05 ya cumplían sus aserciones.",
+    "Datos históricos, sin regenerar: cheap N=3, 30/30 celdas, reporte RECHAZA (base 11/15, treatment 8/15). Modelo deepseek/deepseek-v4-flash, maxTurns=6. Fill: 85/100 req, usage Δ ≈ $0.080. No mezclar archivos viejos."
   ]
 }

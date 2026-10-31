@@ -8,6 +8,7 @@ import json
 import math
 import os
 import random
+import re
 import shutil
 import statistics
 import subprocess
@@ -93,6 +94,10 @@ HARNESS_FILES = (
     'docs/convenciones.md',
     'docs/especificaciones.md',
 )
+# Resumen de unittest en stderr: la señal falla cerrada si el formato cambia.
+UNITTEST_RAN_RE = re.compile(r'^Ran (\d+) tests? in', re.MULTILINE)
+UNITTEST_OK_RE = re.compile(r'^OK(?: \((.*)\))?$', re.MULTILINE)
+UNITTEST_NOT_PASSED_RE = re.compile(r'(?:skipped|expected failures)=(\d+)')
 
 
 class BenchError(Exception):
@@ -448,7 +453,7 @@ def sanitize_report(report: dict) -> dict:
     cell_keep = frozenset({
         'taskId', 'variant', 'repetition', 'success', 'pending', 'iterations',
         'retries', 'calls', 'tokens', 'costUsd', 'durationMs', 'cacheRate',
-        'firstTry', 'modelId', 'seed', 'hostVersion', 'status',
+        'firstTry', 'testsRun', 'modelId', 'seed', 'hostVersion', 'status',
         'exitCode', 'stderrTruncated', 'subtype', 'isError', 'errorClass',
         'harnessLoaded', 'harnessPreset', 'harnessFingerprint',
     })
@@ -625,6 +630,38 @@ def _load_or_proxy():
     return mod
 
 
+def evaluate_fixture(test_cmd: list[str], workdir: Path) -> dict:
+    """{'ok': bool, 'testsRun': int}. Usa stderr de unittest; solo el último resumen cuenta."""
+    cmd = list(test_cmd)
+    if cmd and cmd[0] in ('python', 'python3'):
+        cmd[0] = sys.executable
+    env = {k: v for k, v in os.environ.items() if k not in SECRET_ENV_KEYS}
+    env['PYTHONDONTWRITEBYTECODE'] = '1'
+    env['PYTHON_COLORS'] = '0'
+    try:
+        proc = subprocess.run(
+            cmd, cwd=str(workdir), env=env, capture_output=True, text=True,
+            errors='replace', timeout=60, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return {'ok': False, 'testsRun': 0}
+    stderr = proc.stderr or ''
+    ran = UNITTEST_RAN_RE.findall(stderr)
+    tests_run = int(ran[-1]) if ran else 0
+    oks = UNITTEST_OK_RE.findall(stderr)
+    passed = 0
+    if oks:
+        passed = tests_run - sum(int(n) for n in UNITTEST_NOT_PASSED_RE.findall(oks[-1]))
+    return {'ok': proc.returncode == 0 and passed >= 1, 'testsRun': tests_run}
+
+
+def restore_fixture_test(task: dict, workdir: Path) -> None:
+    """Copia <task _dir>/fixture/test_fixture.py al workdir. No hace nada si la tarea no tiene _dir."""
+    if task.get('_dir'):
+        dest = workdir / 'test_fixture.py'
+        dest.unlink(missing_ok=True)
+        shutil.copyfile(Path(task['_dir']) / 'fixture' / 'test_fixture.py', dest)
+
+
 class ClaudeCodeProvider:
     """Bench agéntico vía Claude Code + OpenRouter (proxy contador; :free o pago)."""
 
@@ -683,7 +720,8 @@ class ClaudeCodeProvider:
         cmd = ' '.join(task.get('testCommand') or ['python', '-m', 'unittest', 'test_fixture'])
         return (
             f'Fix the Python fixture in the current directory so `{cmd}` passes. '
-            f'Task: {title}. Edit only local fixture files. Do not print secrets.'
+            f'Task: {title}. Edit only local fixture files. Do not print secrets. '
+            'Do not edit test_fixture.py: it is restored before evaluation.'
         )
 
     def _pending_diag(self, *, exit_code: int | None, stderr: str, subtype: Any,
@@ -789,14 +827,12 @@ class ClaudeCodeProvider:
         if not isinstance(cost, (int, float)):
             cost = None
         test_cmd = list(task.get('testCommand') or ['python', '-m', 'unittest', 'test_fixture'])
-        test_ok = False
         try:
-            tproc = subprocess.run(
-                test_cmd, cwd=str(workdir), capture_output=True, text=True,
-                timeout=60, check=False)
-            test_ok = tproc.returncode == 0
-        except (OSError, subprocess.TimeoutExpired):
-            test_ok = False
+            restore_fixture_test(task, work)
+            evaluation = evaluate_fixture(test_cmd, work)
+        except OSError:
+            evaluation = {'ok': False, 'testsRun': 0}
+        test_ok = evaluation['ok']
         # Tope de turnos alcanzado: celda completada; la prueba del fixture decide.
         max_turns_hit = subtype == 'error_max_turns'
         # Fallo inmediato de Claude (login, flags, 429, …) → pending + diagnóstico.
@@ -821,6 +857,7 @@ class ClaudeCodeProvider:
             'durationMs': duration_ms,
             'cacheRate': None,
             'firstTry': bool(test_ok),
+            'testsRun': evaluation['testsRun'],
             'modelId': self.model_id,
             'seed': None,
             'hostVersion': self.host_version,

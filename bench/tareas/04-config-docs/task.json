@@ -2,7 +2,7 @@
   "id": "04-config-docs",
   "title": "Cambio de configuraci\u00f3n o documentaci\u00f3n",
   "kind": "docs",
-  "fixtureSha256": "852ce264e240100a1abe0cd5331d85a9125ce1c87b52a0ebf601754007f68f9a",
+  "fixtureSha256": "a14747efd847effbeab7000f054fb2e8d1aa55b4d3113f17c8f9fcd795fe897c",
   "testCommand": [
     "python",
     "-m",

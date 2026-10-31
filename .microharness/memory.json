@@ -37,6 +37,15 @@
         "for_task": "testing-fitness",
         "for_phase": "spec",
         "used_at": "2026-10-31T06:54:28+00:00"
+      },
+      {
+        "at": "2026-10-31T13:11:07+00:00",
+        "fact": "Programador aprueba la spec bench-senal-exito con DEC-01 A, DEC-02 A y DEC-03 A",
+        "evidence": "apruebo la spec bench-senal-exito con DEC-01 A, DEC-02 A y DEC-03 A",
+        "id": "n5",
+        "for_task": "bench-senal-exito",
+        "for_phase": "spec",
+        "used_at": "2026-10-31T13:11:10+00:00"
       }
     ],
     "decisions": [
@@ -45,6 +54,18 @@
         "by": "Arturo López",
         "decision": "Se aceptan 322 líneas de pruebas en testing-fitness, sobre el tope de 240, sin cambiar la spec",
         "evidence": "acepto las 322 líneas de pruebas sin cambiar la spec"
+      },
+      {
+        "at": "2026-10-31T13:20:49+00:00",
+        "by": "Arturo López",
+        "decision": "Se aceptan unas 68 líneas contadas en bench.py para bench-senal-exito, sobre el tope de 60, sin cambiar la spec",
+        "evidence": "acepto unas 68 líneas en bench.py sin cambiar la spec"
+      },
+      {
+        "at": "2026-10-31T13:32:38+00:00",
+        "by": "Arturo López",
+        "decision": "Se autoriza corregir D1, D2 y D3 de bench-senal-exito: unas 6 líneas más en bench.py, unas 18 en tests/test_bench.py y cambiar y resellar tests/test_bench_senal.py",
+        "evidence": "autorizo corregir D1, D2 y D3 con esas ampliaciones y resellar la prueba"
       }
     ],
     "progress": [],
@@ -298,6 +319,119 @@
           "event": "creada"
         }
       ]
+    },
+    "bench-senal-exito": {
+      "approvals": {
+        "spec": {
+          "by": "Arturo López",
+          "evidence": "@note:n5",
+          "at": "2026-10-31T13:11:10+00:00",
+          "fingerprint": "5081ea9bc003da05b3ba923eaa92dfb827750149d63aa9bc71fda7df25558473"
+        },
+        "close": {
+          "by": "lider",
+          "evidence": "Dictamen APROBADO del revisor independiente tras corregir D1, D2 y D3 con autorización humana, y puerta check --run revalidada por approve close.",
+          "at": "2026-10-31T13:50:56+00:00"
+        }
+      },
+      "witness": {
+        "path": "spec/bench-senal-exito/testigo.md",
+        "sha256": "e72898f7b3f156b77dc458d7257c8cba6143ae51ec80d7365e1629ff2d6bafc6",
+        "at": "2026-10-31T13:50:56+00:00"
+      },
+      "sealed_tests": {
+        "tests/test_bench_senal.py": "a1100c45db3f0e5828d2b401cdf34610428053c9a6af4f84e884d0ecd217d09a"
+      },
+      "review": "APROBADO",
+      "review_fingerprint": "cd6000c9e4de02a75fc5c032e47bb14b26ddfa61b993fb90efafff2eaeab1753",
+      "iterations": 2,
+      "odd_retries": 0,
+      "receipt": {
+        "at": "2026-10-31T13:11:10+00:00",
+        "allowed_paths": [
+          ".microharness/bench.py",
+          "bench/README.md",
+          "bench/config.json",
+          "bench/baseline/README.md",
+          "bench/tareas/*/task.json",
+          "bench/tareas/*/fixture/test_fixture.py",
+          "bench/tareas/04-config-docs/fixture/fixture_mod.py",
+          "bench/tareas/05-prueba-regresion/fixture/fixture_mod.py",
+          "tests/test_bench_senal.py",
+          "tests/test_bench.py",
+          "assets/eval-esfuerzo.md"
+        ],
+        "files": {
+          ".microharness/bench.py": "94cbe324b4f40ad4cc741fe5595c009e8487bbd5f793fa0650f3669cc4b7bf05",
+          "assets/eval-esfuerzo.md": "cee78ddcfe21fc2825182118936f82151dc0c0ff957cab941a9744bc61b9d964",
+          "bench/README.md": "d9fd384589d3122e66bfb2e990494900c32ee58fc05043da17aa8746396091b0",
+          "bench/baseline/README.md": "5dbfb67c9594ff9bdb604dc518e676cbd769a3a52048d0f8fc80ed78ea1027e6",
+          "bench/config.json": "5be6ce3beefa9d2976782c77dcac8e598366d8ab9c50528e5d28ba99bb7f7455",
+          "bench/tareas/01-correccion-localizada/fixture/test_fixture.py": "68cb0b14ac8db4e9da24abe0f479d08a2eed44d84c332ade0cc9fc343c5541e2",
+          "bench/tareas/01-correccion-localizada/task.json": "bb10b7605bfac9daaaeed0ee389734bdc0b9d5dde9e895bdaa6902ba5d97b849",
+          "bench/tareas/02-regla-nueva/fixture/test_fixture.py": "b09a7b726e4a537bb16741e2150f553c9c44d7d9f0f4ebe561618b17fc8bdf2c",
+          "bench/tareas/02-regla-nueva/task.json": "863b45f1b7d0ea810b57fd503d43cb2809dd99830f2e113600caaa94fd610fe8",
+          "bench/tareas/03-refactor/fixture/test_fixture.py": "343638d3e19a74535b4372effb26bbe118bd992a12fe01ed863b1c21a8e4a2c0",
+          "bench/tareas/03-refactor/task.json": "12bb39fd2ba874efc86584cd9fd792ea26fc07ce9c94704caf173640107c306e",
+          "bench/tareas/04-config-docs/fixture/fixture_mod.py": "eb0d0622e4a7170ac78ea955b33a6ea15f11c027b89ca61fbe7a48ac5d489612",
+          "bench/tareas/04-config-docs/fixture/test_fixture.py": "dc66f92b1d967080fa1b8bd1ee4d3a49a887bb92d031a2fe7e06d90cfa97beee",
+          "bench/tareas/04-config-docs/task.json": "566ba8f4f5a4b94cc90395c80447dc75743a64913c74eeded48570a015505b8a",
+          "bench/tareas/05-prueba-regresion/fixture/fixture_mod.py": "d2eeac529fc13c5b56d35ab72b8f24b2fc8e25a5f109c68b04332516b92a9351",
+          "bench/tareas/05-prueba-regresion/fixture/test_fixture.py": "f29f479d689a46b66a0c8cfc45556286aa65db7a4cae944551983bf9e2505bcb",
+          "bench/tareas/05-prueba-regresion/task.json": "7760d992a3dbe93d8cab79a72bb08d538e1f2a034ae41bba855ea768ec89b7c9",
+          "tests/test_bench.py": "52eb798442b40096bc092c8285dd96904c3e078e4f54cdc3a3f90bb159a59c5a"
+        },
+        "digest": "c9a404b22171d478833e24639b83be9d8b39c3f30c4b8d912479b3969c21c51c"
+      },
+      "events": [
+        {
+          "at": "2026-10-31T12:45:50+00:00",
+          "event": "creada"
+        },
+        {
+          "at": "2026-10-31T13:11:10+00:00",
+          "event": "aprobación_spec",
+          "by": "Arturo López"
+        },
+        {
+          "at": "2026-10-31T13:15:54+00:00",
+          "event": "sellado_tests",
+          "by": "lider",
+          "evidence": "RED confirmado en T02: 8 pruebas, 7 en rojo por falta de comportamiento y la guarda test_huella_fixture en verde. Archivo de 150 líneas; un Edit de una línea corrigió un defecto del mock sin rechazo del hook.",
+          "files": [
+            "tests/test_bench_senal.py"
+          ]
+        },
+        {
+          "at": "2026-10-31T13:30:16+00:00",
+          "event": "revisión",
+          "verdict": "RECHAZADO",
+          "evidence": "AC-01 a AC-11 cumplen y check --run verde (498 pruebas, 4 omitidas). D1: OSError al restaurar aborta la corrida y pierde el reporte. D2: FORCE_COLOR o PYTHON_COLORS con Python 3.14 hace fallar un fixture corregido. D3: test_huella_fixture depende de CRLF. Los tres por lectura; corregirlos requiere decisión humana sobre topes y resellado."
+        },
+        {
+          "at": "2026-10-31T13:44:34+00:00",
+          "event": "sellado_tests",
+          "by": "lider",
+          "evidence": "D3: el humano editó tests/test_bench_senal.py:138 para normalizar CRLF y autorizó resellar con la cita: autorizo corregir D1, D2 y D3 con esas ampliaciones y resellar la prueba; confirmó con: listo, edité la línea.",
+          "files": [
+            "tests/test_bench_senal.py"
+          ]
+        },
+        {
+          "at": "2026-10-31T13:49:57+00:00",
+          "event": "revisión",
+          "verdict": "APROBADO",
+          "evidence": "Revisor independiente: D1, D2 y D3 corregidos, AC-01 a AC-11 cumplen, check --run con 501 pruebas y 4 omitidas en Python 3.14 y 3.13. No verificado: mutaciones, origen ausente, Windows, macOS y bench con red."
+        },
+        {
+          "at": "2026-10-31T13:50:56+00:00",
+          "event": "aprobación_close",
+          "by": "lider"
+        }
+      ],
+      "sealed_assertions": {
+        "tests/test_bench_senal.py": 19
+      }
     }
   }
 }

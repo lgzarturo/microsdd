@@ -2,7 +2,7 @@
   "id": "05-prueba-regresion",
   "title": "Prueba de regresi\u00f3n",
   "kind": "test",
-  "fixtureSha256": "77e4d843c53d1e034d6ec0297b57a7a6e2d3845fb592ccfec8da5a2100142dca",
+  "fixtureSha256": "2e571438d8abf17694648103cddef33f5d7548c1a5dfcd4622bb763dc6160164",
   "testCommand": [
     "python",
     "-m",

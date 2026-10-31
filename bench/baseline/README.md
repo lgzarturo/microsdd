@@ -1,5 +1,13 @@
 # Línea base
 
+> **AVISO: este baseline no es evidencia sobre MicroSDD.** Su veredicto `RECHAZA` no compara con y sin arnés. Los datos se conservan solo como registro histórico.
+>
+> - **Brazos equivalentes (confirmado).** Según `1f3a731`, `treatment` solo copiaba el fixture. En `eb3d43e` (16 celdas, run 39802356050) y `ef3955f` (14 celdas, run 39878723841), `run_bench` llama a `copy_fixture` en ambos brazos y el prompt no depende del brazo.
+> - **Señal de éxito no fiable (confirmado).** Las cinco pruebas eran funciones sueltas sin `TestCase`: sin editarlas, `python -m unittest test_fixture` da `Ran 0 tests` y código 5 con Python 3.12, la versión que fija el workflow. Además, las tareas 03, 04 y 05 ya cumplían sus aserciones.
+> - **Inferido, no observado.** Las 19 celdas con éxito exigen que el agente alterara algo para que `unittest` recogiera pruebas; los diffs no se conservaron. Un éxito tampoco indica que la lógica se corrigiera.
+>
+> `complete` significa que terminaron las 30 celdas, no que el resultado sea válido. Solo el gasto sirve, como orden de magnitud.
+
 > **Estado: `complete`.** DeepSeek cheap N=3 completo (30/30). Veredicto: **RECHAZA**.
 
 ## Fill + fusión (Arturo 22 oct 19:30 Cancún) — run 39878723841

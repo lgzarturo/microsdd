@@ -2,7 +2,7 @@
   "id": "01-correccion-localizada",
   "title": "Correcci\u00f3n localizada",
   "kind": "fix",
-  "fixtureSha256": "b5a6f95b0d9f2844868edff5686749a7964ee95ca346dc17125b769b39f71bb6",
+  "fixtureSha256": "51190d30c9550f43aeb6164681c862da7031f03456ffed41f6c014f49976be93",
   "testCommand": [
     "python",
     "-m",

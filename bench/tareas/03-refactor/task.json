@@ -2,7 +2,7 @@
   "id": "03-refactor",
   "title": "Refactor sin cambio de conducta",
   "kind": "refactor",
-  "fixtureSha256": "01b260e4bb220aafac56bb7a9f125965d7a1e4bab7d620b992450cc3f18748ab",
+  "fixtureSha256": "1558cee8f6c79e04667f8314df15a2cfd99c2c96715454fb1d1ab9d3da8bc7d7",
   "testCommand": [
     "python",
     "-m",

@@ -2,7 +2,7 @@
   "id": "02-regla-nueva",
   "title": "Regla nueva",
   "kind": "feature",
-  "fixtureSha256": "b16beca2957afd5f5cc55d56162e530c09d9936ed6dab0697b603625177a157f",
+  "fixtureSha256": "635e6014f3ce8997c831d2ab9ca991dbe6e8eb5a74fdac117883ede07b50150f",
   "testCommand": [
     "python",
     "-m",

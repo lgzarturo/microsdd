@@ -1,4 +1,9 @@
+import unittest
+
 from fixture_mod import eligible
-def test_eligible():
-    assert eligible(18) is True
-    assert eligible(17) is False
+
+
+class EligibleTests(unittest.TestCase):
+    def test_eligible(self):
+        self.assertIs(eligible(18), True)
+        self.assertIs(eligible(17), False)

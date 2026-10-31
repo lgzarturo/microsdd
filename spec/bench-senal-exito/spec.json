@@ -1,0 +1,97 @@
+{
+  "schema_version": 1,
+  "id": "bench-senal-exito",
+  "title": "Señal de éxito fiable en el bench y aviso de invalidez del baseline",
+  "state": "terminado",
+  "model": "claude-opus-5-5",
+  "effort": "medium",
+  "max_iterations": 3,
+  "method": {
+    "primary": "SDD",
+    "optional": [],
+    "notes": ""
+  },
+  "scope": {
+    "allowed_paths": [
+      ".microharness/bench.py",
+      "bench/README.md",
+      "bench/config.json",
+      "bench/baseline/README.md",
+      "bench/tareas/*/task.json",
+      "bench/tareas/*/fixture/test_fixture.py",
+      "bench/tareas/04-config-docs/fixture/fixture_mod.py",
+      "bench/tareas/05-prueba-regresion/fixture/fixture_mod.py",
+      "tests/test_bench_senal.py",
+      "tests/test_bench.py",
+      "assets/eval-esfuerzo.md"
+    ],
+    "excluded": [
+      "correr el bench con red, incluida la celda real de treatment",
+      "subir maxSpendUsd u otros topes",
+      "regenerar el baseline",
+      "borrar o reescribir datos históricos de bench/baseline/",
+      "cambiar cómo se instala el arnés en treatment: install_harness, HARNESS_FILES, prepare_cell_workdir",
+      "fijar si treatment puede terminar una tarea: requiere una celda real y autorización de gasto del humano",
+      "symbols",
+      "fixtures multimódulo",
+      "medir duplicación",
+      "estados, roles o motor nuevos",
+      "baselineStatus",
+      "cálculo del veredicto y hash(tid) en aggregate_report",
+      "FakeProvider",
+      ".github/workflows/",
+      "spec/symbol-map/",
+      "bench/tareas/*/spec/",
+      "assets/arnes-completo.md",
+      "CHANGELOG.md"
+    ]
+  },
+  "requirements": {
+    "acceptance_ids": [
+      "AC-01",
+      "AC-02",
+      "AC-03",
+      "AC-04",
+      "AC-05",
+      "AC-06",
+      "AC-07",
+      "AC-08",
+      "AC-09",
+      "AC-10",
+      "AC-11"
+    ],
+    "preconditions": [
+      "Rama fix/bench-senal-exito sobre a6cc163.",
+      "Suite en verde: 490 pruebas, 4 omitidas, con sh .microharness/python.sh -m unittest discover -s tests.",
+      "DEC-01, DEC-02 y DEC-03 resueltas por el humano al aprobar la spec."
+    ]
+  },
+  "testing": {
+    "strategy": "tdd",
+    "commands": [
+      [
+        "python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tests"
+      ]
+    ],
+    "min_tests": 498,
+    "protected_tests": [
+      "tests/test_bench_senal.py"
+    ],
+    "mutation": {
+      "enabled": false,
+      "command": [],
+      "reason": "Desactivada: lógica pequeña y determinista; la tabla de AC-01 y los rojos y verdes reales de AC-03 y AC-04 la fijan."
+    },
+    "fitness": {
+      "enabled": false,
+      "max_params": 4,
+      "max_complexity": 10,
+      "max_lines": 250
+    }
+  }
+}

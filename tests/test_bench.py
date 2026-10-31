@@ -866,7 +866,8 @@ class BenchRequestBudgetTests(unittest.TestCase):
                 return mock.Mock(returncode=0, stdout='2.1.197 (Claude Code)', stderr='')
             if '-p' in cmd:
                 return mock.Mock(returncode=0, stdout=json.dumps(payload), stderr='')
-            return mock.Mock(returncode=0 if test_ok else 1, stdout='', stderr='')
+            return mock.Mock(returncode=0 if test_ok else 1, stdout='',
+                             stderr='Ran 1 test in 0.001s\n\nOK\n' if test_ok else '')
 
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
@@ -893,6 +894,26 @@ class BenchRequestBudgetTests(unittest.TestCase):
         self.assertNotIn('OPENROUTER_API_KEY', p_env)
         self.assertNotIn('sk-should-not-leak', json.dumps(p_env))
         self.assertIn('microsdd-claude-home-', p_env.get('HOME', ''))
+
+    def test_directorio_en_test_fixture_da_celda_fallida(self):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch('subprocess.run', return_value=mock.Mock(returncode=0, stdout=json.dumps({'usage': {'input_tokens': 1}}), stderr='')):
+            (Path(tmp) / 'test_fixture.py').mkdir()
+            result = self.b.ClaudeCodeProvider('meta/llama:free', proxy=self._fake_proxy()).run_cell(self.b.list_tasks()[0], 'base', 0, workdir=Path(tmp))
+        self.assertEqual((result['success'], result['testsRun']), (False, 0))
+
+    @unittest.skipIf(os.name == 'nt', 'symlink requiere privilegios en Windows')
+    def test_restaurar_no_escribe_a_traves_de_symlink(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            destino, externo = Path(tmp) / 'test_fixture.py', Path(tmp) / 'externo.py'
+            externo.write_text('intacto', encoding='utf-8')
+            destino.symlink_to(externo)
+            self.b.restore_fixture_test(self.b.list_tasks()[0], Path(tmp))
+            self.assertEqual((externo.read_text(encoding='utf-8'), destino.is_symlink(), 'import unittest' in destino.read_text(encoding='utf-8')), ('intacto', False, True))
+
+    def test_force_color_no_rompe_la_senal(self):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {'FORCE_COLOR': '1'}):
+            (Path(tmp) / 'test_fixture.py').write_text('import unittest\n\n\nclass T(unittest.TestCase):\n    def test_ok(self):\n        pass\n', encoding='utf-8')
+            self.assertTrue(self.b.evaluate_fixture(['python', '-m', 'unittest', 'test_fixture'], Path(tmp))['ok'])
 
     def test_claude_provider_requires_proxy(self):
         with self.assertRaises(self.b.BenchError) as ctx:

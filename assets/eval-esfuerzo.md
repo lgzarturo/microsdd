@@ -14,7 +14,7 @@ Decidir con datos si el esfuerzo por defecto del proyecto (`effort` en `.microha
 2. **Regla nueva:** una funcionalidad de una sola regla de negocio con AC verificables. → `bench/tareas/02-regla-nueva`
 3. **Refactor sin cambio de conducta:** reorganización pequeña con la suite existente como red. → `bench/tareas/03-refactor`
 4. **Cambio de configuración o documentación:** ajuste sin lógica nueva que exige coherencia entre archivos. → `bench/tareas/04-config-docs`
-5. **Prueba de regresión:** añadir una prueba para un defecto ya corregido, sin tocar código de producción. → `bench/tareas/05-prueba-regresion`
+5. **Prueba de regresión:** un defecto reintroducido que la prueba de regresión existente detecta; se corrige el código sin tocar la prueba. → `bench/tareas/05-prueba-regresion`
 
 ## Procedimiento (bench m2)
 
