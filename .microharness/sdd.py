@@ -82,6 +82,12 @@ INTEGRITY_FIELDS = (
     (('odd_retries',), ('reintento_odd', 'reintentos_agotados', 'aprobación_spec')),
     (('receipt',), ('aprobación_spec',)),
 )
+FITNESS_DEFAULTS = {'max_params': 4, 'max_complexity': 10, 'max_lines': 250}
+FITNESS_TEST_PATTERNS = ('test_*.py', '*_test.py', 'conftest.py', 'tests/**')
+FITNESS_MEASURE_LIMITS = {'líneas': 'max_lines', 'parámetros': 'max_params', 'complejidad': 'max_complexity'}
+# Nodos que suman 1 a la complejidad; por nombre porque ast.match_case no existe antes de Python 3.10.
+FITNESS_BRANCH_NODES = ('If', 'IfExp', 'For', 'AsyncFor', 'While', 'ExceptHandler', 'match_case')
+FITNESS_ANALYSIS_ERRORS = (OSError, SyntaxError, ValueError, RecursionError, MemoryError)
 EMPTY_MEMORY = {
     'schema_version': 1,
     'project': {'observations': [], 'decisions': [], 'progress': [], 'discoveries': []},
@@ -515,7 +521,8 @@ def new(slug: str) -> None:
             'strategy': 'tdd',
             'commands': [],
             'protected_tests': [],
-            'mutation': {'enabled': False, 'command': [], 'reason': 'Activar solo si hay lógica crítica y herramienta existente.'}
+            'mutation': {'enabled': False, 'command': [], 'reason': 'Activar solo si hay lógica crítica y herramienta existente.'},
+            'fitness': {'enabled': False, **FITNESS_DEFAULTS},
         }
     }
     dump(path / 'spec.json', spec)
@@ -726,6 +733,128 @@ def memory_integrity(memory: dict) -> list[str]:
     return errors
 
 
+def _fitness_patterns_valid(patterns: object) -> bool:
+    if not isinstance(patterns, list):
+        return False
+    try:
+        return all(isinstance(p, str) and normalized_rel(p) != '.' for p in patterns)
+    except ValueError:
+        return False
+
+
+def fitness_config_errors(fitness: object) -> list[str]:
+    if not isinstance(fitness, dict):
+        return ['testing.fitness debe ser un objeto']
+    errors: list[str] = []
+    unknown = sorted(set(fitness) - {'enabled', 'test_patterns', *FITNESS_DEFAULTS})
+    if unknown:
+        errors.append(f'testing.fitness: claves no admitidas: {", ".join(unknown)}')
+    if type(fitness.get('enabled')) is not bool:
+        errors.append('testing.fitness.enabled debe ser booleano')
+    for limit in FITNESS_DEFAULTS:
+        if limit in fitness and (type(fitness[limit]) is not int or fitness[limit] < 1):
+            errors.append(f'testing.fitness.{limit} debe ser un entero mayor o igual a 1')
+    if not _fitness_patterns_valid(fitness.get('test_patterns', [])):
+        errors.append('testing.fitness.test_patterns debe ser una lista de rutas relativas')
+    return errors
+
+
+def _fitness_params(args: ast.arguments) -> int:
+    positional = [*args.posonlyargs, *args.args]
+    total = len(positional) + len(args.kwonlyargs) + bool(args.vararg) + bool(args.kwarg)
+    return total - bool(positional and positional[0].arg in ('self', 'cls'))
+
+
+def _complexity(node: ast.AST) -> int:
+    """Suma de decisiones en `node`, sin entrar en funciones anidadas (se miden aparte)."""
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        return 0
+    if isinstance(node, ast.BoolOp):
+        own = len(node.values) - 1
+    elif isinstance(node, ast.comprehension):
+        own = 1 + len(node.ifs)
+    else:
+        own = int(type(node).__name__ in FITNESS_BRANCH_NODES)
+    return own + sum(_complexity(child) for child in ast.iter_child_nodes(node))
+
+
+def _measure_functions(node: ast.AST, prefix: str = '') -> list[tuple[int, str, int, int]]:
+    found: list[tuple[int, str, int, int]] = []
+    for child in ast.iter_child_nodes(node):
+        inner = prefix
+        if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            inner = f'{prefix}{child.name}.'
+            complexity = 1 + sum(_complexity(statement) for statement in child.body)
+            found.append((child.lineno, prefix + child.name, _fitness_params(child.args), complexity))
+        elif isinstance(child, ast.ClassDef):
+            inner = f'{prefix}{child.name}.'
+        found.extend(_measure_functions(child, inner))
+    return found
+
+
+def measure_python(data: bytes) -> tuple[int, list[tuple[int, str, int, int]]]:
+    """Devuelve (líneas físicas, [(línea, nombre, parámetros, complejidad), …]) en orden de línea."""
+    pieces = re.split(rb'\r\n|\r|\n', data)
+    return len(pieces) - (pieces[-1] == b''), _measure_functions(ast.parse(data))
+
+
+def _fitness_rows(data: bytes) -> list[tuple[int, str, str, int]]:
+    """Filas (línea, función, medida, valor) en el orden en que se informan."""
+    lines, functions = measure_python(data)
+    rows = [(1, '<archivo>', 'líneas', lines)]
+    for line, name, params, complexity in functions:
+        rows += [(line, name, 'parámetros', params), (line, name, 'complejidad', complexity)]
+    return rows
+
+
+def _fitness_base(relative: str) -> dict[tuple[str, str], int]:
+    """Mayor valor en HEAD por (función, medida); vacío si no hay versión analizable."""
+    show = subprocess.run(['git', 'show', f'HEAD:{relative}'], cwd=ROOT, capture_output=True, check=False)
+    if show.returncode:
+        return {}
+    try:
+        rows = _fitness_rows(show.stdout)
+    except FITNESS_ANALYSIS_ERRORS:
+        return {}
+    base: dict[tuple[str, str], int] = {}
+    for _, name, measure, value in rows:
+        base[name, measure] = max(base.get((name, measure), 0), value)
+    return base
+
+
+def _fitness_file_errors(relative: str, limits: dict) -> list[str]:
+    try:
+        rows = _fitness_rows((ROOT / relative).read_bytes())
+    except FITNESS_ANALYSIS_ERRORS as err:
+        return [f'Fitness: {relative}: no se pudo analizar: {err}']
+    base = _fitness_base(relative)
+    errors: list[str] = []
+    for line, name, measure, value in rows:
+        limit = limits[FITNESS_MEASURE_LIMITS[measure]]
+        if value > limit and value > base.get((name, measure), 0):
+            errors.append(f'Fitness: {relative}:{line} {name} {measure} {value} > límite {limit}')
+    return errors
+
+
+def fitness_errors(spec: dict) -> list[str]:
+    testing = spec.get('testing', {})
+    fitness = testing.get('fitness', {'enabled': False})
+    # Una configuración inválida ya la informa fitness_config_errors.
+    if fitness_config_errors(fitness) or not fitness['enabled']:
+        return []
+    patterns = spec['scope']['allowed_paths']
+    test_patterns = fitness.get('test_patterns', FITNESS_TEST_PATTERNS)
+    protected = {normalized_rel(p) for p in testing.get('protected_tests', [])}
+    limits = {**FITNESS_DEFAULTS, **fitness}
+    errors: list[str] = []
+    for relative in diff_files():
+        if (relative.lower().endswith('.py') and path_allowed(relative, patterns)
+                and (ROOT / relative).is_file() and relative not in protected
+                and not path_allowed(relative, test_patterns)):
+            errors.extend(_fitness_file_errors(relative, limits))
+    return errors
+
+
 def validate(slug: str, run: bool = False, scope: bool = True) -> list[str]:
     cfg = config()
     path, s, memory = task_files(slug)
@@ -799,6 +928,8 @@ def validate(slug: str, run: bool = False, scope: bool = True) -> list[str]:
         if mutation.get('enabled') and mutation.get('command') \
                 and not command_allowed(mutation['command'], allowed):
             errors.append(f'Comando de mutación fuera de la lista blanca: {mutation["command"]}')
+        if 'fitness' in testing:
+            errors.extend(fitness_config_errors(testing['fitness']))
     min_tests = testing.get('min_tests', 1)
     if type(min_tests) is not int or min_tests < 1:
         errors.append('testing.min_tests debe ser un entero mayor o igual a 1')
@@ -828,6 +959,8 @@ def validate(slug: str, run: bool = False, scope: bool = True) -> list[str]:
                 continue
             if not path_allowed(filename, patterns):
                 errors.append(f'Archivo modificado fuera de scope: {filename}')
+    if scope and patterns and s.get('state') != 'terminado':
+        errors.extend(fitness_errors(s))
     if run and not errors:
         commands = [(c, True) for c in testing['commands']]
         if mutation.get('enabled'):

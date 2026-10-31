@@ -28,9 +28,25 @@
         "for_task": "seal-monotonico",
         "for_phase": "spec",
         "used_at": "2026-10-31T06:33:21+00:00"
+      },
+      {
+        "at": "2026-10-31T06:54:27+00:00",
+        "fact": "Programador aprueba la spec testing-fitness con DEC-01 A y los agregados del autor",
+        "evidence": "1-A. 2. si debes mantenerlos. apruebo la spec testing-fitness con DEC-01 A y los agregados como están",
+        "id": "n4",
+        "for_task": "testing-fitness",
+        "for_phase": "spec",
+        "used_at": "2026-10-31T06:54:28+00:00"
       }
     ],
-    "decisions": [],
+    "decisions": [
+      {
+        "at": "2026-10-31T07:04:12+00:00",
+        "by": "Arturo López",
+        "decision": "Se aceptan 322 líneas de pruebas en testing-fitness, sobre el tope de 240, sin cambiar la spec",
+        "evidence": "acepto las 322 líneas de pruebas sin cambiar la spec"
+      }
+    ],
     "progress": [],
     "discoveries": [
       {
@@ -186,6 +202,83 @@
           "by": "lider"
         }
       ]
+    },
+    "testing-fitness": {
+      "approvals": {
+        "spec": {
+          "by": "Arturo López",
+          "evidence": "@note:n4",
+          "at": "2026-10-31T06:54:28+00:00",
+          "fingerprint": "35d056a8d14a4455b7a779beb9ce60f48bc1f66b4d4921fc65cc308e305d6c7a"
+        },
+        "close": {
+          "by": "lider",
+          "evidence": "Dictamen APROBADO del revisor independiente, sin defectos bloqueantes, y puerta check --run revalidada por approve close.",
+          "at": "2026-10-31T07:14:19+00:00"
+        }
+      },
+      "witness": {
+        "path": "spec/testing-fitness/testigo.md",
+        "sha256": "ccf9fb0750e0b7ed8f4693ed342da384a1bda4b5cb2676bad92367a310b85003",
+        "at": "2026-10-31T07:14:19+00:00"
+      },
+      "sealed_tests": {
+        "tests/test_sdd.py": "1728486136abfe81feab2ab68a2d6aa3f808d85c3b363429393e0bb3ced6c498"
+      },
+      "review": "APROBADO",
+      "review_fingerprint": "53c4ffd09751f5134ef8e0eacadb9377ee2c26c7adadf661277d0133034b029b",
+      "iterations": 1,
+      "odd_retries": 0,
+      "receipt": {
+        "at": "2026-10-31T06:54:28+00:00",
+        "allowed_paths": [
+          ".microharness/sdd.py",
+          "tests/test_sdd.py",
+          "assets/arnes-completo.md",
+          "assets/proceso-versionado.md"
+        ],
+        "files": {
+          ".microharness/sdd.py": "cc85cf10c445ffc5cad59f0ea05c6591c2848f1fe0ba8533a0e6bd8954117951",
+          "assets/arnes-completo.md": "18be0e25e553cfa497518080cb382489678b36553db9d9b4de1e28430d675d4d",
+          "assets/proceso-versionado.md": "be5324b5156516b12b1aee229a9722ba4fff5ca8a62ead1e636b9ef565856f70",
+          "tests/test_sdd.py": "b4b13412778b84da5f0890e7546356d7b01feb414503bb34c43b225669ffa928"
+        },
+        "digest": "f3ceb522a82dafdad6a53c042b945cd6ec12bdba250d692df6b32c03f7a3f3ab"
+      },
+      "events": [
+        {
+          "at": "2026-10-31T06:40:54+00:00",
+          "event": "creada"
+        },
+        {
+          "at": "2026-10-31T06:54:28+00:00",
+          "event": "aprobación_spec",
+          "by": "Arturo López"
+        },
+        {
+          "at": "2026-10-31T07:04:15+00:00",
+          "event": "sellado_tests",
+          "by": "lider",
+          "evidence": "RED confirmado en T09: 150 pruebas del módulo, 13 de 15 nuevas en rojo por falta de comportamiento, 2 pasan según lo previsto, 135 previas en verde. Humano aceptó 322 líneas de pruebas.",
+          "files": [
+            "tests/test_sdd.py"
+          ]
+        },
+        {
+          "at": "2026-10-31T07:13:43+00:00",
+          "event": "revisión",
+          "verdict": "APROBADO",
+          "evidence": "Revisor independiente: AC-01 a AC-19 cumplen, check --run con 476 pruebas y 4 omitidas, sin defectos bloqueantes. Siete observaciones no bloqueantes O1 a O7 para tareas posteriores. No verificado: casos propios, otras plataformas y entorno sin Git."
+        },
+        {
+          "at": "2026-10-31T07:14:19+00:00",
+          "event": "aprobación_close",
+          "by": "lider"
+        }
+      ],
+      "sealed_assertions": {
+        "tests/test_sdd.py": 375
+      }
     }
   }
 }

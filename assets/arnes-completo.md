@@ -234,7 +234,8 @@ El comando `new` genera un ejemplo completo y editable con estos campos relevant
       "enabled": false,
       "command": [],
       "reason": "No hay lógica crítica compleja que justifique costo adicional"
-    }
+    },
+    "fitness": { "enabled": false, "max_params": 4, "max_complexity": 10, "max_lines": 250 }
   }
 }
 ```
@@ -284,6 +285,29 @@ Las tareas en `pendiente` o `proceso` fallarán `check` hasta actualizar su `spe
 - **Mutation testing:** activar en un módulo de lógica crítica y con herramienta disponible, nunca como requisito indiscriminado. Revisar mutantes supervivientes relevantes y equivalentes; no convertir la cifra de mutation score en objetivo absoluto. `check --run` ejecuta también `mutation.command` si `enabled=true`.
 - **SHA-256:** `seal` guarda hash por archivo en memoria. `check` detecta cambios. El sello se compara mientras la tarea no esté `terminado`; tras el cierre queda como registro histórico. Protege principalmente de deriva accidental de pruebas de aceptación. No aporta inmutabilidad real frente a quien pueda modificar tests, memoria y Git. Para reforzarlo: guardar hash y test en commit previo, CI con verificación, revisión/branch protection.
 
+### Fitness estructural (`testing.fitness`)
+
+Puerta opcional por tarea y apagada por defecto, con el mismo espíritu que la mutación: proporcional, no obligatoria. Sin el campo o con `enabled: false` no se evalúa nada. Con `enabled: true`, un límite ausente toma su valor por defecto (`max_params` 4, `max_complexity` 10, `max_lines` 250). `enabled` es obligatorio si el campo existe; un tipo inválido o una clave desconocida es error mientras la tarea no esté `terminado`, también con la puerta apagada, y en `terminado` el campo se ignora.
+
+- **Parámetros:** posicionales, *positional-only*, keyword-only, `*args` y `**kwargs`. Se descuenta 1 solo si el primer posicional se llama exactamente `self` o `cls`.
+- **Complejidad ciclomática:** 1 más la suma, en el cuerpo de la función, de: 1 por `If`, `IfExp`, `For`, `AsyncFor`, `While`, `ExceptHandler` y `match_case`; operandos menos 1 por `BoolOp`; 1 por cada `for` y cada `if` de una comprensión. Una `lambda` y el cuerpo de una clase anidada suman a la función que los contiene; un `def` anidado se mide aparte, con nombre cualificado (`f.g`, `C.m`). Decoradores, anotaciones y valores por defecto del propio `def` no suman.
+- **Líneas:** líneas físicas del archivo (`\n`, `\r\n` o `\r`), incluidos blancos y comentarios. El código a nivel de módulo o clase solo se mide mediante este total.
+
+**Archivos evaluados.** Los de `git diff HEAD` más los no rastreados que terminan en `.py` (sin distinguir mayúsculas), coinciden con `scope.allowed_paths`, existen en disco y no son pruebas. Es prueba un archivo cuya ruta esté literalmente en `testing.protected_tests` o coincida con `test_patterns`, que por defecto es `test_*.py`, `*_test.py`, `conftest.py` y `tests/**`; si se indica, sustituye a esos valores, y `[]` deja solo `protected_tests`. `check --no-scope` y `approve spec` no evalúan archivos porque no miran el diff; `check`, `check --run` (sin ejecutar comandos si hay violación) y `approve close` sí.
+
+**Regla frente a `HEAD`.** Un valor sobre el límite es violación solo si la función o el archivo no existe en `HEAD`, o si el valor es mayor que en `HEAD`. Si la versión de `HEAD` no se puede analizar, la base se considera vacía. Formato: `Fitness: <ruta>:<línea> <función> <medida> N > límite M`, con `:1` y `<archivo>` para las líneas; un archivo no analizable da `Fitness: <ruta>: no se pudo analizar: <detalle>`.
+
+**Subir un límite.** Para hacer crecer algo ya fuera de límite se sube el límite en la spec. Se aplica a todos los archivos evaluados de la tarea y, como cualquier cambio de `spec.json`, invalida la huella y exige reaprobar.
+
+**Límites conocidos:**
+
+- Solo cubre Python, mide estructura y no calidad semántica, y no es un control de seguridad.
+- La base es `HEAD`: un commit intermedio la mueve y, a partir de él, la violación confirmada ya no se detecta. Empieza con working tree limpio, igual que el control de alcance.
+- Renombrar o mover cuenta como nuevo: una función de complejidad 12 renombrada o un archivo movido fallan, y la salida es subir el límite.
+- Con nombres repetidos, la base es el mayor valor, así que una redefinición nueva puede pasar por debajo de él.
+- `tests/**` compara por sufijo: también coincide con `pkg/tests/a.py`, pero no con `pkg/tests/x/a.py`. `test_*.py` excluye un archivo de producción con ese nombre. Ambos casos se corrigen con `test_patterns`.
+- `ast.parse` puede imprimir avisos `SyntaxWarning` en stderr; no se silencian. No ejecuta el código evaluado.
+
 ## Qué se obliga y qué NO
 
 | Control | Capa | Alcance real |
@@ -296,6 +320,7 @@ Las tareas en `pendiente` o `proceso` fallarán `check` hasta actualizar su `spe
 | Huella de revisión | Hash de archivos cambiados en el diff | Detecta nuevos cambios de código después de `APROBADO`; no protege de Git/memoria manipulados |
 | Tests y mutación | `check --run` | Código de salida de comandos configurados y, en tareas no `terminado`, recuento mínimo de pruebas ejecutadas por comando (`testing.min_tests`, sin contar la mutación); un resumen falso o una prueba deficiente no prueba corrección |
 | Lista blanca de runners | `sdd.py check` | En tareas no `terminado`, `testing.commands` y `mutation.command` activo deben empezar por un prefijo conocido o ampliado en `project.allowed_test_commands`; acota el ejecutable, no el código del proyecto que el runner ejecuta, y la ampliación vive en `memory.json` editable |
+| Fitness estructural | `sdd.py check` con alcance y `approve close` | Opcional por tarea (`testing.fitness`): límites de parámetros, complejidad y líneas frente a `HEAD` en los archivos cambiados. Solo cubre Python, mide estructura y no calidad semántica, y no es un control de seguridad |
 | Integridad de la memoria | `validate` (`check`, `approve`) frente a `HEAD:.microharness/memory.json` | Compara todas las tareas confirmadas en el último commit: `events` debe conservar como prefijo los eventos confirmados (solo se añade al final); un cambio en `approvals.spec` exige un evento nuevo `aprobación_spec`, en `approvals.close` `aprobación_close` o `aprobación_spec`, en `sealed_tests` o `sealed_assertions` `sellado_tests`, y en `review`, `review_fingerprint` o `iterations` `revisión` o `aprobación_spec`; una tarea cerrada en `HEAD` no puede cambiar ni reabrirse, y no puede desaparecer de la memoria mientras exista su `spec/<slug>/`. No aplica sin repositorio, sin commits o sin memoria en `HEAD`; una memoria de `HEAD` ilegible es error. No compara tareas aún no confirmadas ni `project`. Detecta, no impide (ver limitaciones) |
 | Reviews y aprobación | Líder + JSON | Contrato procedimental; no autentica al humano |
 | Conventional Commits | `commit-check` | Comprueba patrón básico; el carácter atómico depende del `git add` y revisión humana |
