@@ -1,10 +1,82 @@
 {
   "schema_version": 1,
   "project": {
-    "observations": [],
+    "observations": [
+      {
+        "at": "2026-10-31T05:32:58+00:00",
+        "fact": "Programador aprueba la spec workflows-manuales y deja assets/ci-matrix-windows.yml sin cambios",
+        "evidence": "1. si 2. si dejar sin cambios. apruebo la spec.",
+        "id": "n1",
+        "for_task": "workflows-manuales",
+        "for_phase": "spec",
+        "used_at": "2026-10-31T05:33:02+00:00"
+      }
+    ],
     "decisions": [],
     "progress": [],
     "discoveries": []
   },
-  "tasks": {}
+  "tasks": {
+    "workflows-manuales": {
+      "approvals": {
+        "spec": {
+          "by": "Arturo López",
+          "evidence": "@note:n1",
+          "at": "2026-10-31T05:33:02+00:00",
+          "fingerprint": "7b7148c87c048e934f35198833d12dc9d8da52285b83b91495efc82151ef1f87"
+        },
+        "close": {
+          "by": "lider",
+          "evidence": "Dictamen APROBADO y check --run verde: 434 pruebas OK, 4 omitidas. AC-01, AC-02, AC-03 y AC-05 con salida literal del implementador, no del revisor.",
+          "at": "2026-10-31T05:41:30+00:00"
+        }
+      },
+      "witness": {
+        "path": "spec/workflows-manuales/testigo.md",
+        "sha256": "2105add4b1a5371661c048c3b565251afc996aa87a02e90b1d11d4e8f97799a2",
+        "at": "2026-10-31T05:41:30+00:00"
+      },
+      "sealed_tests": {},
+      "review": "APROBADO",
+      "review_fingerprint": "dc6abb90fe304cb532fe181f78dc72f710dd308b4ea0f06eaf96e07f6e444cdb",
+      "iterations": 1,
+      "odd_retries": 0,
+      "receipt": {
+        "at": "2026-10-31T05:33:02+00:00",
+        "allowed_paths": [
+          ".github/workflows/tests.yml",
+          ".github/workflows/bench-baseline.yml",
+          "assets/arnes-completo.md"
+        ],
+        "files": {
+          ".github/workflows/bench-baseline.yml": "54c8de373dd37606954b6399387c7564101f7453960c165319978b9f26274728",
+          ".github/workflows/tests.yml": "b7476a14bcda0f3d298cb311e51629e392502a5c7ec848bc76bcba2fceb73584",
+          "assets/arnes-completo.md": "91f8746968c6b11a56db065b4d476e4e2572e7478e550f5ed26f7934f7e6933a"
+        },
+        "digest": "de7ee2d97e7cbcde07f8660529c8b4e680524be3639cbfe58afc6d4ea2d5aee0"
+      },
+      "events": [
+        {
+          "at": "2026-10-31T04:36:51+00:00",
+          "event": "creada"
+        },
+        {
+          "at": "2026-10-31T05:33:02+00:00",
+          "event": "aprobación_spec",
+          "by": "Arturo López"
+        },
+        {
+          "at": "2026-10-31T05:40:37+00:00",
+          "event": "revisión",
+          "verdict": "APROBADO",
+          "evidence": "Revisor sin defectos. AC-04, AC-06 y AC-07 ejecutados por el revisor; check --run: 434 pruebas OK, 4 omitidas. AC-01, AC-02, AC-03 y AC-05: el hook le denego los comandos literales, verifico por lectura y busquedas equivalentes; salidas literales reportadas por el implementador. PyYAML no comprobado por el revisor."
+        },
+        {
+          "at": "2026-10-31T05:41:30+00:00",
+          "event": "aprobación_close",
+          "by": "lider"
+        }
+      ]
+    }
+  }
 }

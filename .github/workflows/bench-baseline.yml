@@ -1,5 +1,5 @@
 # Fill pending DeepSeek (Arturo 22 oct 19:30 Cancún).
-# Solo workflow_dispatch o push a bench/baseline-m2-run.
+# Solo workflow_dispatch.
 # Secret: OPENROUTER_API_KEY. Claude Code pin 2.1.197.
 #
 # Presupuesto NUEVO: 100 requests (prior=0) · candado $0.10 usage Δ.
@@ -8,9 +8,6 @@
 name: bench-baseline
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - bench/baseline-m2-run
 permissions:
   contents: read
 env:

@@ -2,9 +2,7 @@
 # Objetivo 1.1.3: unittest en ubuntu-latest y windows-latest.
 name: tests
 on:
-  push:
-    branches: [main]
-  pull_request:
+  workflow_dispatch:
 jobs:
   unittest:
     strategy:
