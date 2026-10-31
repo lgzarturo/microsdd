@@ -1,0 +1,94 @@
+{
+  "schema_version": 1,
+  "id": "testing-fitness",
+  "title": "Puerta opcional testing.fitness: límites estructurales con ast en check",
+  "state": "terminado",
+  "model": "claude-opus-5-5",
+  "effort": "medium",
+  "max_iterations": 3,
+  "method": {
+    "primary": "SDD",
+    "optional": [],
+    "notes": ""
+  },
+  "scope": {
+    "allowed_paths": [
+      ".microharness/sdd.py",
+      "tests/test_sdd.py",
+      "assets/arnes-completo.md",
+      "assets/proceso-versionado.md"
+    ],
+    "excluded": [
+      "estados, roles o motor nuevos",
+      "stubs obligatorios",
+      "chmod",
+      "árbitro",
+      "hooks de git",
+      "SYMBOL_MAP",
+      "prohibición de mocks",
+      "regla de capas o imports de dominio",
+      "activar la puerta por defecto",
+      "aplicar la puerta al propio repositorio en esta tarea",
+      "dependencias externas",
+      "otros lenguajes",
+      "opciones nuevas de la CLI",
+      ".claude/",
+      "src/microsdd/",
+      "docs/",
+      "README.md",
+      "CHANGELOG.md",
+      "historial/",
+      "assets/decisiones-diseno.md"
+    ]
+  },
+  "requirements": {
+    "acceptance_ids": [
+      "AC-01",
+      "AC-02",
+      "AC-03",
+      "AC-04",
+      "AC-05",
+      "AC-06",
+      "AC-07",
+      "AC-08",
+      "AC-09",
+      "AC-10",
+      "AC-11",
+      "AC-12",
+      "AC-13",
+      "AC-14",
+      "AC-15",
+      "AC-16",
+      "AC-17",
+      "AC-18",
+      "AC-19"
+    ],
+    "preconditions": [
+      "Rama feat/seal-monotonico en 4f4ac1a con .microharness/sdd.py en versión 1.5.3.",
+      "Suite en verde: 461 pruebas, 4 omitidas, con python -m unittest discover -s tests.",
+      "DEC-01 confirmada por el humano al aprobar la spec."
+    ]
+  },
+  "testing": {
+    "strategy": "tdd",
+    "commands": [
+      [
+        "python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tests"
+      ]
+    ],
+    "min_tests": 470,
+    "protected_tests": [
+      "tests/test_sdd.py"
+    ],
+    "mutation": {
+      "enabled": false,
+      "command": [],
+      "reason": "Desactivada: lógica pequeña y determinista; las tablas de AC-05 a AC-11 ya fijan los límites de medida y comparación."
+    }
+  }
+}

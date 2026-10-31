@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import contextlib
 import hashlib
 import json
@@ -51,7 +52,7 @@ FRONTMATTER_RE = re.compile(r'\A---\r?\n(.*?)\r?\n---(?:\r?\n|$)', re.DOTALL)
 NOTE_EVIDENCE_MAX_AGE_S = 1800
 NOTE_REF_RE = re.compile(r'^@note:([a-zA-Z0-9_-]+)$')
 NOTE_IN_CMD_RE = re.compile(r'@note:[a-zA-Z0-9_-]+')
-NOTE_PHASES = ('spec', 'close', 'seal', 'allow-test', 'odd-retry')
+NOTE_PHASES = ('spec', 'close', 'seal', 'seal-reduce', 'allow-test', 'odd-retry')
 _LOCK_DEPTH = 0
 # Resúmenes de runners: unittest, pytest, bun y Maven (se usa la última coincidencia de cada uno).
 TEST_COUNT_RES = (
@@ -74,12 +75,19 @@ INTEGRITY_FIELDS = (
     (('approvals', 'close'), ('aprobación_close', 'aprobación_spec')),
     (('witness',), ('aprobación_close',)),
     (('sealed_tests',), ('sellado_tests',)),
+    (('sealed_assertions',), ('sellado_tests',)),
     (('review',), ('revisión', 'aprobación_spec')),
     (('review_fingerprint',), ('revisión', 'aprobación_spec')),
     (('iterations',), ('revisión', 'aprobación_spec')),
     (('odd_retries',), ('reintento_odd', 'reintentos_agotados', 'aprobación_spec')),
     (('receipt',), ('aprobación_spec',)),
 )
+FITNESS_DEFAULTS = {'max_params': 4, 'max_complexity': 10, 'max_lines': 250}
+FITNESS_TEST_PATTERNS = ('test_*.py', '*_test.py', 'conftest.py', 'tests/**')
+FITNESS_MEASURE_LIMITS = {'líneas': 'max_lines', 'parámetros': 'max_params', 'complejidad': 'max_complexity'}
+# Nodos que suman 1 a la complejidad; por nombre porque ast.match_case no existe antes de Python 3.10.
+FITNESS_BRANCH_NODES = ('If', 'IfExp', 'For', 'AsyncFor', 'While', 'ExceptHandler', 'match_case')
+FITNESS_ANALYSIS_ERRORS = (OSError, SyntaxError, ValueError, RecursionError, MemoryError)
 EMPTY_MEMORY = {
     'schema_version': 1,
     'project': {'observations': [], 'decisions': [], 'progress': [], 'discoveries': []},
@@ -513,7 +521,8 @@ def new(slug: str) -> None:
             'strategy': 'tdd',
             'commands': [],
             'protected_tests': [],
-            'mutation': {'enabled': False, 'command': [], 'reason': 'Activar solo si hay lógica crítica y herramienta existente.'}
+            'mutation': {'enabled': False, 'command': [], 'reason': 'Activar solo si hay lógica crítica y herramienta existente.'},
+            'fitness': {'enabled': False, **FITNESS_DEFAULTS},
         }
     }
     dump(path / 'spec.json', spec)
@@ -724,6 +733,128 @@ def memory_integrity(memory: dict) -> list[str]:
     return errors
 
 
+def _fitness_patterns_valid(patterns: object) -> bool:
+    if not isinstance(patterns, list):
+        return False
+    try:
+        return all(isinstance(p, str) and normalized_rel(p) != '.' for p in patterns)
+    except ValueError:
+        return False
+
+
+def fitness_config_errors(fitness: object) -> list[str]:
+    if not isinstance(fitness, dict):
+        return ['testing.fitness debe ser un objeto']
+    errors: list[str] = []
+    unknown = sorted(set(fitness) - {'enabled', 'test_patterns', *FITNESS_DEFAULTS})
+    if unknown:
+        errors.append(f'testing.fitness: claves no admitidas: {", ".join(unknown)}')
+    if type(fitness.get('enabled')) is not bool:
+        errors.append('testing.fitness.enabled debe ser booleano')
+    for limit in FITNESS_DEFAULTS:
+        if limit in fitness and (type(fitness[limit]) is not int or fitness[limit] < 1):
+            errors.append(f'testing.fitness.{limit} debe ser un entero mayor o igual a 1')
+    if not _fitness_patterns_valid(fitness.get('test_patterns', [])):
+        errors.append('testing.fitness.test_patterns debe ser una lista de rutas relativas')
+    return errors
+
+
+def _fitness_params(args: ast.arguments) -> int:
+    positional = [*args.posonlyargs, *args.args]
+    total = len(positional) + len(args.kwonlyargs) + bool(args.vararg) + bool(args.kwarg)
+    return total - bool(positional and positional[0].arg in ('self', 'cls'))
+
+
+def _complexity(node: ast.AST) -> int:
+    """Suma de decisiones en `node`, sin entrar en funciones anidadas (se miden aparte)."""
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        return 0
+    if isinstance(node, ast.BoolOp):
+        own = len(node.values) - 1
+    elif isinstance(node, ast.comprehension):
+        own = 1 + len(node.ifs)
+    else:
+        own = int(type(node).__name__ in FITNESS_BRANCH_NODES)
+    return own + sum(_complexity(child) for child in ast.iter_child_nodes(node))
+
+
+def _measure_functions(node: ast.AST, prefix: str = '') -> list[tuple[int, str, int, int]]:
+    found: list[tuple[int, str, int, int]] = []
+    for child in ast.iter_child_nodes(node):
+        inner = prefix
+        if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            inner = f'{prefix}{child.name}.'
+            complexity = 1 + sum(_complexity(statement) for statement in child.body)
+            found.append((child.lineno, prefix + child.name, _fitness_params(child.args), complexity))
+        elif isinstance(child, ast.ClassDef):
+            inner = f'{prefix}{child.name}.'
+        found.extend(_measure_functions(child, inner))
+    return found
+
+
+def measure_python(data: bytes) -> tuple[int, list[tuple[int, str, int, int]]]:
+    """Devuelve (líneas físicas, [(línea, nombre, parámetros, complejidad), …]) en orden de línea."""
+    pieces = re.split(rb'\r\n|\r|\n', data)
+    return len(pieces) - (pieces[-1] == b''), _measure_functions(ast.parse(data))
+
+
+def _fitness_rows(data: bytes) -> list[tuple[int, str, str, int]]:
+    """Filas (línea, función, medida, valor) en el orden en que se informan."""
+    lines, functions = measure_python(data)
+    rows = [(1, '<archivo>', 'líneas', lines)]
+    for line, name, params, complexity in functions:
+        rows += [(line, name, 'parámetros', params), (line, name, 'complejidad', complexity)]
+    return rows
+
+
+def _fitness_base(relative: str) -> dict[tuple[str, str], int]:
+    """Mayor valor en HEAD por (función, medida); vacío si no hay versión analizable."""
+    show = subprocess.run(['git', 'show', f'HEAD:{relative}'], cwd=ROOT, capture_output=True, check=False)
+    if show.returncode:
+        return {}
+    try:
+        rows = _fitness_rows(show.stdout)
+    except FITNESS_ANALYSIS_ERRORS:
+        return {}
+    base: dict[tuple[str, str], int] = {}
+    for _, name, measure, value in rows:
+        base[name, measure] = max(base.get((name, measure), 0), value)
+    return base
+
+
+def _fitness_file_errors(relative: str, limits: dict) -> list[str]:
+    try:
+        rows = _fitness_rows((ROOT / relative).read_bytes())
+    except FITNESS_ANALYSIS_ERRORS as err:
+        return [f'Fitness: {relative}: no se pudo analizar: {err}']
+    base = _fitness_base(relative)
+    errors: list[str] = []
+    for line, name, measure, value in rows:
+        limit = limits[FITNESS_MEASURE_LIMITS[measure]]
+        if value > limit and value > base.get((name, measure), 0):
+            errors.append(f'Fitness: {relative}:{line} {name} {measure} {value} > límite {limit}')
+    return errors
+
+
+def fitness_errors(spec: dict) -> list[str]:
+    testing = spec.get('testing', {})
+    fitness = testing.get('fitness', {'enabled': False})
+    # Una configuración inválida ya la informa fitness_config_errors.
+    if fitness_config_errors(fitness) or not fitness['enabled']:
+        return []
+    patterns = spec['scope']['allowed_paths']
+    test_patterns = fitness.get('test_patterns', FITNESS_TEST_PATTERNS)
+    protected = {normalized_rel(p) for p in testing.get('protected_tests', [])}
+    limits = {**FITNESS_DEFAULTS, **fitness}
+    errors: list[str] = []
+    for relative in diff_files():
+        if (relative.lower().endswith('.py') and path_allowed(relative, patterns)
+                and (ROOT / relative).is_file() and relative not in protected
+                and not path_allowed(relative, test_patterns)):
+            errors.extend(_fitness_file_errors(relative, limits))
+    return errors
+
+
 def validate(slug: str, run: bool = False, scope: bool = True) -> list[str]:
     cfg = config()
     path, s, memory = task_files(slug)
@@ -797,6 +928,8 @@ def validate(slug: str, run: bool = False, scope: bool = True) -> list[str]:
         if mutation.get('enabled') and mutation.get('command') \
                 and not command_allowed(mutation['command'], allowed):
             errors.append(f'Comando de mutación fuera de la lista blanca: {mutation["command"]}')
+        if 'fitness' in testing:
+            errors.extend(fitness_config_errors(testing['fitness']))
     min_tests = testing.get('min_tests', 1)
     if type(min_tests) is not int or min_tests < 1:
         errors.append('testing.min_tests debe ser un entero mayor o igual a 1')
@@ -826,6 +959,8 @@ def validate(slug: str, run: bool = False, scope: bool = True) -> list[str]:
                 continue
             if not path_allowed(filename, patterns):
                 errors.append(f'Archivo modificado fuera de scope: {filename}')
+    if scope and patterns and s.get('state') != 'terminado':
+        errors.extend(fitness_errors(s))
     if run and not errors:
         commands = [(c, True) for c in testing['commands']]
         if mutation.get('enabled'):
@@ -1216,6 +1351,40 @@ def note(fact: str | None, decision: str | None, by: str | None, evidence: str,
           else 'Decisión declarada registrada. No es una firma ni autentica al usuario.')
 
 
+def count_assertions(target: Path, relative: str) -> int:
+    """Recuento estático de aserciones de un archivo Python (definición en assets/arnes-completo.md)."""
+    try:
+        tree = ast.parse(target.read_bytes(), filename=relative)
+    except (SyntaxError, ValueError, RecursionError, MemoryError) as err:
+        raise ValueError(f'No se pudo analizar {relative}: {err}') from None
+    total = 0
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assert):
+            total += 1
+        elif (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+              and isinstance(node.func.value, ast.Name)):
+            receiver, attr = node.func.value.id, node.func.attr
+            if (receiver == 'self' and (attr.startswith('assert') or attr == 'fail')) \
+                    or (receiver == 'pytest' and attr == 'raises'):
+                total += 1
+    return total
+
+
+def assertion_reductions(previous: object, counts: dict[str, int], hashes: dict[str, str]) -> list[dict]:
+    """Compara los recuentos registrados con los actuales; una ruta retirada cuenta como 0."""
+    if not isinstance(previous, dict):
+        raise ValueError(f'sealed_assertions inválido: debe ser un objeto, no {previous!r}')
+    reductions: list[dict] = []
+    for file, before in previous.items():
+        if file in hashes and file not in counts:
+            continue  # No Python: se sella solo por hash.
+        if type(before) is not int or before < 0:
+            raise ValueError(f'sealed_assertions inválido: {file}: {before!r} no es un entero >= 0')
+        if counts.get(file, 0) < before:
+            reductions.append({'file': file, 'previous': before, 'current': counts.get(file, 0)})
+    return reductions
+
+
 @memory_lock()
 def seal(slug: str, by: str, evidence: str) -> None:
     maybe_require_human_terminal('seal', evidence, slug=slug, by=by)
@@ -1226,19 +1395,39 @@ def seal(slug: str, by: str, evidence: str) -> None:
         raise ValueError('No hay testing.protected_tests; selecciona pruebas concretas.')
     if not by.strip() or not evidence.strip():
         raise ValueError('Se requiere identificación declarada y texto de evidencia explícita.')
-    note_id = note_ref_id(evidence)
-    if note_id and agent_may_approve_enabled():
-        consume_note(memory, note_id, for_phase='seal', for_task=slug)
     hashes: dict[str, str] = {}
+    counts: dict[str, int] = {}
     for test in tests:
         relative = normalized_rel(test)
         target = ROOT / relative
         if not target.is_file() or not target.resolve().is_relative_to(ROOT.resolve()):
             raise ValueError(f'No existe test seguro: {relative}')
         hashes[relative] = hash_file(target)
-    memory['tasks'][slug]['sealed_tests'] = hashes
-    memory['tasks'][slug]['events'].append(
-        {'at': now(), 'event': 'sellado_tests', 'by': by, 'evidence': evidence, 'files': list(hashes)})
+        if relative.lower().endswith('.py'):
+            counts[relative] = count_assertions(target, relative)
+    task = memory['tasks'][slug]
+    reductions = assertion_reductions(task.get('sealed_assertions', {}), counts, hashes)
+    note_id = note_ref_id(evidence)
+    if reductions:
+        detail = 'Reducción de aserciones: ' + '; '.join(
+            f"{r['file']}: anterior {r['previous']}, actual {r['current']}" for r in reductions)
+        if not note_id:
+            raise ValueError(f'{detail}. Hace falta una cita literal del humano: un agente debe pedírsela '
+                             "y no redactarla. Forma: note --fact … --evidence '<cita humana>' "
+                             '--for-task <slug> --for-phase seal-reduce; '
+                             'luego seal … --evidence @note:<id>.')
+        try:
+            consume_note(memory, note_id, for_phase='seal-reduce', for_task=slug)
+        except ValueError as err:
+            raise ValueError(f'{detail}. {err}') from None
+    elif note_id and agent_may_approve_enabled():
+        consume_note(memory, note_id, for_phase='seal', for_task=slug)
+    task['sealed_tests'] = hashes
+    task['sealed_assertions'] = counts
+    event = {'at': now(), 'event': 'sellado_tests', 'by': by, 'evidence': evidence, 'files': list(hashes)}
+    if reductions:
+        event['assertion_reductions'] = reductions
+    task['events'].append(event)
     dump(MEMORY, memory)
     emit('verification', taskId=slug, verification={
         'gate': 'seal', 'passed': True, 'durationMs': None,
