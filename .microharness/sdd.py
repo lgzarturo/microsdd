@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import contextlib
 import hashlib
 import json
@@ -51,7 +52,7 @@ FRONTMATTER_RE = re.compile(r'\A---\r?\n(.*?)\r?\n---(?:\r?\n|$)', re.DOTALL)
 NOTE_EVIDENCE_MAX_AGE_S = 1800
 NOTE_REF_RE = re.compile(r'^@note:([a-zA-Z0-9_-]+)$')
 NOTE_IN_CMD_RE = re.compile(r'@note:[a-zA-Z0-9_-]+')
-NOTE_PHASES = ('spec', 'close', 'seal', 'allow-test', 'odd-retry')
+NOTE_PHASES = ('spec', 'close', 'seal', 'seal-reduce', 'allow-test', 'odd-retry')
 _LOCK_DEPTH = 0
 # Resúmenes de runners: unittest, pytest, bun y Maven (se usa la última coincidencia de cada uno).
 TEST_COUNT_RES = (
@@ -74,6 +75,7 @@ INTEGRITY_FIELDS = (
     (('approvals', 'close'), ('aprobación_close', 'aprobación_spec')),
     (('witness',), ('aprobación_close',)),
     (('sealed_tests',), ('sellado_tests',)),
+    (('sealed_assertions',), ('sellado_tests',)),
     (('review',), ('revisión', 'aprobación_spec')),
     (('review_fingerprint',), ('revisión', 'aprobación_spec')),
     (('iterations',), ('revisión', 'aprobación_spec')),
@@ -1216,6 +1218,40 @@ def note(fact: str | None, decision: str | None, by: str | None, evidence: str,
           else 'Decisión declarada registrada. No es una firma ni autentica al usuario.')
 
 
+def count_assertions(target: Path, relative: str) -> int:
+    """Recuento estático de aserciones de un archivo Python (definición en assets/arnes-completo.md)."""
+    try:
+        tree = ast.parse(target.read_bytes(), filename=relative)
+    except (SyntaxError, ValueError, RecursionError, MemoryError) as err:
+        raise ValueError(f'No se pudo analizar {relative}: {err}') from None
+    total = 0
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assert):
+            total += 1
+        elif (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+              and isinstance(node.func.value, ast.Name)):
+            receiver, attr = node.func.value.id, node.func.attr
+            if (receiver == 'self' and (attr.startswith('assert') or attr == 'fail')) \
+                    or (receiver == 'pytest' and attr == 'raises'):
+                total += 1
+    return total
+
+
+def assertion_reductions(previous: object, counts: dict[str, int], hashes: dict[str, str]) -> list[dict]:
+    """Compara los recuentos registrados con los actuales; una ruta retirada cuenta como 0."""
+    if not isinstance(previous, dict):
+        raise ValueError(f'sealed_assertions inválido: debe ser un objeto, no {previous!r}')
+    reductions: list[dict] = []
+    for file, before in previous.items():
+        if file in hashes and file not in counts:
+            continue  # No Python: se sella solo por hash.
+        if type(before) is not int or before < 0:
+            raise ValueError(f'sealed_assertions inválido: {file}: {before!r} no es un entero >= 0')
+        if counts.get(file, 0) < before:
+            reductions.append({'file': file, 'previous': before, 'current': counts.get(file, 0)})
+    return reductions
+
+
 @memory_lock()
 def seal(slug: str, by: str, evidence: str) -> None:
     maybe_require_human_terminal('seal', evidence, slug=slug, by=by)
@@ -1226,19 +1262,39 @@ def seal(slug: str, by: str, evidence: str) -> None:
         raise ValueError('No hay testing.protected_tests; selecciona pruebas concretas.')
     if not by.strip() or not evidence.strip():
         raise ValueError('Se requiere identificación declarada y texto de evidencia explícita.')
-    note_id = note_ref_id(evidence)
-    if note_id and agent_may_approve_enabled():
-        consume_note(memory, note_id, for_phase='seal', for_task=slug)
     hashes: dict[str, str] = {}
+    counts: dict[str, int] = {}
     for test in tests:
         relative = normalized_rel(test)
         target = ROOT / relative
         if not target.is_file() or not target.resolve().is_relative_to(ROOT.resolve()):
             raise ValueError(f'No existe test seguro: {relative}')
         hashes[relative] = hash_file(target)
-    memory['tasks'][slug]['sealed_tests'] = hashes
-    memory['tasks'][slug]['events'].append(
-        {'at': now(), 'event': 'sellado_tests', 'by': by, 'evidence': evidence, 'files': list(hashes)})
+        if relative.lower().endswith('.py'):
+            counts[relative] = count_assertions(target, relative)
+    task = memory['tasks'][slug]
+    reductions = assertion_reductions(task.get('sealed_assertions', {}), counts, hashes)
+    note_id = note_ref_id(evidence)
+    if reductions:
+        detail = 'Reducción de aserciones: ' + '; '.join(
+            f"{r['file']}: anterior {r['previous']}, actual {r['current']}" for r in reductions)
+        if not note_id:
+            raise ValueError(f'{detail}. Hace falta una cita literal del humano: un agente debe pedírsela '
+                             "y no redactarla. Forma: note --fact … --evidence '<cita humana>' "
+                             '--for-task <slug> --for-phase seal-reduce; '
+                             'luego seal … --evidence @note:<id>.')
+        try:
+            consume_note(memory, note_id, for_phase='seal-reduce', for_task=slug)
+        except ValueError as err:
+            raise ValueError(f'{detail}. {err}') from None
+    elif note_id and agent_may_approve_enabled():
+        consume_note(memory, note_id, for_phase='seal', for_task=slug)
+    task['sealed_tests'] = hashes
+    task['sealed_assertions'] = counts
+    event = {'at': now(), 'event': 'sellado_tests', 'by': by, 'evidence': evidence, 'files': list(hashes)}
+    if reductions:
+        event['assertion_reductions'] = reductions
+    task['events'].append(event)
     dump(MEMORY, memory)
     emit('verification', taskId=slug, verification={
         'gate': 'seal', 'passed': True, 'durationMs': None,

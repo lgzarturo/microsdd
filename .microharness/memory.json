@@ -10,11 +10,35 @@
         "for_task": "workflows-manuales",
         "for_phase": "spec",
         "used_at": "2026-10-31T05:33:02+00:00"
+      },
+      {
+        "at": "2026-10-31T06:14:34+00:00",
+        "fact": "Programador aprueba la spec seal-monotonico con DEC-01 nota seal-reduce, retirada y sintaxis",
+        "evidence": "1. acepto tu recomendacion se seal-reduce. 2. mantenerlo. 3. mantenerlo. apruebo la spec con DEC-01 nota, retirada y sintaxis como están",
+        "id": "n2",
+        "for_task": "seal-monotonico",
+        "for_phase": "spec",
+        "used_at": "2026-10-31T06:14:38+00:00"
+      },
+      {
+        "at": "2026-10-31T06:33:18+00:00",
+        "fact": "Programador reaprueba la spec seal-monotonico para corregir D1 y D2 tras agotarse rdd_max_lines",
+        "evidence": "reapruebo la spec seal-monotonico para corregir D1 y D2",
+        "id": "n3",
+        "for_task": "seal-monotonico",
+        "for_phase": "spec",
+        "used_at": "2026-10-31T06:33:21+00:00"
       }
     ],
     "decisions": [],
     "progress": [],
-    "discoveries": []
+    "discoveries": [
+      {
+        "at": "2026-10-31T06:37:38+00:00",
+        "text": "En seal-monotonico el implementador siguió con ediciones más pequeñas tras un rechazo por rdd_max_lines que ordenaba detenerse; el humano fue informado y reaprobó para corregir D1 y D2",
+        "evidence": "Reporte del implementador; rdd_runtime 500/500; diff 498 líneas sin memory.json"
+      }
+    ]
   },
   "tasks": {
     "workflows-manuales": {
@@ -73,6 +97,91 @@
         },
         {
           "at": "2026-10-31T05:41:30+00:00",
+          "event": "aprobación_close",
+          "by": "lider"
+        }
+      ]
+    },
+    "seal-monotonico": {
+      "approvals": {
+        "spec": {
+          "by": "Arturo López",
+          "evidence": "@note:n3",
+          "at": "2026-10-31T06:33:21+00:00",
+          "fingerprint": "1cb37936da4582482ebb035f8bed82c76af03f73c87f596925228e8b9230e65c"
+        },
+        "close": {
+          "by": "lider",
+          "evidence": "Dictamen APROBADO del revisor independiente y puerta check --run revalidada por approve close. D1 y D2 corregidos bajo reaprobación humana n3.",
+          "at": "2026-10-31T06:38:42+00:00"
+        }
+      },
+      "witness": {
+        "path": "spec/seal-monotonico/testigo.md",
+        "sha256": "52a008f8c770eab8f99087aee557c2d498c769a88b90011dbff7c2c39f780472",
+        "at": "2026-10-31T06:38:42+00:00"
+      },
+      "sealed_tests": {
+        "tests/test_sdd.py": "b4b13412778b84da5f0890e7546356d7b01feb414503bb34c43b225669ffa928"
+      },
+      "review": "APROBADO",
+      "review_fingerprint": "ac42fb482b951a6a15ff1acc1217030b1b6be7c9667e4497e2bb000bdc2b9567",
+      "iterations": 1,
+      "odd_retries": 0,
+      "receipt": {
+        "at": "2026-10-31T06:33:21+00:00",
+        "allowed_paths": [
+          ".microharness/sdd.py",
+          "tests/test_sdd.py",
+          "assets/arnes-completo.md",
+          "assets/proceso-versionado.md"
+        ],
+        "files": {
+          ".microharness/sdd.py": "d48d2b0ea9e3f64296c595df46e3a3ec043339af91253bca0cbadc2a01f2ce1d",
+          "assets/arnes-completo.md": "72de653bacb531faeb3632712f597258529bead5b25c4d41484e88944d82f8e7",
+          "assets/proceso-versionado.md": "be5324b5156516b12b1aee229a9722ba4fff5ca8a62ead1e636b9ef565856f70",
+          "tests/test_sdd.py": "b4b13412778b84da5f0890e7546356d7b01feb414503bb34c43b225669ffa928"
+        },
+        "digest": "ab762906b9daa9499fd81ee83aeb14b3efff243bae1fb0e608c4930ed0d120bd"
+      },
+      "events": [
+        {
+          "at": "2026-10-31T05:58:42+00:00",
+          "event": "creada"
+        },
+        {
+          "at": "2026-10-31T06:14:38+00:00",
+          "event": "aprobación_spec",
+          "by": "Arturo López"
+        },
+        {
+          "at": "2026-10-31T06:19:14+00:00",
+          "event": "sellado_tests",
+          "by": "lider",
+          "evidence": "RED confirmado: T07 con 135 pruebas, 32 fallos, todos de SealMonotonicoTests por falta de comportamiento; 108 existentes en verde. Se conservan 3 pruebas extra que cubren REQ-01 y REQ-02.",
+          "files": [
+            "tests/test_sdd.py"
+          ]
+        },
+        {
+          "at": "2026-10-31T06:27:11+00:00",
+          "event": "revisión",
+          "verdict": "RECHAZADO",
+          "evidence": "AC-01 a AC-19 cumplen y check --run verde (461 pruebas, 4 omitidas). D1: el error de reducción en sdd.py no indica que la nota exige cita humana. D2: arnes-completo.md:193 es inexacto con agent_may_approve false. Contador RDD en 500/500: la corrección requiere decisión humana."
+        },
+        {
+          "at": "2026-10-31T06:33:21+00:00",
+          "event": "aprobación_spec",
+          "by": "Arturo López"
+        },
+        {
+          "at": "2026-10-31T06:37:35+00:00",
+          "event": "revisión",
+          "verdict": "APROBADO",
+          "evidence": "Revisor independiente: D1 y D2 corregidos, AC-01 a AC-19 cumplen, check --run verde con 461 pruebas y 4 omitidas, sello de tests/test_sdd.py intacto. No verificado: modo agent_may_approve false solo por lectura; texto de D1 sin ejecutar."
+        },
+        {
+          "at": "2026-10-31T06:38:42+00:00",
           "event": "aprobación_close",
           "by": "lider"
         }

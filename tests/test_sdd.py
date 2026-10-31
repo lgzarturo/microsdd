@@ -1585,5 +1585,421 @@ class InitDocsTests(unittest.TestCase):
         self.assertIn('docs/convenciones.md', warnings[0])
 
 
+@contextlib.contextmanager
+def agent_without_tty():
+    """Sesión de agente: sin terminal interactiva y con CLAUDECODE activo."""
+    with mock.patch.dict(os.environ, {'CLAUDECODE': '1'}), mock.patch.object(sys, 'stdin', FakeStdin(False)):
+        yield
+
+
+class SealMonotonicoTests(unittest.TestCase):
+    """seal-monotonico: seal registra recuentos de aserciones y rechaza reducirlos sin nota seal-reduce."""
+    SLUG = 'tarea-sello'
+    X = 'tests/test_x.py'
+    Y = 'tests/test_y.py'
+    LITERAL_AC_01 = """import unittest, pytest
+class T(unittest.TestCase):
+    def test_a(self):
+        assert 1 == 1                        # cuenta
+        self.assertEqual(1, 1)               # cuenta
+        self.fail('x')                       # cuenta
+        with self.assertRaises(ValueError):  # cuenta
+            int('x')
+        with pytest.raises(ValueError):      # cuenta
+            int('x')
+        self.mock.assert_called_once()       # no cuenta
+        cls.assertTrue(1)                    # no cuenta
+        pytest.fail('x')                     # no cuenta
+        raises(ValueError)                   # no cuenta
+        # assert comentado                   # no cuenta
+        s = 'assert en cadena'               # no cuenta
+"""
+
+    def setUp(self):
+        tty = human_tty()
+        tty.__enter__()
+        self.addCleanup(tty.__exit__, None, None, None)
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.old_root, self.old_memory = sdd.ROOT, sdd.MEMORY
+        self.addCleanup(self.restore)
+        sdd.ROOT = Path(temporary.name).resolve()
+        sdd.MEMORY = sdd.ROOT / '.microharness' / 'memory.json'
+        # Evita que git suba a un repositorio que contenga el directorio temporal.
+        env = mock.patch.dict(os.environ, {'GIT_CEILING_DIRECTORIES': str(sdd.ROOT.parent)})
+        env.start()
+        self.addCleanup(env.stop)
+        self.quiet(sdd.new, self.SLUG)
+        self.folder = sdd.ROOT / 'spec' / self.SLUG
+        data = sdd.load(self.folder / 'spec.json')
+        data['title'] = 'Sellar pruebas'
+        data['scope']['allowed_paths'] = ['tests/**']
+        data['testing']['commands'] = [[sys.executable, '-m', 'unittest', 'discover', '-s', 'tests']]
+        data['testing']['protected_tests'] = [self.X]
+        sdd.dump(self.folder / 'spec.json', data)
+        (self.folder / 'requerimientos.md').write_text(
+            '# QUÉ\nWHEN se selle, THE sistema SHALL registrar el recuento.\n'
+            'AC-01: recuento registrado.\n## Fuera de alcance\nNada.\n', encoding='utf-8')
+        (self.folder / 'plan.md').write_text('# CÓMO\nContar aserciones.\n', encoding='utf-8')
+        (self.folder / 'tareas.md').write_text('# PASOS\n- [ ] T01 (AC-01): prueba.\n', encoding='utf-8')
+        self.quiet(sdd.approve, self.SLUG, 'spec', 'Humano', 'Sí, aprobada')
+
+    def restore(self):
+        sdd.ROOT, sdd.MEMORY = self.old_root, self.old_memory
+
+    # Utilidades -----------------------------------------------------------
+
+    def quiet(self, fn, *args):
+        with contextlib.redirect_stdout(io.StringIO()):
+            return fn(*args)
+
+    def cli(self, *argv):
+        err = io.StringIO()
+        with mock.patch.object(sys, 'argv', ['sdd.py', *argv]), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+            try:
+                code = sdd.main()
+            except SystemExit as e:
+                code = e.code
+        return code, err.getvalue()
+
+    def write(self, relative, content):
+        path = sdd.ROOT / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if isinstance(content, bytes):
+            path.write_bytes(content)
+        else:
+            path.write_text(content, encoding='utf-8')
+
+    def write_assertions(self, relative, count):
+        self.write(relative, 'def t(self):\n    pass\n' + '    self.assertTrue(1)\n' * count)
+
+    def protect(self, *paths):
+        data = sdd.load(self.folder / 'spec.json')
+        data['testing']['protected_tests'] = list(paths)
+        sdd.dump(self.folder / 'spec.json', data)
+
+    def seal(self, by='Humano', evidence='texto'):
+        self.quiet(sdd.seal, self.SLUG, by, evidence)
+
+    def seal_with(self, count, relative=X):
+        """Sella el archivo con `count` aserciones: fija el recuento registrado."""
+        self.write_assertions(relative, count)
+        self.seal()
+
+    def task(self):
+        return sdd.load(sdd.MEMORY)['tasks'][self.SLUG]
+
+    def counts(self):
+        return self.task().get('sealed_assertions')
+
+    def last_seal_event(self):
+        return [e for e in self.task()['events'] if e['event'] == 'sellado_tests'][-1]
+
+    def edit_task(self, change):
+        memory = sdd.load(sdd.MEMORY)
+        change(memory['tasks'][self.SLUG])
+        sdd.dump(sdd.MEMORY, memory)
+
+    def note(self, phase='seal-reduce', task=SLUG):
+        code, err = self.cli('note', '--fact', 'Reducción autorizada', '--evidence', 'cita humana',
+                             '--for-task', task, '--for-phase', phase)
+        self.assertEqual(code, 0, err)
+        return sdd.load(sdd.MEMORY)['project']['observations'][-1]['id']
+
+    def note_entry(self, note_id):
+        observations = sdd.load(sdd.MEMORY)['project']['observations']
+        return next(o for o in observations if o.get('id') == note_id)
+
+    def assert_rejected(self, by, evidence, *texts):
+        before = sdd.MEMORY.read_bytes()
+        with self.assertRaises(ValueError) as caught:
+            self.seal(by, evidence)
+        for text in texts:
+            self.assertIn(text, str(caught.exception))
+        self.assertEqual(sdd.MEMORY.read_bytes(), before)
+
+    def reseal_via(self, channel):
+        # Las dos vías vigentes de resellado con texto libre: lease del líder y humano en TTY.
+        if channel == 'tty':
+            return self.cli('seal', self.SLUG, '--by', 'Humano', '--evidence', 'texto')
+        with agent_without_tty():
+            try:
+                self.seal('lider', 'texto')
+            except ValueError as e:
+                return 1, str(e)
+        return 0, ''
+
+    def git_commit_all(self):
+        for args in (['init', '-q'], ['config', 'user.email', 'test@example.com'], ['config', 'user.name', 'Test'],
+                     ['add', '-A'], ['-c', 'commit.gpgsign=false', 'commit', '-q', '--no-verify', '-m', 'base']):
+            subprocess.run(['git', *args], cwd=sdd.ROOT, check=True, capture_output=True)
+
+    # T01: AC-01, AC-02 ----------------------------------------------------
+
+    def test_ac01_recuento_del_literal_y_hash_conservado(self):
+        self.write(self.X, self.LITERAL_AC_01)
+        self.seal()
+        self.assertEqual(self.counts(), {self.X: 5})
+        self.assertEqual(self.task()['sealed_tests'][self.X], sdd.hash_file(sdd.ROOT / self.X))
+
+    def test_ac02_archivo_vacio_cuenta_cero(self):
+        self.write(self.X, '')
+        self.seal()
+        self.assertEqual(self.counts(), {self.X: 0})
+
+    def test_ac02_auxiliar_sin_invocar_cuenta(self):
+        self.write(self.X, 'def h(self):\n    self.assertTrue(1)\n')
+        self.seal()
+        self.assertEqual(self.counts(), {self.X: 1})
+
+    def test_req02_resto_de_formas_que_no_cuentan(self):
+        self.write(self.X, 'import pytest\nimport pytest as pt\nfrom pytest import raises\n'
+                           'def t(self, mock, cls, otro):\n'
+                           '    self.mock.assert_called()\n'
+                           '    mock.assert_called()\n'
+                           '    cls.assertTrue(1)\n'
+                           '    self.assertTrue\n'
+                           '    self.failIf(1)\n'
+                           '    otro.fail("x")\n'
+                           '    pytest.fail("x")\n'
+                           '    pytest.warns(UserWarning)\n'
+                           '    raises(ValueError)\n'
+                           '    pt.raises(ValueError)\n')
+        self.seal()
+        self.assertEqual(self.counts(), {self.X: 0})
+
+    def test_req02_cuenta_una_vez_por_nodo_en_bucles_y_ramas(self):
+        self.write(self.X, 'for i in range(3):\n    assert i >= 0\nif False:\n    assert False\n')
+        self.seal()
+        self.assertEqual(self.counts(), {self.X: 2})
+
+    def test_req01_sufijo_py_sin_distinguir_mayusculas(self):
+        upper = 'tests/TEST_X.PY'
+        self.protect(upper)
+        self.write_assertions(upper, 1)
+        self.seal()
+        self.assertEqual(self.counts(), {upper: 1})
+
+    # T02: AC-03, AC-17 ----------------------------------------------------
+
+    def test_ac03_python_que_no_se_analiza_falla_sin_tocar_memoria(self):
+        for content in ('def (:\n', b'\xff\xfe\n'):
+            with self.subTest(content=content):
+                self.write(self.X, content)
+                before = sdd.MEMORY.read_bytes()
+                code, err = self.cli('seal', self.SLUG, '--by', 'Humano', '--evidence', 'texto')
+                self.assertEqual(code, 1, err)
+                self.assertIn('ERROR:', err)
+                self.assertIn(self.X, err)
+                self.assertEqual(sdd.MEMORY.read_bytes(), before)
+
+    def test_ac17_no_python_se_sella_solo_por_hash(self):
+        datos = 'tests/datos.txt'
+        self.protect(datos)
+        self.write(datos, 'def (:\n')
+        self.seal()
+        self.assertEqual(self.counts(), {})
+        self.assertEqual(self.task()['sealed_tests'][datos], sdd.hash_file(sdd.ROOT / datos))
+        self.write(datos, 'otro contenido\n')
+        self.seal()
+        self.assertEqual(self.counts(), {})
+        self.assertEqual(self.task()['sealed_tests'][datos], sdd.hash_file(sdd.ROOT / datos))
+
+    # T03: AC-04, AC-09 ----------------------------------------------------
+
+    def test_ac04_sello_antiguo_no_es_reduccion_y_registra_recuento(self):
+        # Tarea sin el campo y tarea cuyo campo no tiene entrada para la ruta.
+        for legacy in (None, {}):
+            with self.subTest(sealed_assertions=legacy):
+                self.write_assertions(self.X, 1)
+                digest = sdd.hash_file(sdd.ROOT / self.X)
+
+                def make_legacy(task):
+                    task['sealed_tests'] = {self.X: digest}
+                    task.pop('sealed_assertions', None)
+                    if legacy is not None:
+                        task['sealed_assertions'] = legacy
+                self.edit_task(make_legacy)
+                self.assertEqual(sdd.validate(self.SLUG), [])
+                self.seal()
+                self.assertEqual(self.counts(), {self.X: 1})
+
+    def _resellado_sin_reduccion(self, channel):
+        self.seal_with(2)
+        self.assertEqual(self.counts(), {self.X: 2})
+        code, err = self.reseal_via(channel)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.counts(), {self.X: 2})
+        self.assertNotIn('assertion_reductions', self.last_seal_event())
+        self.write_assertions(self.X, 3)
+        code, err = self.reseal_via(channel)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.counts(), {self.X: 3})
+        self.assertNotIn('assertion_reductions', self.last_seal_event())
+        # La base subió: volver al recuento original ya es una reducción.
+        self.write_assertions(self.X, 2)
+        before = sdd.MEMORY.read_bytes()
+        code, err = self.reseal_via(channel)
+        self.assertEqual(code, 1, err)
+        self.assertIn('anterior 3', err)
+        self.assertIn('actual 2', err)
+        self.assertEqual(sdd.MEMORY.read_bytes(), before)
+
+    def test_ac09_resellado_sin_reduccion_por_tty(self):
+        self._resellado_sin_reduccion('tty')
+
+    def test_ac09_resellado_sin_reduccion_por_lease(self):
+        self._resellado_sin_reduccion('lease')
+
+    # T04: AC-05, AC-06, AC-07, AC-08 --------------------------------------
+
+    def test_ac05_reduccion_con_texto_en_tty_falla(self):
+        self.seal_with(2)
+        self.write_assertions(self.X, 1)
+        before = sdd.MEMORY.read_bytes()
+        code, err = self.cli('seal', self.SLUG, '--by', 'Humano', '--evidence', 'texto')
+        self.assertEqual(code, 1, err)
+        for text in ('ERROR:', self.X, 'anterior 2', 'actual 1'):
+            self.assertIn(text, err)
+        self.assertEqual(sdd.MEMORY.read_bytes(), before)
+
+    def test_ac06_reduccion_con_lease_sin_tty_falla(self):
+        self.seal_with(2)
+        self.write_assertions(self.X, 1)
+        with agent_without_tty():
+            self.assert_rejected('lider', 'texto', self.X, 'anterior 2', 'actual 1')
+
+    def test_ac07_dos_archivos_reducidos_se_nombran_con_sus_recuentos(self):
+        self.protect(self.X, self.Y)
+        self.write_assertions(self.X, 2)
+        self.write_assertions(self.Y, 3)
+        self.seal()
+        self.write_assertions(self.X, 1)
+        self.write_assertions(self.Y, 0)
+        self.assert_rejected('Humano', 'texto', self.X, 'anterior 2', 'actual 1',
+                             self.Y, 'anterior 3', 'actual 0')
+
+    def test_ac08_ruta_retirada_con_recuento_es_reduccion(self):
+        self.protect(self.X, self.Y)
+        self.write_assertions(self.X, 2)
+        self.write_assertions(self.Y, 1)
+        self.seal()
+        self.protect(self.Y)
+        self.assert_rejected('Humano', 'texto', self.X, 'anterior 2', 'actual 0')
+
+    def test_ac08_ruta_retirada_con_recuento_cero_no_es_reduccion(self):
+        self.protect(self.X, self.Y)
+        self.write_assertions(self.X, 0)
+        self.write_assertions(self.Y, 1)
+        self.seal()
+        self.assertEqual(self.counts(), {self.X: 0, self.Y: 1})
+        self.protect(self.Y)
+        self.seal()
+        self.assertEqual(self.counts(), {self.Y: 1})
+        self.assertNotIn('assertion_reductions', self.last_seal_event())
+
+    # T05: AC-10, AC-11, AC-12, AC-13 --------------------------------------
+
+    def test_ac10_nota_valida_autoriza_la_reduccion(self):
+        self.seal_with(2)
+        self.write_assertions(self.X, 1)
+        note_id = self.note()
+        self.seal('Humano', f'@note:{note_id}')
+        self.assertEqual(self.counts(), {self.X: 1})
+        self.assertIsNotNone(self.note_entry(note_id)['used_at'])
+        self.assertEqual(self.last_seal_event()['assertion_reductions'],
+                         [{'file': self.X, 'previous': 2, 'current': 1}])
+
+    def test_ac11_nota_valida_autoriza_retirar_la_ruta(self):
+        self.protect(self.X, self.Y)
+        self.write_assertions(self.X, 2)
+        self.write_assertions(self.Y, 1)
+        self.seal()
+        self.protect(self.Y)
+        note_id = self.note()
+        self.seal('Humano', f'@note:{note_id}')
+        task = self.task()
+        self.assertEqual(list(task['sealed_tests']), [self.Y])
+        self.assertEqual(task['sealed_assertions'], {self.Y: 1})
+        self.assertEqual(self.last_seal_event()['assertion_reductions'],
+                         [{'file': self.X, 'previous': 2, 'current': 0}])
+
+    def _reduccion_pendiente(self):
+        self.seal_with(2)
+        self.write_assertions(self.X, 1)
+
+    def test_ac12_nota_de_fase_seal_no_autoriza_ni_se_consume(self):
+        self._reduccion_pendiente()
+        note_id = self.note(phase='seal')
+        self.assert_rejected('Humano', f'@note:{note_id}', self.X, 'anterior 2', 'actual 1',
+                             'no corresponde a la fase seal-reduce')
+        self.assertIsNone(self.note_entry(note_id)['used_at'])
+
+    def test_ac12_nota_de_otra_tarea_no_autoriza_ni_se_consume(self):
+        self._reduccion_pendiente()
+        note_id = self.note(task='otra-tarea')
+        self.assert_rejected('Humano', f'@note:{note_id}', self.X, 'anterior 2', 'actual 1',
+                             f'no corresponde a la tarea {self.SLUG}')
+        self.assertIsNone(self.note_entry(note_id)['used_at'])
+
+    def test_ac12_nota_consumida_no_autoriza(self):
+        self._reduccion_pendiente()
+        note_id = self.note()
+        memory = sdd.load(sdd.MEMORY)
+        next(o for o in memory['project']['observations'] if o.get('id') == note_id)['used_at'] = sdd.now()
+        sdd.dump(sdd.MEMORY, memory)
+        self.assert_rejected('Humano', f'@note:{note_id}', self.X, 'anterior 2', 'actual 1', 'ya fue consumida')
+
+    def test_ac12_nota_inexistente_no_autoriza(self):
+        self._reduccion_pendiente()
+        self.assert_rejected('Humano', '@note:n999', self.X, 'anterior 2', 'actual 1', 'no existe')
+
+    def test_ac13_nota_seal_reduce_sin_reduccion_falla(self):
+        self.seal_with(2)
+        note_id = self.note()
+        self.assert_rejected('Humano', f'@note:{note_id}', 'no corresponde a la fase seal')
+        self.assertIsNone(self.note_entry(note_id)['used_at'])
+
+    # T06: AC-14, AC-15, AC-16 ---------------------------------------------
+
+    def test_ac14_recuento_registrado_malformado_falla(self):
+        self.seal_with(1)
+        for label, value in (('cadena', {self.X: '2'}), ('booleano', {self.X: True}),
+                             ('negativo', {self.X: -1}), ('lista', [])):
+            with self.subTest(label):
+                self.edit_task(lambda task: task.update(sealed_assertions=value))
+                self.assert_rejected('Humano', 'texto', 'sealed_assertions')
+
+    @unittest.skipUnless(shutil.which('git'), 'git no disponible')
+    def test_ac15_cambio_sin_evento_rompe_integridad_y_con_evento_no(self):
+        self.seal_with(2)
+        self.edit_task(lambda task: task.update(sealed_assertions={self.X: 2}))
+        self.git_commit_all()
+        self.edit_task(lambda task: task.update(sealed_assertions={self.X: 5}))
+        self.assertIn(f'Integridad de memoria: {self.SLUG}: sealed_assertions cambió sin evento sellado_tests',
+                      sdd.memory_integrity(sdd.load(sdd.MEMORY)))
+        self.edit_task(lambda task: task['events'].append({'at': sdd.now(), 'event': 'sellado_tests'}))
+        self.assertEqual(sdd.memory_integrity(sdd.load(sdd.MEMORY)), [])
+
+    @unittest.skipUnless(shutil.which('git'), 'git no disponible')
+    def test_ac15_seal_real_no_rompe_integridad_con_tarea_confirmada_sin_campo(self):
+        self.seal_with(1)
+        self.edit_task(lambda task: task.pop('sealed_assertions', None))
+        self.git_commit_all()
+        self.seal()
+        self.assertEqual(self.counts(), {self.X: 1})
+        self.assertEqual(sdd.memory_integrity(sdd.load(sdd.MEMORY)), [])
+
+    def test_ac16_reaprobar_la_spec_conserva_recuentos(self):
+        self.seal_with(2)
+        self.assertEqual(self.counts(), {self.X: 2})
+        (self.folder / 'plan.md').write_text('# CÓMO\nContar aserciones con ast.\n', encoding='utf-8')
+        self.quiet(sdd.approve, self.SLUG, 'spec', 'Humano', 'Aprobé la nueva spec')
+        self.assertEqual(self.counts(), {self.X: 2})
+        self.write_assertions(self.X, 1)
+        self.assert_rejected('Humano', 'texto', self.X, 'anterior 2', 'actual 1')
+
+
 if __name__ == '__main__':
     unittest.main()
