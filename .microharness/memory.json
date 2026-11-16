@@ -1,7 +1,13 @@
 {
   "schema_version": 1,
   "project": {
-    "observations": [],
+    "observations": [
+      {
+        "at": "2026-11-16T06:27:07+00:00",
+        "fact": "Release 1.6.0 publicado: tag v1.6.0 sobre ae36996 (merge PR #20); https://github.com/lgzarturo/microsdd/releases/tag/v1.6.0",
+        "evidence": "gh release create v1.6.0 --title MicroSDD 1.6.0 ejecutado 2026-11-16"
+      }
+    ],
     "decisions": [],
     "progress": [],
     "discoveries": []
