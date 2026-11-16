@@ -2,6 +2,35 @@
 
 Formato y reglas: `assets/proceso-versionado.md` (R-04). Entradas derivadas de los asuntos de commit; se omiten los commits de merge, que no aportan cambios propios (su contenido figura en los commits integrados).
 
+## [1.6.0] - 2026-11-16
+
+### Añadido
+- `bench`: proxy contador OpenRouter fail-closed (tope 100)
+- `bench`: candado gasto $5/repo, rpm 20, sonda free→pago
+- `bench`: baseline DeepSeek v4-flash; sonda 1 celda; candado $0.49
+- `bench`: maxTurns=6, allowPartialRun e intercalado por rep
+- `bench`: fill 14 pending DeepSeek con candado $0.10
+- `bench`: T-034 A/B CON/SIN arnés, dry-run y tope fail-closed
+- `seal`: rechaza resellados que reducen aserciones
+- `fitness`: agrega puerta opcional de limites estructurales
+- `sdd`: compuertas de corrección (recibo, pases, núcleo, RDD, versión)
+
+### Corregido
+- `bench`: abort mid-celda escribe pendientes; pin Claude 2.1.197
+- `bench`: proxy lee body chunked (smoke Claude Code)
+- `bench`: smoke fija modelos :free; proxy reenvía x-api-key
+- `bench`: preflight OpenRouter vía proxy antes del smoke
+- `bench`: preflight anthropic+openai; proxy allow_fallbacks
+- `bench`: un solo proxy en smoke; prior=8; skip :free 429
+- `proxy`: solo cuenta POST mensajes; rpm espera, no 429
+- `bench`: test acepta baselineStatus cheap-partial
+- `bench`: baselineStatus complete y costUsdModelEstimate
+- `bench`: T-034 observaciones — DEEPSEEK scrub, settings.model, margen
+- `bench`: corrige senal de exito y avisa baseline invalido
+
+### Otros
+- `ci`: workflows solo con activación manual
+
 ## [1.5.3] - 2026-10-21
 
 ### Corregido

@@ -1,0 +1,70 @@
+{
+  "effort": "medium",
+  "id": "release-v1-6-0",
+  "max_iterations": 3,
+  "method": {
+    "notes": "RDD: el recibo congela CHANGELOG.md, sdd.py, metrics.py, pyproject.toml, uv.lock y los tests de versión al aprobar la spec.",
+    "optional": [
+      "RDD"
+    ],
+    "primary": "SDD"
+  },
+  "model": "claude-opus-5-5",
+  "requirements": {
+    "acceptance_ids": [
+      "AC-01",
+      "AC-02",
+      "AC-03",
+      "AC-04"
+    ],
+    "preconditions": [
+      "Rama chore/release-1-6-0 sobre main 47ccd59 (merge PR #19), árbol limpio, suite en verde.",
+      "Último tag v1.5.3 publicado; release propose indica MINOR; humano confirma 1.6.0.",
+      "Sin tareas en proceso."
+    ]
+  },
+  "schema_version": 1,
+  "scope": {
+    "allowed_paths": [
+      "CHANGELOG.md",
+      ".microharness/sdd.py",
+      ".microharness/metrics.py",
+      "pyproject.toml",
+      "uv.lock",
+      "tests/test_model_profiles.py",
+      "tests/test_sdd.py"
+    ],
+    "excluded": [
+      ".microharness/memory.json",
+      "historial/",
+      "src/",
+      ".claude/"
+    ]
+  },
+  "state": "proceso",
+  "testing": {
+    "commands": [
+      [
+        "python",
+        "-m",
+        "unittest",
+        "tests.test_model_profiles"
+      ],
+      [
+        "python",
+        "-m",
+        "unittest",
+        "tests.test_metrics"
+      ]
+    ],
+    "min_tests": 10,
+    "mutation": {
+      "command": [],
+      "enabled": false,
+      "reason": "Bump de versión y changelog; sin lógica de riesgo."
+    },
+    "protected_tests": [],
+    "strategy": "after"
+  },
+  "title": "Release 1.6.0: bump menor (seal, fitness, corrección, bench) y CHANGELOG"
+}
