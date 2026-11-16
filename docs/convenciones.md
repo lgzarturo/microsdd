@@ -1,12 +1,10 @@
 # convenciones
 
-Convenciones que fallan en máquina. Lo demás es juicio humano.
-
 | Regla | Capa | Función |
 | --- | --- | --- |
-| Conventional Commit sintáctico | estatico | `commit_check` |
-| Sin placeholder en `docs/` | estatico | `docs_placeholder_errors` |
-| EARS + `AC-NN` en spec | estatico | `validate` |
-| `testing.commands` en lista blanca | estatico | `allowed_test_commands` / `command_allowed` |
-| Versión solo en diffs de release | estatico | `version_mix_errors` |
-| Corrección: capa más baja primero | verificacion | `cmd_correct` |
+| Recibo de check --run antes de review APROBADO | verificacion | record_verification / review |
+| Pases reales (unittest sin solo skipped) | estatico | tests_ran / unittest_counts |
+| Encogimiento del núcleo > 100 líneas netas | estatico | core_shrink_errors |
+| Tope RDD por diff de alcance | estatico | rdd_diff_line_errors |
+| Versión mezclada con cambio de función | estatico | version_mix_errors |
+| docs/ sin placeholder | estatico | docs_placeholder_errors |
