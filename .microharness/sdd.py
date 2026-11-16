@@ -52,16 +52,50 @@ FRONTMATTER_RE = re.compile(r'\A---\r?\n(.*?)\r?\n---(?:\r?\n|$)', re.DOTALL)
 NOTE_EVIDENCE_MAX_AGE_S = 1800
 NOTE_REF_RE = re.compile(r'^@note:([a-zA-Z0-9_-]+)$')
 NOTE_IN_CMD_RE = re.compile(r'@note:[a-zA-Z0-9_-]+')
-NOTE_PHASES = ('spec', 'close', 'seal', 'seal-reduce', 'allow-test', 'odd-retry')
+NOTE_PHASES = ('spec', 'close', 'seal', 'seal-reduce', 'allow-test', 'odd-retry', 'rewrite-core')
 _LOCK_DEPTH = 0
-# Resúmenes de runners: unittest, pytest, bun y Maven (se usa la última coincidencia de cada uno).
+CORE_SHRINK_MAX_NET = 100
+CORE_PATHS = ('.microharness/sdd.py', '.claude/hooks/pretool.py')
+RELEASE_PATH_EXACT = frozenset({
+    'CHANGELOG.md', 'pyproject.toml', 'assets/proceso-versionado.md', '.microharness/sdd.py',
+})
+# Resúmenes de runners: unittest (pases reales), pytest, bun y Maven.
+UNITTEST_RAN_RE = re.compile(r'^Ran (\d+) tests? in', re.M)
+UNITTEST_OK_RE = re.compile(r'^OK(?: \((.*)\))?$', re.M)
+UNITTEST_NOT_PASSED_RE = re.compile(r'(?:skipped|expected failures)=(\d+)')
 TEST_COUNT_RES = (
-    re.compile(r'^Ran (\d+) tests? in', re.M),
     re.compile(r'\b(\d+) passed\b'),
     re.compile(r'^[ \t]*(\d+) pass\b', re.M),
     re.compile(r'Tests run: (\d+)'),
 )
 GO_OK_RE = re.compile(r'^ok[ \t]+\S+', re.M)
+DOCS_TABLE_TEMPLATE = (
+    '# {title}\n\n'
+    '| Regla | Capa | Función |\n'
+    '| --- | --- | --- |\n'
+    '| Recibo de check --run antes de review APROBADO | verificacion | record_verification / review |\n'
+    '| Pases reales (unittest sin solo skipped) | estatico | tests_ran / unittest_counts |\n'
+    '| Encogimiento del núcleo > 100 líneas netas | estatico | core_shrink_errors |\n'
+    '| Tope RDD por diff de alcance | estatico | rdd_diff_line_errors |\n'
+    '| Versión mezclada con cambio de función | estatico | version_mix_errors |\n'
+    '| docs/ sin placeholder | estatico | docs_placeholder_errors |\n'
+)
+CORRECTION_ROUTES = (
+    ('verificación', 'verificacion', 'review', 'check --run'),
+    ('recibo de verificación', 'verificacion', 'review', 'check --run'),
+    ('pases reales', 'estatico', 'tests_ran', 'check --run'),
+    ('al menos', 'verificacion', 'tests_ran', 'check --run'),
+    ('Encogimiento del núcleo', 'estatico', 'core_shrink_errors',
+     'note --fact … --for-task <slug> --for-phase rewrite-core'),
+    ('rdd_max_lines', 'estatico', 'rdd_diff_line_errors',
+     'editar .microharness/config.json (humano)'),
+    ('líneas añadidas de alcance', 'estatico', 'rdd_diff_line_errors',
+     'editar .microharness/config.json (humano)'),
+    ('__version__', 'estatico', 'version_mix_errors', 'separar release del cambio de función'),
+    ('placeholder', 'estatico', 'docs_placeholder_errors', 'rellenar docs/ con tabla regla|capa|función'),
+    ('Pendiente de inspección', 'estatico', 'docs_placeholder_errors',
+     'rellenar docs/ con tabla regla|capa|función'),
+)
 # Lista blanca de prefijos de argv para testing.commands y mutation.command (comparación exacta de tokens).
 TEST_COMMANDS = (
     ('python', '-m', 'unittest'), ('python3', '-m', 'unittest'), ('python', '-m', 'pytest'),
@@ -78,6 +112,7 @@ INTEGRITY_FIELDS = (
     (('sealed_assertions',), ('sellado_tests',)),
     (('review',), ('revisión', 'aprobación_spec')),
     (('review_fingerprint',), ('revisión', 'aprobación_spec')),
+    (('verification',), ('verificación', 'aprobación_spec')),
     (('iterations',), ('revisión', 'aprobación_spec')),
     (('odd_retries',), ('reintento_odd', 'reintentos_agotados', 'aprobación_spec')),
     (('receipt',), ('aprobación_spec',)),
@@ -483,7 +518,8 @@ def ensure_init() -> None:
                 print(f'AVISO: docs/{old} usa el nombre antiguo; no se crea docs/{doc}. '
                       f'Migra con: git mv docs/{old} docs/{doc}')
         elif not p.exists():
-            p.write_text(f'# {doc.removesuffix(".md")}\n\nPendiente de inspección.\n', encoding='utf-8')
+            title = doc.removesuffix('.md')
+            p.write_text(DOCS_TABLE_TEMPLATE.format(title=title), encoding='utf-8')
     if not MEMORY.exists():
         dump(MEMORY, json.loads(json.dumps(EMPTY_MEMORY)))
     else:
@@ -634,12 +670,262 @@ def code_fingerprint(patterns: list[str]) -> str:
     return h.hexdigest()
 
 
+def unittest_counts(output: str) -> tuple[int, int] | None:
+    """(pases reales, tests_run) del último resumen unittest, o None si no hay Ran."""
+    ran = UNITTEST_RAN_RE.findall(output)
+    if not ran:
+        return None
+    tests_run = int(ran[-1])
+    oks = UNITTEST_OK_RE.findall(output)
+    if not oks:
+        return 0, tests_run
+    not_passed = sum(int(n) for n in UNITTEST_NOT_PASSED_RE.findall(oks[-1]))
+    return max(0, tests_run - not_passed), tests_run
+
+
 def tests_ran(output: str) -> int | None:
+    """Pases reales (unittest) u otros resúmenes reconocidos; None si no hay señal."""
+    uc = unittest_counts(output)
+    if uc is not None:
+        return uc[0]
     counts = [int(m[-1]) for m in (r.findall(output) for r in TEST_COUNT_RES) if m]
     go = len(GO_OK_RE.findall(output))
     if go:
         counts.append(go)
     return max(counts) if counts else None
+
+
+def is_release_path(relative: str) -> bool:
+    return relative in RELEASE_PATH_EXACT or relative.startswith('historial/')
+
+
+def docs_placeholder_errors() -> list[str]:
+    errors: list[str] = []
+    for doc in DOCS:
+        path = ROOT / 'docs' / doc
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding='utf-8').strip()
+        body = re.sub(r'\A# .+\n+', '', text).strip()
+        if body == 'Pendiente de inspección.' or text == 'Pendiente de inspección.':
+            errors.append(
+                f'docs/{doc} sigue siendo placeholder; documenta regla|capa|función')
+    return errors
+
+
+def file_line_delta(relative: str) -> tuple[int, int]:
+    """(añadidas, eliminadas) de una ruta respecto a HEAD; untracked cuenta todo como añadido."""
+    target = ROOT / relative
+    if not (ROOT / '.git').exists() and subprocess.run(
+            ['git', 'rev-parse', '--is-inside-work-tree'], cwd=ROOT,
+            capture_output=True, text=True).returncode != 0:
+        return 0, 0
+    head = subprocess.run(
+        ['git', 'show', f'HEAD:{relative}'], cwd=ROOT,
+        capture_output=True, check=False)
+    if head.returncode != 0:
+        if not target.is_file():
+            return 0, 0
+        lines = target.read_text(encoding='utf-8', errors='replace').splitlines()
+        return len(lines), 0
+    num = subprocess.run(
+        ['git', 'diff', '--numstat', 'HEAD', '--', relative], cwd=ROOT,
+        capture_output=True, text=True, encoding='utf-8', check=False)
+    if num.returncode != 0 or not num.stdout.strip():
+        return 0, 0
+    parts = num.stdout.strip().split('\t')
+    if len(parts) < 2 or parts[0] == '-' or parts[1] == '-':
+        return 0, 0
+    return int(parts[0]), int(parts[1])
+
+
+def find_rewrite_core_note(memory: dict, slug: str, relative: str) -> str | None:
+    project = memory.get('project', {})
+    observations = project.get('observations', []) if isinstance(project, dict) else []
+    if not isinstance(observations, list):
+        return None
+    now_ts = datetime.now(timezone.utc)
+    for obs in observations:
+        if not isinstance(obs, dict) or obs.get('id') is None:
+            continue
+        if obs.get('used_at') is not None:
+            continue
+        if obs.get('for_phase') != 'rewrite-core' or obs.get('for_task') != slug:
+            continue
+        blob = f"{obs.get('fact', '')}\n{obs.get('evidence', '')}"
+        if relative not in blob:
+            continue
+        try:
+            created = datetime.fromisoformat(obs['at'])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        if (now_ts - created).total_seconds() > NOTE_EVIDENCE_MAX_AGE_S:
+            continue
+        return obs['id']
+    return None
+
+
+def core_shrink_errors(slug: str, memory: dict) -> tuple[list[str], list[str]]:
+    """Errores de encogimiento y ids de notas rewrite-core a consumir si el check pasa."""
+    errors: list[str] = []
+    note_ids: list[str] = []
+    for relative in CORE_PATHS:
+        added, deleted = file_line_delta(relative)
+        net_removed = deleted - added
+        if net_removed <= CORE_SHRINK_MAX_NET:
+            continue
+        note_id = find_rewrite_core_note(memory, slug, relative)
+        if note_id:
+            note_ids.append(note_id)
+            continue
+        errors.append(
+            f'Encogimiento del núcleo: {relative} quita {net_removed} líneas netas '
+            f'(máx. {CORE_SHRINK_MAX_NET}); usa note --for-phase rewrite-core que nombre el archivo')
+    return errors, note_ids
+
+
+def rdd_diff_line_errors(spec: dict) -> list[str]:
+    if spec.get('state') == 'terminado':
+        return []
+    patterns = spec.get('scope', {}).get('allowed_paths', [])
+    if not patterns:
+        return []
+    limit = config()['rdd_max_lines']
+    total = 0
+    for relative in diff_files():
+        try:
+            if not path_allowed(relative, patterns):
+                continue
+        except ValueError:
+            continue
+        added, _deleted = file_line_delta(relative)
+        total += added
+    if total > limit:
+        return [f'líneas añadidas de alcance {total} > rdd_max_lines={limit}']
+    return []
+
+
+def version_mix_errors() -> list[str]:
+    relative = '.microharness/sdd.py'
+    target = ROOT / relative
+    if not target.is_file():
+        return []
+    head = subprocess.run(
+        ['git', 'show', f'HEAD:{relative}'], cwd=ROOT,
+        capture_output=True, check=False)
+    if head.returncode != 0:
+        return []
+    try:
+        head_text = head.stdout.decode('utf-8')
+    except UnicodeDecodeError:
+        return []
+    work_text = target.read_text(encoding='utf-8')
+    head_ver = re.search(r"^__version__ = '([^']*)'", head_text, re.M)
+    work_ver = re.search(r"^__version__ = '([^']*)'", work_text, re.M)
+    if not head_ver or not work_ver or head_ver.group(1) == work_ver.group(1):
+        return []
+    mixed = []
+    for f in diff_files():
+        if f == relative or is_release_path(f):
+            continue
+        # Mismo ruido que ignora el alcance: no son cambio de función.
+        if f.startswith(('spec/', 'docs/')) or f in ('CLAUDE.md',):
+            continue
+        if f.startswith('.microharness/') and f not in CORE_PATHS:
+            continue
+        mixed.append(f)
+    if mixed:
+        return [
+            f'__version__ cambió junto a rutas de función: {", ".join(mixed[:5])}; '
+            f'separa el release del cambio de función'
+        ]
+    return []
+
+
+def pending_rewrite_notes(slug: str) -> list[str]:
+    try:
+        _path, _spec, memory = task_files(slug)
+    except (OSError, ValueError, KeyError):
+        return []
+    _errors, note_ids = core_shrink_errors(slug, memory)
+    return note_ids
+
+
+@memory_lock()
+def record_verification(slug: str) -> None:
+    """Escribe el recibo de check --run; solo el arnés debe llamarlo."""
+    path, spec, memory = task_files(slug)
+    if spec.get('state') == 'terminado':
+        return
+    if slug not in memory.get('tasks', {}):
+        raise ValueError(f'No existe memoria para la tarea {slug}')
+    fp = code_fingerprint(spec.get('scope', {}).get('allowed_paths', []))
+    memory['tasks'][slug]['verification'] = {'fingerprint': fp, 'at': now()}
+    memory['tasks'][slug].setdefault('events', []).append({
+        'at': now(), 'event': 'verificación', 'fingerprint': fp,
+    })
+    dump(MEMORY, memory)
+
+
+@memory_lock()
+def consume_rewrite_notes(slug: str, note_ids: list[str]) -> None:
+    if not note_ids:
+        return
+    memory = load(MEMORY)
+    for note_id in note_ids:
+        consume_note(memory, note_id, for_phase='rewrite-core', for_task=slug)
+    dump(MEMORY, memory)
+
+
+def route_correction(message: str) -> dict:
+    text = (message or '').strip()
+    for needle, layer, function, nxt in CORRECTION_ROUTES:
+        if needle.lower() in text.lower():
+            return {
+                'class': needle,
+                'layer': layer,
+                'function': function,
+                'next': nxt,
+            }
+    return {
+        'class': 'desconocida',
+        'layer': 'humano',
+        'function': None,
+        'next': None,
+    }
+
+
+def cmd_correct(message: str | None) -> None:
+    payload = route_correction(message or '')
+    print(json.dumps(payload, ensure_ascii=False, separators=(',', ':')))
+
+
+def cmd_corrections(since: str) -> None:
+    """Tasa de restauración en since..HEAD; solo lectura sobre un repo git."""
+    log = git('log', '--format=%H\t%s', f'{since}..HEAD')
+    rows = [line.split('\t', 1) for line in log.splitlines() if '\t' in line]
+    restore_re = re.compile(r'restaur|restore|revert|quita bump', re.I)
+    restores = sum(1 for _h, s in rows if restore_re.search(s))
+    fix_after_feat = 0
+    # Pares feat→fix consecutivos sobre el mismo prefijo de asunto entre paréntesis.
+    for i in range(len(rows) - 1):
+        _h1, s1 = rows[i]
+        _h2, s2 = rows[i + 1]
+        m1 = re.match(r'^feat(\([^)]*\))?:', s1)
+        m2 = re.match(r'^fix(\([^)]*\))?:', s2)
+        if m1 and m2 and (m1.group(1) or '') == (m2.group(1) or ''):
+            fix_after_feat += 1
+    total = max(len(rows), 1)
+    rate = (restores + fix_after_feat) / total
+    print(json.dumps({
+        'since': since,
+        'commits': len(rows),
+        'restores': restores,
+        'fixAfterFeat': fix_after_feat,
+        'rate': round(rate, 4),
+    }, ensure_ascii=False, separators=(',', ':')))
 
 
 def allowed_test_commands(memory: dict) -> tuple[list[tuple[str, ...]], list[str]]:
@@ -961,6 +1247,12 @@ def validate(slug: str, run: bool = False, scope: bool = True) -> list[str]:
                 errors.append(f'Archivo modificado fuera de scope: {filename}')
     if scope and patterns and s.get('state') != 'terminado':
         errors.extend(fitness_errors(s))
+    errors.extend(docs_placeholder_errors())
+    if scope and s.get('state') != 'terminado':
+        errors.extend(version_mix_errors())
+        shrink_errs, _rewrite_notes = core_shrink_errors(slug, memory)
+        errors.extend(shrink_errs)
+        errors.extend(rdd_diff_line_errors(s))
     if run and not errors:
         commands = [(c, True) for c in testing['commands']]
         if mutation.get('enabled'):
@@ -1194,6 +1486,7 @@ def approve(slug: str, phase: str, by: str, evidence: str) -> None:
         memory['tasks'][slug]['approvals']['close'] = None
         memory['tasks'][slug]['review'] = None
         memory['tasks'][slug]['review_fingerprint'] = None
+        memory['tasks'][slug]['verification'] = None
         memory['tasks'][slug]['iterations'] = 0
         memory['tasks'][slug]['odd_retries'] = 0
         memory['tasks'][slug]['receipt'] = build_receipt(spec.get('scope', {}).get('allowed_paths', []))
@@ -1235,6 +1528,13 @@ def review(slug: str, verdict: str, evidence: str) -> None:
     if not evidence.strip():
         raise ValueError('Registra evidencia concreta del dictamen.')
     task = memory['tasks'][slug]
+    if verdict == 'APROBADO':
+        current_fp = code_fingerprint(spec['scope']['allowed_paths'])
+        ver = task.get('verification')
+        if not isinstance(ver, dict) or ver.get('fingerprint') != current_fp:
+            raise ValueError(
+                'Falta recibo de verificación de check --run con la huella actual; '
+                'ejecuta check --run antes de review APROBADO')
     task['iterations'] += 1
     if task['iterations'] > spec['max_iterations']:
         raise ValueError('Se agotó max_iterations; requiere intervención humana.')
@@ -1536,6 +1836,8 @@ def main() -> int:
     sub.add_parser('commit-check').add_argument('message')
     rel = sub.add_parser('release')
     rel.add_subparsers(dest='action', required=True).add_parser('propose')
+    corr = sub.add_parser('correct'); corr.add_argument('message', nargs='?', default='')
+    crep = sub.add_parser('corrections'); crep.add_argument('--since', required=True)
     args = p.parse_args()
     try:
         if args.command in ('approve', 'seal', 'allow-test-command'):
@@ -1550,6 +1852,10 @@ def main() -> int:
             if failures:
                 for failure in failures: print('ERROR:', failure, file=sys.stderr)
                 return 1
+            if args.run:
+                record_verification(args.slug)
+            note_ids = pending_rewrite_notes(args.slug)
+            consume_rewrite_notes(args.slug, note_ids)
             print('OK: spec, alcance, hashes y' + (' ejecución de pruebas.' if args.run else ' estructura.'))
         elif args.command == 'approve': approve(args.slug, args.phase, args.by, args.evidence)
         elif args.command == 'review': review(args.slug, args.verdict, args.evidence)
@@ -1560,6 +1866,8 @@ def main() -> int:
         elif args.command == 'allow-test-command': allow_test_command(args.tokens, args.evidence)
         elif args.command == 'commit-check': commit_check(args.message)
         elif args.command == 'release': release_propose()
+        elif args.command == 'correct': cmd_correct(args.message)
+        elif args.command == 'corrections': cmd_corrections(args.since)
         return 0
     except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as e:
         print('ERROR:', e, file=sys.stderr)

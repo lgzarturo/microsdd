@@ -26,15 +26,21 @@ En `check --run`, un comando de `testing.commands` (o `mutation.command`) cuyo p
 - No se incluyen `py -3` ni `uv run`: `python`/`python3` ya se resuelven al intérprete elegido por el lanzador (que contempla `py -3` y `uv`), y `uv run` es un ejecutor genérico (`uv run sh -c ...`) que anularía la lista. Variantes Windows (`mvnw.cmd`, `gradlew.bat`) también requieren ampliación.
 - Límite: la lista acota el ejecutable, no lo que ejecuta. `npm|pnpm|yarn|bun test`, `./mvnw`, `./gradlew`, `pytest` (plugins, `conftest.py`), `python -m unittest` y cualquier runner ejecutan código o scripts del propio proyecto; quien pueda modificarlos cambia lo que se ejecuta.
 
-`check --run` captura la salida de cada comando, la reproduce al terminar (no en tiempo real) y, mientras la tarea no esté `terminado`, exige que **cada** comando de `testing.commands` muestre un recuento de pruebas ejecutadas de al menos `testing.min_tests`. `min_tests` es opcional, vale 1 por defecto y debe ser un entero mayor o igual a 1. Un comando que sale con 0 sin un resumen reconocible (por ejemplo, `python -m unittest --help` o `python -c ...`) falla la puerta. Runners reconocidos:
+`check --run` captura la salida de cada comando, la reproduce al terminar (no en tiempo real) y, mientras la tarea no esté `terminado`, exige que **cada** comando de `testing.commands` muestre un recuento de **pases reales** de al menos `testing.min_tests`. `min_tests` es opcional, vale 1 por defecto y debe ser un entero mayor o igual a 1. Un comando que sale con 0 sin un resumen reconocible (por ejemplo, `python -m unittest --help` o `python -c ...`) falla la puerta. Runners reconocidos:
 
-- unittest: `Ran N tests in`.
+- unittest: pases = último `Ran N` menos `skipped` y `expected failures` del último `OK (...)`; sin línea `OK`, pases = 0. El mismo criterio lo usa `bench.evaluate_fixture`.
 - pytest: `N passed`.
 - bun: `N pass` al inicio de línea.
 - Maven: `Tests run: N` (se toma la última línea; en multimódulo refleja solo el último módulo).
 - Go: cada línea `ok <paquete>` cuenta como 1, así que se cuentan paquetes, no pruebas.
 
 Si un formato aparece varias veces se usa la última coincidencia; si coinciden varios formatos, el mayor. `mutation.command` se ejecuta pero no se cuenta, y las tareas `terminado` no se cuentan.
+
+Tras un `check --run` exitoso, el arnés escribe `tasks.<slug>.verification` (`fingerprint` = `code_fingerprint` del alcance, `at`, evento `verificación`). `review APROBADO` exige ese recibo con la huella actual; `RECHAZADO` no. `approve spec` pone `verification` en `null`.
+
+`check` (con alcance, tarea no `terminado`) también rechaza: encogimiento neto de `.microharness/sdd.py` o `.claude/hooks/pretool.py` mayor a 100 líneas (salvo nota `rewrite-core` que nombre el archivo), líneas añadidas de alcance sobre `rdd_max_lines` (una `decision` no lo anula), y mezcla de cambio de `__version__` con rutas fuera de release. Los cuatro `docs/` no pueden ser solo «Pendiente de inspección.»
+
+`correct [mensaje]` y `corrections --since <rev>` son de solo lectura: clasifican un error hacia la capa más baja o miden la tasa de restauración en el historial.
 
 ### Bloqueo si falta uv
 
@@ -138,7 +144,7 @@ Programador -> LÍDER -> AUTOR -> spec/...
 Desde 1.1.2 la puerta TTY/`CLAUDECODE` vive dentro de `approve`/`seal` (no solo en `main`), los mutadores rechazan memoria ya corrupta frente a `HEAD`, el líder solo escribe `~/.claude/plans/*.md` en la raíz, y las cadenas Bash que mezclan lectura de settings/protegidos con otro comando se deniegan. Firmas criptográficas: ver [aprobacion-firmada-futuro.md](aprobacion-firmada-futuro.md).
 
 
-**agent_may_approve (1.2.0):** clave booleana en `.microharness/config.json` (default **true** si falta). Con `true`, **solo el líder** registra la cita humana `note --fact … --evidence '<cita>' --for-task <slug> --for-phase spec|close|seal|seal-reduce|allow-test` y consume con `approve`/`seal`/`allow-test-command … --evidence @note:<id>` sin TTY (nota sin usar, misma tarea/fase, edad ≤ 30 min / `NOTE_EVIDENCE_MAX_AGE_S = 1800`). El hook permite esos subcomandos solo si el comando incluye `--evidence @note:<id>` **y** `agent_type` es `lider`; autor, implementador y roles ausentes/desconocidos quedan denegados (fail closed). Con `false`, modo estricto (TTY + hook deniega). MicroSDD no verifica que un humano escribió la frase.
+**agent_may_approve (1.2.0):** clave booleana en `.microharness/config.json` (default **true** si falta). Con `true`, **solo el líder** registra la cita humana `note --fact … --evidence '<cita>' --for-task <slug> --for-phase spec|close|seal|seal-reduce|allow-test|rewrite-core` y consume con `approve`/`seal`/`allow-test-command … --evidence @note:<id>` sin TTY (nota sin usar, misma tarea/fase, edad ≤ 30 min / `NOTE_EVIDENCE_MAX_AGE_S = 1800`). La fase `rewrite-core` autoriza un encogimiento del núcleo; el `fact` o la `evidence` deben nombrar la ruta (`.microharness/sdd.py` o `.claude/hooks/pretool.py`) y un `check` exitoso la consume. El hook permite esos subcomandos solo si el comando incluye `--evidence @note:<id>` **y** `agent_type` es `lider`; autor, implementador y roles ausentes/desconocidos quedan denegados (fail closed). Con `false`, modo estricto (TTY + hook deniega). MicroSDD no verifica que un humano escribió la frase.
 
 Desde 1.1.3 hay lanzadores para Windows (`.microharness/python.ps1` para PowerShell y `.microharness/python.cmd` para cmd.exe), los mensajes de `approve`/`seal` sugieren el comando según el sistema operativo y `microsdd worktree sync` prepara worktrees sin compartir `memory.json`: ver [windows-worktrees.md](windows-worktrees.md).
 

@@ -76,6 +76,10 @@ class MicroSDDTests(unittest.TestCase):
     def restore(self):
         sdd.ROOT, sdd.MEMORY = self.old_root, self.old_memory
 
+    def stamp_verification(self, slug='fix-sesiones'):
+        with contextlib.redirect_stdout(io.StringIO()):
+            sdd.record_verification(slug)
+
     def git_repo(self, tracked: dict[str, str]):
         # Repositorio con commit inicial que no incluye spec/fix-sesiones/.
         def git(*args):
@@ -163,6 +167,7 @@ class MicroSDDTests(unittest.TestCase):
 
     def test_lifecycle_review_close(self):
         sdd.approve('fix-sesiones', 'spec', 'Humano', 'Sí, aprobada')
+        self.stamp_verification()
         sdd.review('fix-sesiones', 'APROBADO', 'Comparados diff y pruebas')
         sdd.approve('fix-sesiones', 'close', 'Humano', 'Sí, cerrar tarea')
         self.assertEqual(sdd.load(self.folder / 'spec.json')['state'], 'terminado')
@@ -227,6 +232,7 @@ class MicroSDDTests(unittest.TestCase):
         path = self._seal_auth_test()
         sealed = dict(sdd.load(sdd.MEMORY)['tasks']['fix-sesiones']['sealed_tests'])
         self.assertIn('tests/test_auth.py', sealed)
+        self.stamp_verification()
         sdd.review('fix-sesiones', 'APROBADO', 'Comparados diff y pruebas')
         sdd.approve('fix-sesiones', 'close', 'Humano', 'Sí, cerrar tarea')
         path.write_text('assert 2 == 2\n', encoding='utf-8')
@@ -390,6 +396,7 @@ class MicroSDDTests(unittest.TestCase):
         with mock.patch.object(sdd, 'tests_ran', return_value=None):
             errors, _, _ = self._run_captured()
         self.assertTrue(any('al menos 1' in e and 'ninguna' in e for e in errors), errors)
+        self.stamp_verification()
         sdd.review('fix-sesiones', 'APROBADO', 'Comparados diff y pruebas')
         sdd.approve('fix-sesiones', 'close', 'Humano', 'Sí, cerrar tarea')
         self.assertEqual(sdd.load(self.folder / 'spec.json')['state'], 'terminado')
@@ -565,6 +572,7 @@ class MicroSDDTests(unittest.TestCase):
     def test_check_skips_model_for_closed_task(self):
         # AC-05: una tarea terminado no se compara con el modelo configurado.
         sdd.approve('fix-sesiones', 'spec', 'Humano', 'Sí, aprobada')
+        self.stamp_verification()
         sdd.review('fix-sesiones', 'APROBADO', 'Comparados diff y pruebas')
         sdd.approve('fix-sesiones', 'close', 'Humano', 'Sí, cerrar tarea')
         self.assertEqual(sdd.load(self.folder / 'spec.json')['state'], 'terminado')
@@ -600,16 +608,18 @@ class MicroSDDTests(unittest.TestCase):
 
 class TestsRanTests(unittest.TestCase):
     def test_recognized_summaries(self):
-        # AC-01: casos literales de unittest, pytest, bun, Maven, Go y salidas sin recuento.
+        # AC-01: casos literales de unittest (pases reales), pytest, bun, Maven, Go.
         cases = [
             ('Ran 12 tests in 0.1s\nOK\n', 12),
-            ('Ran 1 test in 0.0s\n', 1),
-            ('Ran 0 tests in 0.000s\n', 0),
+            ('Ran 1 test in 0.0s\n', 0),  # sin OK: 0 pases
+            ('Ran 0 tests in 0.000s\nOK\n', 0),
+            ('Ran 1 test in 0.0s\nOK (skipped=1)\n', 0),
+            ('Ran 2 tests in 0.0s\nOK (skipped=1)\n', 1),
             ('==== 5 passed, 1 skipped in 0.2s ====', 5),
             (' 7 pass\n 0 fail\n', 7),
             ('Tests run: 3, Failures: 0\n...\nResults:\nTests run: 9, Failures: 0', 9),
             ('ok  \tej/a\t0.01s\nok  \tej/b\t(cached)\n?   \tej/c\t[no test files]\n', 2),
-            ('Ran 1 test in 0.0s\n...\nRan 40 tests in 3.0s\n', 40),
+            ('Ran 1 test in 0.0s\nOK\n...\nRan 40 tests in 3.0s\nOK\n', 40),
             ('tests ok', None),
             ('', None),
         ]
@@ -2316,6 +2326,8 @@ class FitnessTests(unittest.TestCase):
         _, _, err = self.cli('check', self.SLUG, '--no-scope')
         self.assertNotIn('Fitness:', err)
         self.quiet(sdd.approve, self.SLUG, 'spec', 'Humano', 'Sí')
+        with contextlib.redirect_stdout(io.StringIO()):
+            sdd.record_verification(self.SLUG)
         self.quiet(sdd.review, self.SLUG, 'APROBADO', 'Comparados diff y pruebas')
         with self.assertRaises(ValueError) as caught:
             self.quiet(sdd.approve, self.SLUG, 'close', 'Humano', 'Sí')

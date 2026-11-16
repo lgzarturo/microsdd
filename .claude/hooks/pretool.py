@@ -13,7 +13,10 @@ from pathlib import Path, PurePosixPath
 PROTECTED_RE = re.compile(r'microharness|memory\.json|sdd\.py', re.I)
 NOTE_EVIDENCE_CMD_RE = re.compile(r'--evidence\s+@note:[a-zA-Z0-9_-]+')
 GATED_SUBCOMMANDS = ('approve', 'seal', 'allow-test-command')
-SDD_ALLOWED = ('init', 'new', 'check', 'review', 'commit-check', 'note', 'release', '--version', '--help')
+SDD_ALLOWED = (
+    'init', 'new', 'check', 'review', 'commit-check', 'note', 'release',
+    'correct', 'corrections', '--version', '--help',
+)
 LAUNCHERS = (
     ['sh', '.microharness/python.sh'],
     ['python'], ['python3'], ['python.exe'],
