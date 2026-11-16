@@ -95,6 +95,10 @@ class LeaseAutonomoTests(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             self.sdd.approve(slug, 'spec', 'Humano', '@note:' + nid)
 
+    def stamp_verification(self, slug='tarea'):
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.sdd.record_verification(slug)
+
     # T01 (AC-01): seal autónomo del líder con lease activo.
     def test_seal_autonomo_con_lease_activo(self):
         self.write_config(agent_may_approve=True)
@@ -119,6 +123,7 @@ class LeaseAutonomoTests(unittest.TestCase):
         self.approve_spec()
         with contextlib.redirect_stdout(io.StringIO()):
             self.sdd.seal('tarea', 'lider', 'Pruebas verificadas y congeladas')
+            self.sdd.record_verification('tarea')
             self.sdd.review('tarea', 'APROBADO', 'Autor: diff mínimo, AC-01 cubierto')
             self.sdd.approve('tarea', 'close', 'lider', 'Loop autónomo completado')
         mem = self.sdd.load(self.sdd.MEMORY)
@@ -147,6 +152,7 @@ class LeaseAutonomoTests(unittest.TestCase):
         self.approve_spec()
         with contextlib.redirect_stdout(io.StringIO()):
             self.sdd.seal('tarea', 'lider', 'Pruebas verificadas y congeladas')
+            self.sdd.record_verification('tarea')
             self.sdd.review('tarea', 'APROBADO', 'Autor: diff mínimo, AC-01 cubierto')
             self.sdd.approve('tarea', 'close', 'lider', 'Loop autónomo completado')
         witness_path = self.root / 'spec' / 'tarea' / 'testigo.md'

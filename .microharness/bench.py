@@ -94,10 +94,21 @@ HARNESS_FILES = (
     'docs/convenciones.md',
     'docs/especificaciones.md',
 )
-# Resumen de unittest en stderr: la señal falla cerrada si el formato cambia.
-UNITTEST_RAN_RE = re.compile(r'^Ran (\d+) tests? in', re.MULTILINE)
-UNITTEST_OK_RE = re.compile(r'^OK(?: \((.*)\))?$', re.MULTILINE)
-UNITTEST_NOT_PASSED_RE = re.compile(r'(?:skipped|expected failures)=(\d+)')
+_SDD_MOD = None
+
+
+def _sdd_mod():
+    """Carga sdd.py hermano para un solo criterio de pases reales."""
+    global _SDD_MOD
+    if _SDD_MOD is None:
+        path = HERE / 'sdd.py'
+        spec = importlib.util.spec_from_file_location('microsdd_sdd_for_bench', path)
+        if spec is None or spec.loader is None:
+            raise BenchError(f'No se pudo cargar {path}')
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _SDD_MOD = mod
+    return _SDD_MOD
 
 
 class BenchError(Exception):
@@ -645,12 +656,10 @@ def evaluate_fixture(test_cmd: list[str], workdir: Path) -> dict:
     except (OSError, subprocess.TimeoutExpired):
         return {'ok': False, 'testsRun': 0}
     stderr = proc.stderr or ''
-    ran = UNITTEST_RAN_RE.findall(stderr)
-    tests_run = int(ran[-1]) if ran else 0
-    oks = UNITTEST_OK_RE.findall(stderr)
-    passed = 0
-    if oks:
-        passed = tests_run - sum(int(n) for n in UNITTEST_NOT_PASSED_RE.findall(oks[-1]))
+    counts = _sdd_mod().unittest_counts(stderr)
+    if counts is None:
+        return {'ok': False, 'testsRun': 0}
+    passed, tests_run = counts
     return {'ok': proc.returncode == 0 and passed >= 1, 'testsRun': tests_run}
 
 

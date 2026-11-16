@@ -93,8 +93,12 @@ class MemoryIntegrityTests(unittest.TestCase):
         (folder / 'plan.md').write_text('# CÓMO\nComprobar expiración en validador existente.\n', encoding='utf-8')
         (folder / 'tareas.md').write_text('# PASOS\n- [ ] T01 (AC-01): prueba de expiración.\n', encoding='utf-8')
 
+    def stamp_verification(self, slug):
+        self.quiet(sdd.record_verification, slug)
+
     def close_task(self, slug):
         self.quiet(sdd.approve, slug, 'spec', 'Humano', 'Sí, aprobada')
+        self.stamp_verification(slug)
         self.quiet(sdd.review, slug, 'APROBADO', 'Comparados diff y pruebas')
         self.quiet(sdd.approve, slug, 'close', 'Humano', 'Sí, cerrar tarea')
         self.assertEqual(sdd.load(self.folder(slug) / 'spec.json')['state'], 'terminado')
@@ -212,6 +216,8 @@ class MemoryIntegrityTests(unittest.TestCase):
             ('sealed_tests', {'tests/test_ok.py': 'abc'}, ('sellado_tests',), 'revisión'),
             ('review', 'APROBADO', ('revisión', 'aprobación_spec'), 'sellado_tests'),
             ('review_fingerprint', 'abc', ('revisión', 'aprobación_spec'), 'sellado_tests'),
+            ('verification', {'fingerprint': 'abc', 'at': sdd.now()},
+             ('verificación', 'aprobación_spec'), 'sellado_tests'),
             ('iterations', 2, ('revisión', 'aprobación_spec'), 'sellado_tests'),
         )
         for field, value, justifying, unrelated in cases:
@@ -256,6 +262,7 @@ class MemoryIntegrityTests(unittest.TestCase):
         no_errors('seal')
         self.quiet(sdd.review, SLUG, 'RECHAZADO', 'Falta AC-01')
         no_errors('review RECHAZADO')
+        self.stamp_verification(SLUG)
         self.quiet(sdd.review, SLUG, 'APROBADO', 'Comparados diff y pruebas')
         no_errors('review APROBADO')
         self.quiet(sdd.approve, SLUG, 'close', 'Humano', 'Sí, cerrar tarea')
