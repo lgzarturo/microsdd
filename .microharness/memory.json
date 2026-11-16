@@ -431,13 +431,21 @@
           "at": "2026-11-16T06:21:53+00:00",
           "fingerprint": "2203dd21aebece069f7f99878c7f69a99a3c63f37e178b1386a18ac11a74dafd"
         },
-        "close": null
+        "close": {
+          "by": "lider",
+          "evidence": "Release 1.6.0 verificado: version, changelog, uv.lock y suite en verde",
+          "at": "2026-11-16T06:25:28+00:00"
+        }
       },
-      "witness": null,
+      "witness": {
+        "path": "spec/release-v1-6-0/testigo.md",
+        "sha256": "41782e5c2b18c7156b1ee471d4b5e457bc9f14c1a8ef4509ec206cb19b6abd94",
+        "at": "2026-11-16T06:25:28+00:00"
+      },
       "sealed_tests": {},
-      "review": null,
-      "review_fingerprint": null,
-      "iterations": 0,
+      "review": "APROBADO",
+      "review_fingerprint": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "iterations": 1,
       "odd_retries": 0,
       "receipt": {
         "at": "2026-11-16T06:21:53+00:00",
@@ -470,9 +478,33 @@
           "at": "2026-11-16T06:21:53+00:00",
           "event": "aprobación_spec",
           "by": "Arturo López"
+        },
+        {
+          "at": "2026-11-16T06:24:45+00:00",
+          "event": "verificación",
+          "fingerprint": "dc45e1cc36a6f11bddd3b17bfb9c60d166dcd0475f6b3a16ff7bbabd173b1a20"
+        },
+        {
+          "at": "2026-11-16T06:25:23+00:00",
+          "event": "verificación",
+          "fingerprint": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "at": "2026-11-16T06:25:23+00:00",
+          "event": "revisión",
+          "verdict": "APROBADO",
+          "evidence": "--version MicroSDD 1.6.0; HARNESS_VERSION 1.6.0; uv.lock regenerado con uv; CHANGELOG [1.6.0] A~nadido 9 + Corregido 11 + Otros 1; check --run verde; discover 510 OK skipped=4; diff confinado al alcance en 2 commits por compuerta version-mezclada"
+        },
+        {
+          "at": "2026-11-16T06:25:28+00:00",
+          "event": "aprobación_close",
+          "by": "lider"
         }
       ],
-      "verification": null
+      "verification": {
+        "fingerprint": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "at": "2026-11-16T06:25:23+00:00"
+      }
     }
   }
 }
