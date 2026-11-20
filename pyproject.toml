@@ -26,6 +26,9 @@ packages = ["src/microsdd"]
 ".claude/agents/revisor.md" = "microsdd/payload/.claude/agents/revisor.md"
 ".claude/hooks/pretool.py" = "microsdd/payload/.claude/hooks/pretool.py"
 ".claude/skills/sdd/SKILL.md" = "microsdd/payload/.claude/skills/sdd/SKILL.md"
+".claude/skills/sdd-security/SKILL.md" = "microsdd/payload/.claude/skills/sdd-security/SKILL.md"
+".claude/skills/sdd-security/references/patrones-peligrosos.md" = "microsdd/payload/.claude/skills/sdd-security/references/patrones-peligrosos.md"
+".claude/skills/sdd-security/references/herramientas-bloqueo.md" = "microsdd/payload/.claude/skills/sdd-security/references/herramientas-bloqueo.md"
 ".microharness/sdd.py" = "microsdd/payload/.microharness/sdd.py"
 ".microharness/python.sh" = "microsdd/payload/.microharness/python.sh"
 ".microharness/python.ps1" = "microsdd/payload/.microharness/python.ps1"
@@ -44,6 +47,9 @@ include = [
   ".claude/agents/revisor.md",
   ".claude/hooks/pretool.py",
   ".claude/skills/sdd/SKILL.md",
+  ".claude/skills/sdd-security/SKILL.md",
+  ".claude/skills/sdd-security/references/patrones-peligrosos.md",
+  ".claude/skills/sdd-security/references/herramientas-bloqueo.md",
   ".microharness/sdd.py",
   ".microharness/python.sh",
   ".microharness/python.ps1",

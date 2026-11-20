@@ -36,6 +36,13 @@ MANIFEST = {
     '.claude/agents/revisor.md': '.claude/agents/revisor.md',
     '.claude/hooks/pretool.py': '.claude/hooks/pretool.py',
     '.claude/skills/sdd/SKILL.md': '.claude/skills/sdd/SKILL.md',
+    '.claude/skills/sdd-security/SKILL.md': '.claude/skills/sdd-security/SKILL.md',
+    '.claude/skills/sdd-security/references/patrones-peligrosos.md': (
+        '.claude/skills/sdd-security/references/patrones-peligrosos.md'
+    ),
+    '.claude/skills/sdd-security/references/herramientas-bloqueo.md': (
+        '.claude/skills/sdd-security/references/herramientas-bloqueo.md'
+    ),
     '.microharness/sdd.py': '.microharness/sdd.py',
     '.microharness/python.sh': '.microharness/python.sh',
     '.microharness/python.ps1': '.microharness/python.ps1',

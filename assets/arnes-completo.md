@@ -80,6 +80,11 @@ CLAUDE.md                    # Entrada corta al contexto común (en el destino: 
   implementador.md           # Pruebas y código mínimo
   revisor.md                 # Dictamen independiente, sin herramientas de edición
 .claude/skills/sdd/SKILL.md  # Activación opcional /sdd
+.claude/skills/sdd-security/
+  SKILL.md                 # Auditoría opcional /sdd-security (tres capas)
+  references/
+    patrones-peligrosos.md # Patrones regex capa 1
+    herramientas-bloqueo.md # Guía humana; sin instalación desde el skill
 docs/
   AGENT.md                   # Qué aplicación es; estado observado
   arquitectura.md            # Módulos e invariantes comprobados
