@@ -1,58 +1,77 @@
 ---
 name: sdd-security
-description: Auditoría de seguridad en tres capas bajo demanda; no sustituye el flujo MicroSDD ni instala herramientas.
+description: Auditoría defensiva on-demand en tres capas (patrones, diff, pruebas); solo bajo solicitud explícita /sdd-security.
 disable-model-invocation: true
 ---
-Solo se activa con **`/sdd-security`** (bajo demanda). No se invoca en el arranque del líder ni durante `approve`/`close` salvo petición explícita del programador. Ámbito por defecto: diff pendiente, rama actual frente a `main`/`master`, o rutas que indique el humano en `$ARGUMENTS`. No modifica código, no ejecuta `microsdd install`, no registra hooks ni CI, y no crea tareas `spec/` salvo que el humano pida un cambio correctivo aparte.
+Ejecuta una revisión defensiva del alcance indicado en: $ARGUMENTS
 
-Antes de capa 1, lee `references/patrones-peligrosos.md` y `references/herramientas-bloqueo.md`. Las herramientas citadas en la referencia son orientación para el humano en su terminal; **esta skill no las instala ni las ejecuta** salvo que el programador autorice comandos concretos fuera del skill.
+**Disparador:** solo invocación explícita `/sdd-security` por el programador o el líder. No se ejecuta en cierre habitual, ni en hooks, ni en `sdd.py check`, ni en CI.
 
-## Capas
+**Límites (obligatorios):** no instales herramientas, no modifiques hooks, no alteres `.claude/settings.json`, no añadas pasos al instalador ni propongas jobs de CI. Este skill documenta y orienta; la ejecución de escáneres externos queda en manos del humano fuera de Claude Code (véase `references/herramientas-bloqueo.md`).
 
-### Capa 1 — Patrones (regex, lectura)
+**Alcance por defecto:** diff de la tarea activa (`spec/<slug>/` y archivos en `spec.json`), o rutas que indique `$ARGUMENTS`. No escanees hosts ni terceros.
 
-El **líder** (o quien ejecute el skill) recorre el árbol acotado con Grep/lectura y aplica los patrones **A** (alta confianza), **M** (contexto) y **B** (bajo) de `patrones-peligrosos.md`. Cada hallazgo incluye: id de patrón, archivo, línea aproximada, fragmento mínimo y si requiere confirmación manual (M/B).
+## Referencias (léelas antes de capa 1)
 
-### Capa 2 — Diff sin tocar código (revisor)
+1. `references/patrones-peligrosos.md` — regex, severidad A/M/B y mitigación.
+2. `references/herramientas-bloqueo.md` — herramientas recomendadas **sin** instalar desde el skill.
 
-Cuando el líder solicita `/sdd-security`, delega al **revisor** la capa 2: revisar el diff real (sin Write/Edit), contrastar con capa 1, buscar regresiones de control (authz, validación, secretos, superficie HTTP) y marcar falsos positivos. El revisor no edita ni ejecuta suites pesadas; puede pedir al líder que corra `sdd.py check --run` si ya existe una tarea activa con pruebas.
+## Tres capas
 
-### Capa 3 — Flujo de datos y pruebas dirigidas
+### Capa 1 — Patrones (rápida, determinista)
 
-Diseña o contrasta pruebas que demuestren **entrada → validación → persistencia → salida** en puntos sensibles (auth, pagos, PII, privilegios). Prioriza pruebas mínimas reproducibles con runners ya admitidos por el proyecto; si no hay base, lista casos de prueba propuestos sin implementarlos salvo tarea MicroSDD aparte.
+- Aplica los patrones y criterios de `patrones-peligrosos.md` con Grep (o lectura puntual) sobre el alcance.
+- Registra cada hallazgo con: archivo, línea aproximada, patrón/categoría, severidad (A/M/B), cita breve.
+- No sustituyas la capa 2: los falsos positivos se resuelven allí.
 
-## Formato de informe (obligatorio)
+### Capa 2 — Revisión del diff (manos fuera del código)
 
-Entregar exactamente estas secciones, en español:
+- Rol **revisor** o agente con la misma restricción: **no edites** código, tests ni configuración.
+- Contrasta el diff real con la spec (EARS, AC, precondiciones de seguridad).
+- Prioriza severidad **A** y **M** del inventario; eleva a A si el diff introduce superficie nueva (auth, red, deserialización, secretos).
+- Sugiere reglas o consultas para linters estáticos (Semgrep, elttam, etc.) citando paquete/regla cuando aplique; **no** ejecutes instalaciones.
+- Marca «sin evidencia en diff» cuando el riesgo es latente pero no tocado por el cambio.
 
-```text
-## Resumen ejecutivo
-(≤ 8 líneas: nivel de riesgo global, alcance revisado, decisión: continuar / corregir antes de merge)
+### Capa 3 — Cobertura de pruebas y flujo de datos
+
+- Trazar flujos entrada → validación → persistencia/salida para datos sensibles del alcance.
+- Proponer casos de prueba concretos (negativos y positivos) que falten, sin escribir tests salvo que otra tarea lo autorice.
+- Enlazar cada propuesta con categoría (XSS, inyección, CSRF, secretos expuestos, etc.) y severidad si no se cubre.
+
+## Formato fijo del informe
+
+Entrega **un solo** informe en este orden (secciones vacías con «Ninguno» si aplica):
+
+```markdown
+# Informe /sdd-security
 
 ## Alcance
-(rama, commit/base, rutas, diff considerado)
+- Slug / rama / commit (si aplica):
+- Archivos revisados:
 
 ## Capa 1 — Patrones
-| Severidad | Patrón | Ubicación | Evidencia | Notas |
-(Tabla: A/M/B, id patrón, ruta:línea, cita breve, FP o confirmado)
+| Severidad | Categoría | Archivo | Evidencia |
+|-----------|-----------|---------|-----------|
+| A/M/B     | …         | …       | …         |
 
-## Capa 2 — Diff (revisor)
-(Hallazgos, omisiones de capa 1, controles rotos; dictamen APROBADO_SEGURIDAD | RECHAZADO_SEGURIDAD)
+## Capa 2 — Diff (sin edición)
+### Hallazgos A
+### Hallazgos M
+### Hallazgos B
+### Sugerencias linter (solo referencia; no instalar desde el skill)
 
-## Capa 3 — Flujo de datos
-(Cadena por hallazgo relevante; pruebas existentes, propuestas o NO VERIFICADO)
+## Capa 3 — Pruebas y flujo de datos
+| Flujo | Riesgo | Prueba sugerida | Severidad si falta |
+|-------|--------|-----------------|-------------------|
 
-## Acciones recomendadas
-(Lista priorizada P0–P2; sin parches automáticos salvo tarea aparte)
-
-## Herramientas sugeridas (humano, opcional)
-(Solo nombres y propósito según herramientas-bloqueo.md; sin comandos de instalación)
+## Resumen ejecutivo
+- Conteo A / M / B:
+- Bloqueantes para merge (solo A en diff activo):
+- Siguiente paso recomendado (humano):
 ```
 
-## Integración con MicroSDD
+## Coordinación MicroSDD
 
-- No sustituye `sdd.py check`, `approve` ni el dictamen del revisor de tarea.
-- Un `RECHAZADO_SEGURIDAD` en capa 2 no bloquea el hook; el programador decide si abre tarea correctiva.
-- Secretos o credenciales hallados: no pegar valores completos en el informe; rotar fuera de Claude Code.
-
-Comandos de arnés según OS (si hace falta contexto de tarea): Unix/macOS `sh .microharness/python.sh .microharness/sdd.py …`; Windows `python .microharness\sdd.py …`.
+- El **líder** invoca este skill y adjunta el informe al cierre o a la revisión si hay hallazgos A en el diff.
+- El **revisor** aplica capa 2 cuando el líder lo solicite explícitamente en la delegación (véase `.claude/agents/revisor.md`).
+- Dictamen de spec (`APROBADO`/`RECHAZADO`) no se sustituye por este informe; un A en el diff activo debe reflejarse en `RECHAZADO` o corrección previa.
