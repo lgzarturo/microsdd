@@ -1,4 +1,4 @@
-"""Perfiles de modelo: config.json como fuente de verdad (MicroSDD 1.6.0)."""
+"""Perfiles de modelo: config.json como fuente de verdad (MicroSDD 1.6.1)."""
 from __future__ import annotations
 
 import contextlib
@@ -193,10 +193,10 @@ class InstallerRuntimeTests(unittest.TestCase):
 
 
 class VersionBumpTests(unittest.TestCase):
-    def test_version_is_1_6_0(self):
-        self.assertEqual(sdd.__version__, '1.6.0')
+    def test_version_is_1_6_1(self):
+        self.assertEqual(sdd.__version__, '1.6.1')
         pyproject = (REPO / 'pyproject.toml').read_text(encoding='utf-8')
-        self.assertIn('version = "1.6.0"', pyproject)
+        self.assertIn('version = "1.6.1"', pyproject)
 
 
 if __name__ == '__main__':

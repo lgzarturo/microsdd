@@ -2,6 +2,20 @@
 
 Formato y reglas: `assets/proceso-versionado.md` (R-04). Entradas derivadas de los asuntos de commit; se omiten los commits de merge, que no aportan cambios propios (su contenido figura en los commits integrados).
 
+## [1.6.1] - 2026-11-21
+
+### Añadido
+- `sdd-security`: skill bajo demanda `/sdd-security` para auditoría de seguridad en tres capas (patrones peligrosos, revisión del diff sin edición y cobertura de pruebas/flujo de datos), con referencias `patrones-peligrosos.md` y `herramientas-bloqueo.md`
+- `lider` / `revisor`: integración de `/sdd-security` bajo demanda en `.claude/agents/lider.md` y delegación de capa 2 en `.claude/agents/revisor.md`
+- `instalador`: rutas de `.claude/skills/sdd-security/` añadidas a `MANIFEST` y al empaquetado `wheel`/`sdist` en `pyproject.toml`
+
+### Corregido
+- `sdd-security`: restaura `MANIFEST` completo en `src/microsdd/installer.py` e incluye la skill en `assets/arnes-completo.md` y `assets/proceso-versionado.md` tras resolver conflictos de integración
+
+### Otros
+- `docs`: referencias de patrones peligrosos (capa 1) y herramientas de bloqueo externas para `/sdd-security`
+- `release`: registra observación de publicación del release `1.6.0` en `.microharness/memory.json`
+
 ## [1.6.0] - 2026-11-16
 
 ### Añadido
