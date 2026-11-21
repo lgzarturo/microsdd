@@ -1,0 +1,109 @@
+{
+  "schema_version": 1,
+  "project": {
+    "observations": [
+      {
+        "at": "2026-11-16T06:27:07+00:00",
+        "fact": "Release 1.6.0 publicado: tag v1.6.0 sobre ae36996 (merge PR #20); https://github.com/lgzarturo/microsdd/releases/tag/v1.6.0",
+        "evidence": "gh release create v1.6.0 --title MicroSDD 1.6.0 ejecutado 2026-11-16"
+      },
+      {
+        "at": "2026-11-21T14:37:32+00:00",
+        "fact": "El programador ordena subir la version de 1.6.0 a 1.6.1, crear el release, el tag y las notas de los cambios entre 1.6.0 y 1.6.1",
+        "evidence": "Orden explícita /goal del programador 2026-11-21: subir de 1.6.0 a 1.6.1, crear release, tag y notas",
+        "id": "n1",
+        "for_task": "release-v1-6-1",
+        "for_phase": "spec",
+        "used_at": "2026-11-21T14:37:32+00:00"
+      }
+    ],
+    "decisions": [],
+    "progress": [],
+    "discoveries": []
+  },
+  "tasks": {
+    "release-v1-6-1": {
+      "approvals": {
+        "spec": {
+          "by": "Arturo López",
+          "evidence": "@note:n1",
+          "at": "2026-11-21T14:37:32+00:00",
+          "fingerprint": "ed3688575b8d35ac3d28ee51ec51868e634cce9e0d390c03d6abc5c6d09851e0"
+        },
+        "close": {
+          "by": "lider",
+          "evidence": "Release 1.6.1 verificado: version, changelog, uv.lock y suite en verde",
+          "at": "2026-11-21T14:39:57+00:00"
+        }
+      },
+      "witness": {
+        "path": "spec/release-v1-6-1/testigo.md",
+        "sha256": "ebb4fe21de63f95ea3db5b73d51a5e9845e3e4bd19fba4db41a08b5d3350b185",
+        "at": "2026-11-21T14:39:57+00:00"
+      },
+      "sealed_tests": {},
+      "review": "APROBADO",
+      "review_fingerprint": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "iterations": 1,
+      "odd_retries": 0,
+      "receipt": {
+        "at": "2026-11-21T14:37:32+00:00",
+        "allowed_paths": [
+          "CHANGELOG.md",
+          ".microharness/sdd.py",
+          ".microharness/metrics.py",
+          "pyproject.toml",
+          "uv.lock",
+          "tests/test_model_profiles.py",
+          "tests/test_sdd.py"
+        ],
+        "files": {
+          ".microharness/metrics.py": "a97f48485790af585122d8b0dac1077b15047c29aecd3e9c3dd6a524d906f0f9",
+          ".microharness/sdd.py": "0b0bfe95dde1f5fc3c5b2fe0e6c05621ff20562bda78a48f3cf90db28dfb42e1",
+          "CHANGELOG.md": "f29767f33b706974a69390f026b506e50b082a69c377e0b4fe1094b61db459d1",
+          "pyproject.toml": "838ef2f8ee77c8d186101faf1a3310ec632c124a460aadc35f35bdbe8fd987d5",
+          "tests/test_model_profiles.py": "70dcbb8ee5c5e4827f2523fdce69372a4a2dba573e2f3d9b5ab4cb226d093f98",
+          "tests/test_sdd.py": "689c90caccf3b7171e9e2c76c8d126f85a5a92b744e686f76e6c8d8fc8f7fcfb",
+          "uv.lock": "ae9b20bd38416bc11e37dd1aab51f5e94d3f3790e0700b82027fa8fb6afad799"
+        },
+        "digest": "f47d3650ed1512e45d33a3691a508e64767da7f5a6f96b26c239e915090241bf"
+      },
+      "events": [
+        {
+          "at": "2026-11-21T14:36:57+00:00",
+          "event": "creada"
+        },
+        {
+          "at": "2026-11-21T14:37:32+00:00",
+          "event": "aprobación_spec",
+          "by": "Arturo López"
+        },
+        {
+          "at": "2026-11-21T14:38:15+00:00",
+          "event": "verificación",
+          "fingerprint": "c31ee52cfb5517cd076b859b0985cd57143530d530ba1e2ddd6f7b71d23ab1b6"
+        },
+        {
+          "at": "2026-11-21T14:39:55+00:00",
+          "event": "verificación",
+          "fingerprint": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "at": "2026-11-21T14:39:55+00:00",
+          "event": "revisión",
+          "verdict": "APROBADO",
+          "evidence": "AC-01..AC-04 verificados: sdd.py --version imprime MicroSDD 1.6.1; HARNESS_VERSION=1.6.1; pyproject y uv.lock en 1.6.1; CHANGELOG [1.6.1] completo; check --run y suite completa (510 OK, skipped=4) en verde."
+        },
+        {
+          "at": "2026-11-21T14:39:57+00:00",
+          "event": "aprobación_close",
+          "by": "lider"
+        }
+      ],
+      "verification": {
+        "fingerprint": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "at": "2026-11-21T14:39:55+00:00"
+      }
+    }
+  }
+}
