@@ -30,13 +30,21 @@
           "at": "2026-11-21T14:37:32+00:00",
           "fingerprint": "ed3688575b8d35ac3d28ee51ec51868e634cce9e0d390c03d6abc5c6d09851e0"
         },
-        "close": null
+        "close": {
+          "by": "lider",
+          "evidence": "Release 1.6.1 verificado: version, changelog, uv.lock y suite en verde",
+          "at": "2026-11-21T14:39:57+00:00"
+        }
       },
-      "witness": null,
+      "witness": {
+        "path": "spec/release-v1-6-1/testigo.md",
+        "sha256": "ebb4fe21de63f95ea3db5b73d51a5e9845e3e4bd19fba4db41a08b5d3350b185",
+        "at": "2026-11-21T14:39:57+00:00"
+      },
       "sealed_tests": {},
-      "review": null,
-      "review_fingerprint": null,
-      "iterations": 0,
+      "review": "APROBADO",
+      "review_fingerprint": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "iterations": 1,
       "odd_retries": 0,
       "receipt": {
         "at": "2026-11-21T14:37:32+00:00",
@@ -69,9 +77,33 @@
           "at": "2026-11-21T14:37:32+00:00",
           "event": "aprobación_spec",
           "by": "Arturo López"
+        },
+        {
+          "at": "2026-11-21T14:38:15+00:00",
+          "event": "verificación",
+          "fingerprint": "c31ee52cfb5517cd076b859b0985cd57143530d530ba1e2ddd6f7b71d23ab1b6"
+        },
+        {
+          "at": "2026-11-21T14:39:55+00:00",
+          "event": "verificación",
+          "fingerprint": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "at": "2026-11-21T14:39:55+00:00",
+          "event": "revisión",
+          "verdict": "APROBADO",
+          "evidence": "AC-01..AC-04 verificados: sdd.py --version imprime MicroSDD 1.6.1; HARNESS_VERSION=1.6.1; pyproject y uv.lock en 1.6.1; CHANGELOG [1.6.1] completo; check --run y suite completa (510 OK, skipped=4) en verde."
+        },
+        {
+          "at": "2026-11-21T14:39:57+00:00",
+          "event": "aprobación_close",
+          "by": "lider"
         }
       ],
-      "verification": null
+      "verification": {
+        "fingerprint": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "at": "2026-11-21T14:39:55+00:00"
+      }
     }
   }
 }
